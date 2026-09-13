@@ -9,20 +9,31 @@ compliance or silently drop it.
 
 ## No real hardware has touched this driver
 
-Every test in this repository runs against the bundled simulator
-(`keysight_n6700.simulator`) or pure Python. Driver status is `untested`
-(LPDS-001 §9's honest middle label), not `stable`. Before calling it
-`stable`:
+Every test in this repository still runs against the bundled simulator
+(`keysight_n6700.simulator`) or pure Python — that part of this gap is
+unchanged, and cannot be closed without a physical instrument. What *has*
+been added is the tooling to close it the moment one is available:
+`scripts/run_hardware_self_check.py` (a standalone script exercising the
+full read-only API plus one guarded output test, producing a JSON/Markdown
+report) and `tests/hardware/` (the same coverage as individually-reported
+pytest tests), both gated behind explicit environment variables/flags with
+no default resource and no silent fallback to the simulator — see
+`docs/hardware_acceptance_tests.md`. Neither has actually been run against
+hardware yet, so driver status remains `untested` (LPDS-001 §9), not
+`stable`. Before calling it `stable`:
 
-- Run the LPDS-019 conformance suite's currently-simulator-only vectors
-  against a real N6700 mainframe with at least one power-supply and one SMU
-  module installed.
+- Actually run both of the above against a real N6700 mainframe with at
+  least one power-supply and one SMU module installed, and fix whatever
+  they find.
 - Verify `discover_modules()`'s `SYST:CHAN:MOD?`/`OPT?`/`SER?` parsing against
   real module identification strings — the simulator's are illustrative, not
   copied from a real instrument's exact reply format.
 - Verify `get_remote_state`/`set_remote_state`/`remote_lockout`, which are
   currently gated to the simulator transport only (see `docs/troubleshooting.md`)
   because real N6700 remote/local SCPI behavior has not been checked.
+- Extend hardware coverage to electronic-load modules, SMU priority-mode
+  switching, and protection-trip/clear behavior, none of which
+  `tests/hardware/`/`run_hardware_self_check.py` exercise yet.
 - Complete the full LPDS-010 review checklist's Domain J (hardware
   qualification, performance, compatibility), which is entirely
   hardware-dependent and not attempted here.

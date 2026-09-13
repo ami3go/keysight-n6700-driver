@@ -86,6 +86,10 @@ device logic.
   contract: mental model, state machine, safety rules, error catalogue.
 - [`tests/conformance/`](tests/conformance/) — the LPDS-019 call/protocol
   conformance suite.
+- [`scripts/run_hardware_self_check.py`](scripts/run_hardware_self_check.py) /
+  [`tests/hardware/`](tests/hardware/) — read-only + guarded-output-test
+  checks against real hardware; see
+  [`docs/hardware_acceptance_tests.md`](docs/hardware_acceptance_tests.md).
 - [`review/known_risks.md`](review/known_risks.md) — honest scope decisions
   and deferred work for this first release.
 

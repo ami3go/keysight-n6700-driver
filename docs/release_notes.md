@@ -1,7 +1,8 @@
 # Release notes
 
-See [`CHANGELOG.md`](../CHANGELOG.md) for the concise index and
-[`history/`](../history/) for the detailed per-release record.
+Current release: v0.3.0. See [`CHANGELOG.md`](../CHANGELOG.md) for the
+concise index and [`history/`](../history/) for the detailed per-release
+record of every version.
 
 ## v0.1.0 — 2026-09-13
 

@@ -3,6 +3,24 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.3.0 — 2026-09-14
+
+- Added: `scripts/run_hardware_self_check.py` — a standalone script that
+  exercises the driver's full read-only API against a real N6700 and
+  writes a JSON/Markdown report, plus one opt-in guarded output test
+  (enable/measure/disable one channel) requiring four explicit,
+  no-default parameters and a typed confirmation.
+- Added: `tests/hardware/` — the same coverage as individually-reported
+  pytest tests, gated behind `N6700_HIL_ENABLED`/`N6700_RESOURCE` (and five
+  separate explicit signals for the guarded output test). Skipped by
+  default; never falls back to the simulator.
+- Added: `docs/hardware_acceptance_tests.md` and
+  `tests/unit/test_hardware_self_check_script.py` (verifies the script's
+  logic against the simulator, since no real hardware was available to
+  test it against directly).
+- Known limitations: neither tool has actually been run against real
+  hardware yet — see [`review/known_risks.md`](review/known_risks.md).
+
 ## v0.2.0 — 2026-09-13
 
 - Added: real LPDS-008 protocol tracing via `connect(protocol_trace=...)`,

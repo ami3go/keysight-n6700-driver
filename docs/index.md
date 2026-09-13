@@ -9,6 +9,7 @@ power systems.
 - [Configuration](configuration.md)
 - [Safety](safety.md)
 - [Call/protocol conformance](call_protocol_conformance.md)
+- [Hardware acceptance tests](hardware_acceptance_tests.md)
 - [Troubleshooting](troubleshooting.md)
 - [Release notes](release_notes.md)
 
