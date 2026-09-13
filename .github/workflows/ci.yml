@@ -16,6 +16,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Authenticate git for private dependency (scpi-driver-core)
+        env:
+          GH_TOKEN: ${{ secrets.SCPI_DRIVER_CORE_TOKEN }}
+        run: gh auth setup-git
       - name: Install
         run: pip install -e ".[dev,robotframework]"
       - name: Ruff
