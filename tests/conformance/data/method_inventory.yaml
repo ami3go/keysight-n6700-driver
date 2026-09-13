@@ -1,0 +1,1097 @@
+lpds019_version: '1.1'
+driver_name: keysight_n6700
+driver_class: keysight_n6700.driver.N6700
+generated_by: scripts/generate_conformance_inventory.py
+methods:
+- method: channel
+  canonical_method: channel
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.channel
+  signature: 'channel(self, channel: ''int'', alias: ''str | None'' = None) -> ''BaseChannel'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: channel_count
+  canonical_method: channel_count
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.channel_count
+  signature: 'channel_count(self, alias: ''str | None'' = None) -> ''int'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: channel_model
+  canonical_method: channel_model
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.channel_model
+  signature: 'channel_model(self, channel: ''int'', alias: ''str | None'' = None) -> ''str'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: channel_options
+  canonical_method: channel_options
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.channel_options
+  signature: 'channel_options(self, channel: ''int'', alias: ''str | None'' = None) -> ''list[str]'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: channel_serial
+  canonical_method: channel_serial
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.channel_serial
+  signature: 'channel_serial(self, channel: ''int'', alias: ''str | None'' = None) -> ''str'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: check_communication
+  canonical_method: check_communication
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.check_communication
+  signature: 'check_communication(self, alias: ''str | None'' = None) -> ''bool'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: check_errors
+  canonical_method: check_errors
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.check_errors
+  signature: 'check_errors(self, alias: ''str | None'' = None) -> ''None'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: clear_device_errors
+  canonical_method: clear_device_errors
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.clear_device_errors
+  signature: 'clear_device_errors(self, alias: ''str | None'' = None) -> ''None'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: clear_protection
+  canonical_method: clear_protection
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.clear_protection
+  signature: 'clear_protection(self, channel: ''int'', *, restore_output: ''bool'' = False, force_output_off_first:
+    ''bool'' = True, verify_cleared: ''bool'' = True, alias: ''str | None'' = None) -> ''ProtectionClearResult'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - restore_output
+  - force_output_off_first
+  - verify_cleared
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: clear_status
+  canonical_method: clear_status
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.clear_status
+  signature: 'clear_status(self, alias: ''str | None'' = None) -> ''None'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: close
+  canonical_method: close
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.close
+  signature: 'close(self, alias: ''str | None'' = None) -> ''None'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: false
+  execution_status: not_yet_run
+- method: configure_load_cc
+  canonical_method: configure_load_cc
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_load_cc
+  signature: 'configure_load_cc(self, channel: ''int'', current: ''float'', *, input_on: ''bool'' = False,
+    verify: ''bool'' = True, alias: ''str | None'' = None, **_: ''object'') -> ''None'''
+  required_arguments:
+  - channel
+  - current
+  optional_arguments:
+  - input_on
+  - verify
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: configure_smu_current_priority
+  canonical_method: configure_smu_current_priority
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_smu_current_priority
+  signature: 'configure_smu_current_priority(self, channel: ''int'', current: ''float'', voltage_limit:
+    ''float'', alias: ''str | None'' = None, **kw: ''Any'') -> ''None'''
+  required_arguments:
+  - channel
+  - current
+  - voltage_limit
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: configure_smu_voltage_priority
+  canonical_method: configure_smu_voltage_priority
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_smu_voltage_priority
+  signature: 'configure_smu_voltage_priority(self, channel: ''int'', voltage: ''float'', current_limit:
+    ''float'', alias: ''str | None'' = None, **kw: ''Any'') -> ''None'''
+  required_arguments:
+  - channel
+  - voltage
+  - current_limit
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: connect
+  canonical_method: connect
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.connect
+  signature: 'connect(self, resource: ''str | None'' = None, alias: ''str'' = ''default'', timeout_s:
+    ''float | None'' = None, **options: ''Any'') -> ''dict[str, Any]'''
+  required_arguments: []
+  optional_arguments:
+  - resource
+  - alias
+  - timeout_s
+  device_facing: true
+  execution_status: not_yet_run
+- method: connect_ethernet
+  canonical_method: connect_ethernet
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.connect_ethernet
+  signature: 'connect_ethernet(host: ''str'', port: ''int'' = 5025, **options: ''Any'') -> ''N6700'''
+  required_arguments: []
+  optional_arguments:
+  - port
+  device_facing: false
+  execution_status: not_yet_run
+- method: connect_simulated
+  canonical_method: connect_simulated
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.connect_simulated
+  signature: 'connect_simulated(**options: ''Any'') -> ''N6700'''
+  required_arguments: []
+  optional_arguments: []
+  device_facing: false
+  execution_status: not_yet_run
+- method: connect_usb
+  canonical_method: connect_usb
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.connect_usb
+  signature: 'connect_usb(resource: ''str'', **options: ''Any'') -> ''N6700'''
+  required_arguments: []
+  optional_arguments: []
+  device_facing: false
+  execution_status: not_yet_run
+- method: connect_visa
+  canonical_method: connect_visa
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.connect_visa
+  signature: 'connect_visa(resource: ''str'', **options: ''Any'') -> ''N6700'''
+  required_arguments: []
+  optional_arguments: []
+  device_facing: false
+  execution_status: not_yet_run
+- method: device_error_queue_should_be_empty
+  canonical_method: device_error_queue_should_be_empty
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.device_error_queue_should_be_empty
+  signature: 'device_error_queue_should_be_empty(self, alias: ''str | None'' = None) -> ''None'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: disable_output
+  canonical_method: disable_output
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.disable_output
+  signature: 'disable_output(self, channel: ''int'', alias: ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: disconnect
+  canonical_method: disconnect
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.disconnect
+  signature: 'disconnect(self, alias: ''str | None'' = None) -> ''None'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: disconnect_all
+  canonical_method: disconnect_all
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.disconnect_all
+  signature: disconnect_all(self) -> 'None'
+  required_arguments: []
+  optional_arguments: []
+  device_facing: true
+  execution_status: not_yet_run
+- method: discover_modules
+  canonical_method: discover_modules
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.discover_modules
+  signature: 'discover_modules(self, alias: ''str | None'' = None) -> ''dict[int, ChannelCapabilities]'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: drain_errors
+  canonical_method: get_all_device_errors
+  aliases:
+  - drain_errors
+  implementation_target: keysight_n6700.driver.N6700.drain_errors
+  signature: 'drain_errors(self, alias: ''str | None'' = None, max_entries: ''int'' = 32) -> ''list[ScpiErrorRecord]'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  - max_entries
+  device_facing: true
+  execution_status: not_yet_run
+- method: enable_output
+  canonical_method: enable_output
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.enable_output
+  signature: 'enable_output(self, channel: ''int'', alias: ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: export_diagnostics
+  canonical_method: export_diagnostics
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.export_diagnostics
+  signature: export_diagnostics(self) -> 'dict[str, Any]'
+  required_arguments: []
+  optional_arguments: []
+  device_facing: false
+  execution_status: not_yet_run
+- method: export_driver_configuration
+  canonical_method: export_driver_configuration
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.export_driver_configuration
+  signature: 'export_driver_configuration(self, destination: ''str | Path | None'' = None, scope: "Literal[''effective'',
+    ''explicit'']" = ''effective'') -> ''dict[str, Any]'''
+  required_arguments: []
+  optional_arguments:
+  - destination
+  - scope
+  device_facing: false
+  execution_status: not_yet_run
+- method: find_driver_capabilities
+  canonical_method: find_driver_capabilities
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.find_driver_capabilities
+  signature: 'find_driver_capabilities(self, query: ''CapabilityQuery | None'' = None) -> ''list[dict[str,
+    Any]]'''
+  required_arguments: []
+  optional_arguments:
+  - query
+  device_facing: false
+  execution_status: not_yet_run
+- method: get_all_device_errors
+  canonical_method: get_all_device_errors
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_all_device_errors
+  signature: 'get_all_device_errors(self, alias: ''str | None'' = None, max_count: ''int'' = 100) -> ''list[dict[str,
+    Any]]'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  - max_count
+  device_facing: true
+  execution_status: not_yet_run
+- method: get_capability_model
+  canonical_method: get_capability_model
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_capability_model
+  signature: get_capability_model(self) -> 'list[dict[str, Any]]'
+  required_arguments: []
+  optional_arguments: []
+  device_facing: false
+  execution_status: not_yet_run
+- method: get_channel
+  canonical_method: get_channel
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_channel
+  signature: 'get_channel(self, channel: ''int'', alias: ''str | None'' = None) -> ''BaseChannel'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: get_communication_timeout
+  canonical_method: get_communication_timeout
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_communication_timeout
+  signature: 'get_communication_timeout(self, alias: ''str | None'' = None) -> ''float | None'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: false
+  execution_status: not_yet_run
+- method: get_connection_state
+  canonical_method: get_connection_state
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_connection_state
+  signature: 'get_connection_state(self, alias: ''str | None'' = None, refresh: ''bool'' = False) -> ''dict[str,
+    Any]'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  - refresh
+  device_facing: true
+  execution_status: not_yet_run
+- method: get_current_alias
+  canonical_method: get_current_alias
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_current_alias
+  signature: get_current_alias(self) -> 'str | None'
+  required_arguments: []
+  optional_arguments: []
+  device_facing: false
+  execution_status: not_yet_run
+- method: get_dc_current_limits
+  canonical_method: get_dc_current_limits
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_dc_current_limits
+  signature: 'get_dc_current_limits(self, channel: ''int'' = 1, alias: ''str | None'' = None) -> ''dict[str,
+    float]'''
+  required_arguments: []
+  optional_arguments:
+  - channel
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: get_dc_current_setpoint
+  canonical_method: get_dc_current_setpoint
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_dc_current_setpoint
+  signature: 'get_dc_current_setpoint(self, channel: ''int'' = 1, alias: ''str | None'' = None) -> ''float'''
+  required_arguments: []
+  optional_arguments:
+  - channel
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: get_dc_voltage_limits
+  canonical_method: get_dc_voltage_limits
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_dc_voltage_limits
+  signature: 'get_dc_voltage_limits(self, channel: ''int'' = 1, alias: ''str | None'' = None) -> ''dict[str,
+    float]'''
+  required_arguments: []
+  optional_arguments:
+  - channel
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: get_dc_voltage_setpoint
+  canonical_method: get_dc_voltage_setpoint
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_dc_voltage_setpoint
+  signature: 'get_dc_voltage_setpoint(self, channel: ''int'' = 1, alias: ''str | None'' = None) -> ''float'''
+  required_arguments: []
+  optional_arguments:
+  - channel
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: get_device_error
+  canonical_method: get_device_error
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_device_error
+  signature: 'get_device_error(self, alias: ''str | None'' = None) -> ''dict[str, Any]'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: get_driver_capabilities
+  canonical_method: get_driver_capabilities
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_driver_capabilities
+  signature: get_driver_capabilities(self) -> 'list[str]'
+  required_arguments: []
+  optional_arguments: []
+  device_facing: false
+  execution_status: not_yet_run
+- method: get_driver_capability
+  canonical_method: get_driver_capability
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_driver_capability
+  signature: 'get_driver_capability(self, capability_id: ''str'') -> ''dict[str, Any] | None'''
+  required_arguments:
+  - capability_id
+  optional_arguments: []
+  device_facing: false
+  execution_status: not_yet_run
+- method: get_driver_configuration
+  canonical_method: get_driver_configuration
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_driver_configuration
+  signature: 'get_driver_configuration(self, scope: "Literal[''effective'', ''explicit'']" = ''effective'')
+    -> ''dict[str, Any]'''
+  required_arguments: []
+  optional_arguments:
+  - scope
+  device_facing: false
+  execution_status: not_yet_run
+- method: get_driver_configuration_schema
+  canonical_method: get_driver_configuration_schema
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_driver_configuration_schema
+  signature: get_driver_configuration_schema(self) -> 'dict[str, Any]'
+  required_arguments: []
+  optional_arguments: []
+  device_facing: false
+  execution_status: not_yet_run
+- method: get_driver_default_configuration
+  canonical_method: get_driver_default_configuration
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_driver_default_configuration
+  signature: get_driver_default_configuration(self) -> 'dict[str, Any]'
+  required_arguments: []
+  optional_arguments: []
+  device_facing: false
+  execution_status: not_yet_run
+- method: get_driver_features
+  canonical_method: get_driver_features
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_driver_features
+  signature: get_driver_features(self) -> 'list[str]'
+  required_arguments: []
+  optional_arguments: []
+  device_facing: false
+  execution_status: not_yet_run
+- method: get_driver_information
+  canonical_method: get_driver_information
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_driver_information
+  signature: get_driver_information(self) -> 'dict[str, Any]'
+  required_arguments: []
+  optional_arguments: []
+  device_facing: false
+  execution_status: not_yet_run
+- method: get_error
+  canonical_method: get_device_error
+  aliases:
+  - get_error
+  implementation_target: keysight_n6700.driver.N6700.get_error
+  signature: 'get_error(self, alias: ''str | None'' = None) -> ''ScpiErrorRecord'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: get_identity
+  canonical_method: get_identity
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_identity
+  signature: 'get_identity(self, alias: ''str | None'' = None, refresh: ''bool'' = True) -> ''str'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  - refresh
+  device_facing: true
+  execution_status: not_yet_run
+- method: get_load_mode
+  canonical_method: get_load_mode
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_load_mode
+  signature: 'get_load_mode(self, channel: ''int'', alias: ''str | None'' = None) -> "Literal[''cc'',
+    ''cv'', ''cr'', ''cp'']"'
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: get_operation_status
+  canonical_method: get_operation_status
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_operation_status
+  signature: 'get_operation_status(self, channel: ''int | None'' = None, alias: ''str | None'' = None)
+    -> ''OperationStatus'''
+  required_arguments: []
+  optional_arguments:
+  - channel
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: get_output_state
+  canonical_method: get_output_state
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_output_state
+  signature: 'get_output_state(self, channel: ''int'', alias: ''str | None'' = None) -> ''bool'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: get_questionable_status
+  canonical_method: get_questionable_status
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_questionable_status
+  signature: 'get_questionable_status(self, channel: ''int | None'' = None, alias: ''str | None'' = None)
+    -> ''QuestionableStatus'''
+  required_arguments: []
+  optional_arguments:
+  - channel
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: get_remote_state
+  canonical_method: get_remote_state
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_remote_state
+  signature: 'get_remote_state(self, alias: ''str | None'' = None) -> ''RemoteState'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: get_smu_mode
+  canonical_method: get_smu_mode
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_smu_mode
+  signature: 'get_smu_mode(self, channel: ''int'', alias: ''str | None'' = None) -> "Literal[''voltage'',
+    ''current'']"'
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: idn
+  canonical_method: get_identity
+  aliases:
+  - idn
+  implementation_target: keysight_n6700.driver.N6700.idn
+  signature: 'idn(self, alias: ''str | None'' = None, refresh: ''bool'' = False) -> ''InstrumentIdentity'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  - refresh
+  device_facing: true
+  execution_status: not_yet_run
+- method: import_driver_configuration
+  canonical_method: import_driver_configuration
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.import_driver_configuration
+  signature: 'import_driver_configuration(self, source: ''dict[str, Any] | str | Path'', mode: "Literal[''replace'',
+    ''merge'']" = ''replace'', apply: ''bool'' = False) -> ''dict[str, Any]'''
+  required_arguments:
+  - source
+  optional_arguments:
+  - mode
+  - apply
+  device_facing: false
+  execution_status: not_yet_run
+- method: is_connected
+  canonical_method: is_connected
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.is_connected
+  signature: 'is_connected(self, alias: ''str | None'' = None) -> ''bool'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: list_channels
+  canonical_method: list_channels
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.list_channels
+  signature: 'list_channels(self, alias: ''str | None'' = None) -> ''list[int]'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: list_connected_aliases
+  canonical_method: list_connected_aliases
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.list_connected_aliases
+  signature: list_connected_aliases(self) -> 'list[str]'
+  required_arguments: []
+  optional_arguments: []
+  device_facing: false
+  execution_status: not_yet_run
+- method: load
+  canonical_method: load
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.load
+  signature: 'load(self, channel: ''int'', alias: ''str | None'' = None) -> ''ElectronicLoadChannel'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: load_driver_configuration
+  canonical_method: load_driver_configuration
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.load_driver_configuration
+  signature: 'load_driver_configuration(self, profile_name: ''str'', apply: ''bool'' = False) -> ''dict[str,
+    Any]'''
+  required_arguments:
+  - profile_name
+  optional_arguments:
+  - apply
+  device_facing: false
+  execution_status: not_yet_run
+- method: measure_all
+  canonical_method: measure_all
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.measure_all
+  signature: 'measure_all(self, alias: ''str | None'' = None) -> ''dict[int, Measurement]'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: measure_dc_current
+  canonical_method: measure_dc_current
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.measure_dc_current
+  signature: 'measure_dc_current(self, channel: ''int'' = 1, alias: ''str | None'' = None) -> ''float'''
+  required_arguments: []
+  optional_arguments:
+  - channel
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: measure_dc_power
+  canonical_method: measure_dc_power
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.measure_dc_power
+  signature: 'measure_dc_power(self, channel: ''int'' = 1, alias: ''str | None'' = None) -> ''float |
+    None'''
+  required_arguments: []
+  optional_arguments:
+  - channel
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: measure_dc_voltage
+  canonical_method: measure_dc_voltage
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.measure_dc_voltage
+  signature: 'measure_dc_voltage(self, channel: ''int'' = 1, alias: ''str | None'' = None) -> ''float'''
+  required_arguments: []
+  optional_arguments:
+  - channel
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: measure_power
+  canonical_method: measure_power
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.measure_power
+  signature: 'measure_power(self, channel: ''int'', alias: ''str | None'' = None) -> ''PowerMeasurement'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: operation_complete
+  canonical_method: operation_complete
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.operation_complete
+  signature: 'operation_complete(self, alias: ''str | None'' = None) -> ''bool'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: output_should_be_disabled
+  canonical_method: output_should_be_disabled
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.output_should_be_disabled
+  signature: 'output_should_be_disabled(self, channel: ''int'', alias: ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: output_should_be_enabled
+  canonical_method: output_should_be_enabled
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.output_should_be_enabled
+  signature: 'output_should_be_enabled(self, channel: ''int'', alias: ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: power_supply
+  canonical_method: power_supply
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.power_supply
+  signature: 'power_supply(self, channel: ''int'', alias: ''str | None'' = None) -> ''PowerSupplyChannel'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: query_scpi
+  canonical_method: query_scpi
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.query_scpi
+  signature: 'query_scpi(self, command: ''str'', alias: ''str | None'' = None) -> ''str'''
+  required_arguments:
+  - command
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: refresh_driver_capabilities
+  canonical_method: refresh_driver_capabilities
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.refresh_driver_capabilities
+  signature: refresh_driver_capabilities(self) -> 'list[dict[str, Any]]'
+  required_arguments: []
+  optional_arguments: []
+  device_facing: false
+  execution_status: not_yet_run
+- method: remote_lockout
+  canonical_method: remote_lockout
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.remote_lockout
+  signature: 'remote_lockout(self, enabled: ''bool'', alias: ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - enabled
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: reset
+  canonical_method: reset_device
+  aliases:
+  - reset
+  implementation_target: keysight_n6700.driver.N6700.reset
+  signature: 'reset(self, alias: ''str | None'' = None) -> ''None'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: reset_device
+  canonical_method: reset_device
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.reset_device
+  signature: 'reset_device(self, alias: ''str | None'' = None, wait_until_ready: ''bool'' = True, timeout_s:
+    ''float | None'' = None) -> ''dict[str, Any]'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  - wait_until_ready
+  - timeout_s
+  device_facing: true
+  execution_status: not_yet_run
+- method: reset_driver_configuration
+  canonical_method: reset_driver_configuration
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.reset_driver_configuration
+  signature: 'reset_driver_configuration(self, path: ''str | None'' = None) -> ''dict[str, Any]'''
+  required_arguments: []
+  optional_arguments:
+  - path
+  device_facing: false
+  execution_status: not_yet_run
+- method: safe_shutdown
+  canonical_method: safe_shutdown
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.safe_shutdown
+  signature: 'safe_shutdown(self, alias: ''str | None'' = None, timeout_s: ''float | None'' = None) ->
+    ''dict[str, Any]'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  - timeout_s
+  device_facing: true
+  execution_status: not_yet_run
+- method: save_driver_configuration
+  canonical_method: save_driver_configuration
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.save_driver_configuration
+  signature: 'save_driver_configuration(self, profile_name: ''str'') -> ''Path'''
+  required_arguments:
+  - profile_name
+  optional_arguments: []
+  device_facing: false
+  execution_status: not_yet_run
+- method: select
+  canonical_method: select
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.select
+  signature: 'select(self, alias: ''str'') -> ''str'''
+  required_arguments:
+  - alias
+  optional_arguments: []
+  device_facing: false
+  execution_status: not_yet_run
+- method: self_test
+  canonical_method: self_test
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.self_test
+  signature: 'self_test(self, alias: ''str | None'' = None) -> ''SelfTestResult'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: set_auto_shutdown_on_disconnect
+  canonical_method: set_auto_shutdown_on_disconnect
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.set_auto_shutdown_on_disconnect
+  signature: 'set_auto_shutdown_on_disconnect(self, enabled: ''bool'') -> ''None'''
+  required_arguments:
+  - enabled
+  optional_arguments: []
+  device_facing: false
+  execution_status: not_yet_run
+- method: set_channel_enabled
+  canonical_method: set_channel_enabled
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.set_channel_enabled
+  signature: 'set_channel_enabled(self, channels: ''Sequence[int]'', enabled: ''bool'', alias: ''str |
+    None'' = None) -> ''None'''
+  required_arguments:
+  - channels
+  - enabled
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: set_communication_timeout
+  canonical_method: set_communication_timeout
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.set_communication_timeout
+  signature: 'set_communication_timeout(self, timeout_s: ''float'', alias: ''str | None'' = None) -> ''float'''
+  required_arguments:
+  - timeout_s
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: set_dc_current
+  canonical_method: set_dc_current
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.set_dc_current
+  signature: 'set_dc_current(self, value: ''float'', channel: ''int'' = 1, alias: ''str | None'' = None)
+    -> ''None'''
+  required_arguments:
+  - value
+  optional_arguments:
+  - channel
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: set_dc_voltage
+  canonical_method: set_dc_voltage
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.set_dc_voltage
+  signature: 'set_dc_voltage(self, value: ''float'', channel: ''int'' = 1, alias: ''str | None'' = None)
+    -> ''None'''
+  required_arguments:
+  - value
+  optional_arguments:
+  - channel
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: set_load_inputs
+  canonical_method: set_load_inputs
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.set_load_inputs
+  signature: 'set_load_inputs(self, channels: ''Sequence[int]'', enabled: ''bool'', alias: ''str | None''
+    = None) -> ''None'''
+  required_arguments:
+  - channels
+  - enabled
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: set_load_mode
+  canonical_method: set_load_mode
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.set_load_mode
+  signature: 'set_load_mode(self, channel: ''int'', mode: "Literal[''cc'', ''cv'', ''cr'', ''cp'']", alias:
+    ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - channel
+  - mode
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: set_power_outputs
+  canonical_method: set_power_outputs
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.set_power_outputs
+  signature: 'set_power_outputs(self, channels: ''Sequence[int]'', enabled: ''bool'', alias: ''str | None''
+    = None) -> ''None'''
+  required_arguments:
+  - channels
+  - enabled
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: set_remote_state
+  canonical_method: set_remote_state
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.set_remote_state
+  signature: 'set_remote_state(self, state: ''RemoteState'', alias: ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - state
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: set_smu_mode
+  canonical_method: set_smu_mode
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.set_smu_mode
+  signature: 'set_smu_mode(self, channel: ''int'', mode: "Literal[''voltage'', ''current'']", alias: ''str
+    | None'' = None) -> ''None'''
+  required_arguments:
+  - channel
+  - mode
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: shutdown_all
+  canonical_method: shutdown_all
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.shutdown_all
+  signature: 'shutdown_all(self, alias: ''str | None'' = None) -> ''ShutdownResult'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: smu
+  canonical_method: smu
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.smu
+  signature: 'smu(self, channel: ''int'', alias: ''str | None'' = None) -> ''SMUChannel'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: standard_event_status
+  canonical_method: standard_event_status
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.standard_event_status
+  signature: 'standard_event_status(self, alias: ''str | None'' = None) -> ''int'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: status_byte
+  canonical_method: status_byte
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.status_byte
+  signature: 'status_byte(self, alias: ''str | None'' = None) -> ''int'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: validate_channel
+  canonical_method: validate_channel
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.validate_channel
+  signature: 'validate_channel(self, channel: ''int'', alias: ''str | None'' = None) -> ''bool'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: validate_driver_capabilities
+  canonical_method: validate_driver_capabilities
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.validate_driver_capabilities
+  signature: validate_driver_capabilities(self) -> 'dict[str, Any]'
+  required_arguments: []
+  optional_arguments: []
+  device_facing: false
+  execution_status: not_yet_run
+- method: validate_driver_configuration
+  canonical_method: validate_driver_configuration
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.validate_driver_configuration
+  signature: 'validate_driver_configuration(self, configuration: ''dict[str, Any]'', mode: "Literal[''replace'',
+    ''merge'']" = ''replace'') -> ''dict[str, Any]'''
+  required_arguments:
+  - configuration
+  optional_arguments:
+  - mode
+  device_facing: false
+  execution_status: not_yet_run
+- method: wait
+  canonical_method: wait
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.wait
+  signature: 'wait(self, alias: ''str | None'' = None) -> ''None'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: write_scpi
+  canonical_method: write_scpi
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.write_scpi
+  signature: 'write_scpi(self, command: ''str'', alias: ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - command
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run

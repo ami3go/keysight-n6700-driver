@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "adapter_api_version": "1.0",
+  "adapter_id": "robotframework.keysight.n6700",
+  "target_plugin_id": "keysight.n6700",
+  "target_plugin_api_version": ">=1,<2",
+  "adapter_name": "keysight_n6700_robotframework_adapter",
+  "display_name": "Keysight N6700 Robot Framework adapter",
+  "description": "Robot Framework keyword library translating keysight_n6700's public API.",
+  "distribution_name": "keysight-n6700-driver",
+  "distribution_version": "0.1.0",
+  "provider": "keysight_n6700_robotframework_adapter.plugin:KeysightN6700RobotFrameworkAdapterPlugin",
+  "adapter_import_path": "keysight_n6700_robotframework_adapter.adapter",
+  "adapter_class": "keysight_n6700_robotframework_adapter.adapter.KeysightN6700Library",
+  "framework": "robotframework",
+  "framework_version": ">=7,<9",
+  "minimum_python": ">=3.10",
+  "lpds_platform_version": ">=1,<2",
+  "deprecation": { "deprecated": false, "replacement_adapter_id": null, "removal_version": null },
+  "manifest_hash_algorithm": "sha256"
+}

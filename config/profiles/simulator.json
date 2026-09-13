@@ -1,0 +1,37 @@
+{
+  "lpds014_version": "1.1",
+  "schema_version": "1.0.0",
+  "driver": {
+    "driver_name": "keysight_n6700"
+  },
+  "settings": {
+    "transport": {
+      "connection_type": "simulated",
+      "port": 5025
+    },
+    "timeouts": {
+      "communication_timeout_s": 5.0
+    },
+    "retry": {
+      "automatic_retry": false
+    },
+    "logging": {
+      "audit_log_path": null
+    },
+    "simulation": {
+      "enabled": true
+    },
+    "safety": {
+      "auto_shutdown_on_disconnect": true,
+      "strict_error_checking": false
+    },
+    "device": {
+      "supported_manufacturers": [
+        "KEYSIGHT TECHNOLOGIES",
+        "AGILENT TECHNOLOGIES",
+        "HEWLETT-PACKARD"
+      ],
+      "discover_modules_on_connect": true
+    }
+  }
+}

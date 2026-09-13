@@ -1,0 +1,5 @@
+{
+  "contract_sha256": "46b98cdfe679cc4daa2af570a570584ecb6c6413fad7de34375c4c4526398718",
+  "generated_at": "2026-09-13T06:56:58.860558+00:00",
+  "generator": "scripts/generate_ai_contract.py"
+}

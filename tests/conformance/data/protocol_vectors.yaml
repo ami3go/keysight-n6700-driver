@@ -1,0 +1,182 @@
+# LPDS-019 §7.1 protocol vectors. Each entry names a public method, the exact
+# arguments to call it with, and the outbound SCPI text/inbound reply
+# expected at the transport boundary. Every vector here is realized as one
+# test function in test_driver_call_protocol_conformance.py — the YAML is
+# data, the test function is the proof (LPDS-019 §7.2).
+#
+# Channel roles come from the bundled simulator's default map:
+#   1: N6751A (power supply)   2: N6781A (SMU)
+#   3: SIM_LOAD (electronic load)   4: N6731B (power supply)
+vectors:
+  - id: connect-simulated
+    method: connect
+    arguments: { connection_type: simulated, replace: true }
+    preconditions: [disconnected]
+    expected_outbound: { operation: query, command: "*IDN?" }
+    expected_return: { type: dict }
+
+  - id: get-identity
+    method: get_identity
+    arguments: {}
+    preconditions: [connected]
+    expected_outbound: { operation: query, command: "*IDN?" }
+    expected_return: { type: str, contains: "KEYSIGHT TECHNOLOGIES" }
+
+  - id: clear-status
+    method: clear_status
+    arguments: {}
+    preconditions: [connected]
+    expected_outbound: { operation: write, command: "*CLS" }
+    expected_return: { type: "NoneType" }
+
+  - id: reset-device
+    method: reset_device
+    arguments: { wait_until_ready: true }
+    preconditions: [connected]
+    expected_outbound: { operation: write, command: "*RST" }
+    expected_return: { type: dict }
+
+  - id: self-test
+    method: self_test
+    arguments: {}
+    preconditions: [connected]
+    expected_outbound: { operation: query, command: "*TST?" }
+    expected_return: { type: SelfTestResult }
+
+  - id: get-device-error-when-empty
+    method: get_device_error
+    arguments: {}
+    preconditions: [connected]
+    expected_outbound: { operation: query, command: "SYST:ERR?" }
+    expected_return: { type: dict, field_equals: { is_ok: true } }
+
+  - id: channel-count
+    method: channel_count
+    arguments: {}
+    preconditions: [connected]
+    expected_outbound: { operation: query, command: "SYST:CHAN:COUN?" }
+    expected_return: { type: int, equals: 4 }
+
+  - id: set-dc-voltage
+    method: set_dc_voltage
+    arguments: { value: 5.0, channel: 1 }
+    preconditions: [connected]
+    expected_outbound: { operation: write, command: "VOLT 5,(@1)" }
+    expected_return: { type: "NoneType" }
+    cleanup: [{ method: set_dc_voltage, arguments: { value: 0.0, channel: 1 } }]
+
+  - id: get-dc-voltage-setpoint
+    method: get_dc_voltage_setpoint
+    arguments: { channel: 1 }
+    preconditions: [connected]
+    expected_outbound: { operation: query, command: "VOLT? (@1)" }
+    expected_return: { type: float }
+
+  - id: set-dc-current
+    method: set_dc_current
+    arguments: { value: 0.5, channel: 1 }
+    preconditions: [connected]
+    expected_outbound: { operation: write, command: "CURR 0.5,(@1)" }
+    expected_return: { type: "NoneType" }
+
+  - id: enable-output
+    method: enable_output
+    arguments: { channel: 1 }
+    preconditions: [connected]
+    expected_outbound: { operation: write, command: "OUTP ON,(@1)" }
+    expected_return: { type: "NoneType" }
+    cleanup: [{ method: disable_output, arguments: { channel: 1 } }]
+
+  - id: disable-output
+    method: disable_output
+    arguments: { channel: 1 }
+    preconditions: [connected]
+    expected_outbound: { operation: write, command: "OUTP OFF,(@1)" }
+    expected_return: { type: "NoneType" }
+
+  - id: get-output-state
+    method: get_output_state
+    arguments: { channel: 1 }
+    preconditions: [connected]
+    expected_outbound: { operation: query, command: "OUTP? (@1)" }
+    expected_return: { type: bool }
+
+  - id: measure-dc-voltage
+    method: measure_dc_voltage
+    arguments: { channel: 1 }
+    preconditions: [connected]
+    expected_outbound: { operation: query, command: "MEAS:VOLT? (@1)" }
+    expected_return: { type: float }
+
+  - id: measure-dc-current
+    method: measure_dc_current
+    arguments: { channel: 1 }
+    preconditions: [connected]
+    expected_outbound: { operation: query, command: "MEAS:CURR? (@1)" }
+    expected_return: { type: float }
+
+  - id: safe-shutdown
+    method: safe_shutdown
+    arguments: {}
+    preconditions: [connected, modules_discovered]
+    expected_outbound: { operation: write, command: "OUTP OFF,(@1)" }
+    expected_return: { type: dict, field_equals: { success: true } }
+
+  - id: set-smu-mode
+    method: set_smu_mode
+    arguments: { channel: 2, mode: voltage }
+    preconditions: [connected]
+    expected_outbound: { operation: write, command: "FUNC:MODE VOLT,(@2)" }
+    expected_return: { type: "NoneType" }
+
+  - id: get-smu-mode
+    method: get_smu_mode
+    arguments: { channel: 2 }
+    preconditions: [connected]
+    expected_outbound: { operation: query, command: "FUNC:MODE? (@2)" }
+    expected_return: { type: str, one_of: [voltage, current] }
+
+  - id: set-load-mode
+    method: set_load_mode
+    arguments: { channel: 3, mode: cc }
+    preconditions: [connected]
+    expected_outbound: { operation: write, command: "SIM:LOAD:MODE CC,(@3)" }
+    expected_return: { type: "NoneType" }
+
+  - id: status-byte
+    method: status_byte
+    arguments: {}
+    preconditions: [connected]
+    expected_outbound: { operation: query, command: "*STB?" }
+    expected_return: { type: int }
+
+  - id: standard-event-status
+    method: standard_event_status
+    arguments: {}
+    preconditions: [connected]
+    expected_outbound: { operation: query, command: "*ESR?" }
+    expected_return: { type: int }
+
+  - id: operation-complete
+    method: operation_complete
+    arguments: {}
+    preconditions: [connected]
+    expected_outbound: { operation: query, command: "*OPC?" }
+    expected_return: { type: bool, equals: true }
+
+  - id: wait
+    method: wait
+    arguments: {}
+    preconditions: [connected]
+    expected_outbound: { operation: write, command: "*WAI" }
+    expected_return: { type: "NoneType" }
+
+  - id: protocol-error-on-unmatched-command
+    method: write_scpi
+    arguments: { command: "BOGUS:COMMAND" }
+    preconditions: [connected]
+    expected_outbound: { operation: write, command: "BOGUS:COMMAND" }
+    expected_return: { type: "NoneType" }
+    protocol_error_check:
+      method: check_errors
+      raises: DriverCommandRejectedError

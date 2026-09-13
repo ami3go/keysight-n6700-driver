@@ -1,0 +1,316 @@
+lpds013_version: '1.0'
+driver_name: keysight_n6700
+generated_by: scripts/generate_capability_model.py
+capabilities:
+- capability_id: connection.session.open
+  display_name: Connect
+  description: Open a session to an N6700 mainframe over VISA, USB, Ethernet, or the simulator.
+  category: connection
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions:
+  - Session alias is registered and selected.
+  - Instrument identity has been queried.
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: connect
+    canonical_method: connect
+    aliases: []
+- capability_id: connection.session.close
+  display_name: Disconnect
+  description: Safely disconnect one session (or every session if none was ever selected).
+  category: connection
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects:
+  - May command all outputs/load inputs off.
+  - Closes transport resources.
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: disconnect
+    canonical_method: disconnect
+    aliases: []
+- capability_id: connection.session.status
+  display_name: Get Connection State
+  description: "Return connection/identity state as a plain dict (LPDS-002 \xA712)."
+  category: connection
+  standard: true
+  risk_level: none
+  mutating: false
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: get_connection_state
+    canonical_method: get_connection_state
+    aliases: []
+- capability_id: identity.driver.read
+  display_name: Get Identity
+  description: 'LPDS-002 mandatory: return ``*IDN?`` as one string.'
+  category: identity
+  standard: true
+  risk_level: none
+  mutating: false
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: get_identity
+    canonical_method: get_identity
+    aliases: []
+- capability_id: system.reset.execute
+  display_name: Reset Device
+  description: 'LPDS-002 mandatory-when-applicable: ``*RST`` and wait for completion.'
+  category: system
+  standard: true
+  risk_level: high
+  mutating: true
+  may_energize_or_sink_power: true
+  preconditions: []
+  postconditions:
+  - Instrument reset; all prior assumptions about configuration must be re-established.
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: reset_device
+    canonical_method: reset_device
+    aliases: []
+- capability_id: system.error.read
+  display_name: Get Device Error
+  description: 'LPDS-002: return one entry from the SCPI error queue.'
+  category: system
+  standard: true
+  risk_level: none
+  mutating: false
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: get_device_error
+    canonical_method: get_device_error
+    aliases: []
+- capability_id: system.error.clear
+  display_name: Clear Device Errors
+  description: ''
+  category: system
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: clear_device_errors
+    canonical_method: clear_device_errors
+    aliases: []
+- capability_id: channel.selection.list
+  display_name: List Channels
+  description: 'LPDS-002: return every installed channel number.'
+  category: channel
+  standard: true
+  risk_level: none
+  mutating: false
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: list_channels
+    canonical_method: list_channels
+    aliases: []
+- capability_id: channel.module.discover
+  display_name: Discover Modules
+  description: Discover installed modules and build the per-channel API for them.
+  category: channel
+  standard: true
+  risk_level: none
+  mutating: false
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: discover_modules
+    canonical_method: discover_modules
+    aliases: []
+- capability_id: source.voltage.set
+  display_name: Set Dc Voltage
+  description: 'LPDS-002: program the voltage setpoint on ``channel``.'
+  category: source
+  standard: true
+  risk_level: medium
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: set_dc_voltage
+    canonical_method: set_dc_voltage
+    aliases: []
+- capability_id: source.current.set
+  display_name: Set Dc Current
+  description: 'LPDS-002: program the current limit on ``channel``.'
+  category: source
+  standard: true
+  risk_level: medium
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: set_dc_current
+    canonical_method: set_dc_current
+    aliases: []
+- capability_id: source.output.enable
+  display_name: Enable Output
+  description: 'LPDS-002: enable one power-supply/SMU output.'
+  category: source
+  standard: true
+  risk_level: high
+  mutating: true
+  may_energize_or_sink_power: true
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: enable_output
+    canonical_method: enable_output
+    aliases: []
+- capability_id: source.output.disable
+  display_name: Disable Output
+  description: 'LPDS-002: disable one power-supply/SMU output. Idempotent.'
+  category: source
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: disable_output
+    canonical_method: disable_output
+    aliases: []
+- capability_id: measure.voltage.dc
+  display_name: Measure Dc Voltage
+  description: 'LPDS-002: measure channel voltage in volts.'
+  category: measure
+  standard: true
+  risk_level: none
+  mutating: false
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: measure_dc_voltage
+    canonical_method: measure_dc_voltage
+    aliases: []
+- capability_id: measure.current.dc
+  display_name: Measure Dc Current
+  description: 'LPDS-002: measure channel current in amperes.'
+  category: measure
+  standard: true
+  risk_level: none
+  mutating: false
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: measure_dc_current
+    canonical_method: measure_dc_current
+    aliases: []
+- capability_id: measure.power.dc
+  display_name: Measure Dc Power
+  description: 'LPDS-002: measure (or compute) channel power in watts.'
+  category: measure
+  standard: true
+  risk_level: none
+  mutating: false
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: measure_dc_power
+    canonical_method: measure_dc_power
+    aliases: []
+- capability_id: safety.output.disable_all
+  display_name: Safe Shutdown
+  description: 'LPDS-002 mandatory-when-applicable: best-effort shutdown of every channel.'
+  category: safety
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions:
+  - Every controllable output/load input has been commanded off, best-effort.
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: safe_shutdown
+    canonical_method: safe_shutdown
+    aliases: []

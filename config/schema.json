@@ -1,0 +1,106 @@
+{
+  "$comment": "Mirrors src/keysight_n6700/resources/config_schema.json (LPDS-014 §6). Kept in sync by scripts/validate_structure.py.",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ami3go/keysight-n6700-driver/config/schema.json",
+  "title": "keysight_n6700 driver configuration",
+  "type": "object",
+  "required": ["lpds014_version", "schema_version", "driver", "settings"],
+  "additionalProperties": false,
+  "properties": {
+    "lpds014_version": { "type": "string", "const": "1.1" },
+    "schema_version": { "type": "string", "const": "1.0.0" },
+    "driver": {
+      "type": "object",
+      "required": ["driver_name"],
+      "additionalProperties": false,
+      "properties": {
+        "driver_name": { "type": "string", "const": "keysight_n6700" }
+      }
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "transport": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "connection_type": {
+              "type": "string",
+              "enum": ["visa", "usb", "ethernet", "socket", "simulated"],
+              "default": "visa"
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535,
+              "default": 5025,
+              "x-lpds-unit": "port"
+            }
+          }
+        },
+        "timeouts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "communication_timeout_s": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "default": 5.0,
+              "x-lpds-unit": "s"
+            }
+          }
+        },
+        "retry": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "automatic_retry": { "type": "boolean", "default": false }
+          }
+        },
+        "logging": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "audit_log_path": {
+              "type": ["string", "null"],
+              "default": null,
+              "x-lpds-sensitive": false
+            }
+          }
+        },
+        "simulation": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false }
+          }
+        },
+        "safety": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "auto_shutdown_on_disconnect": {
+              "type": "boolean",
+              "default": true,
+              "x-lpds-risk-level": "high"
+            },
+            "strict_error_checking": { "type": "boolean", "default": false }
+          }
+        },
+        "device": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "supported_manufacturers": {
+              "type": "array",
+              "items": { "type": "string" },
+              "default": ["KEYSIGHT TECHNOLOGIES", "AGILENT TECHNOLOGIES", "HEWLETT-PACKARD"]
+            },
+            "discover_modules_on_connect": { "type": "boolean", "default": true }
+          }
+        }
+      }
+    }
+  }
+}

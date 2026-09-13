@@ -1,0 +1,348 @@
+# LPDS-009 §28.3 / LPDS-019 §15: every device-facing method without a
+# realized protocol vector must be listed here with an honest reason,
+# reviewed and approved by the maintainer, not silently dropped.
+#
+# This driver's status is "untested" (LPDS-001 §9): unit tests and the 25
+# protocol vectors in protocol_vectors.yaml pass against the simulator;
+# nothing here has been run against real hardware, and the exclusions below
+# are v0.1.0 conformance-pass scope decisions, not permanent gaps. They are
+# already covered by tests/unit at the Python-call level (see the file next
+# to each reason); what is missing is specifically the transport-boundary
+# outbound/inbound protocol vector.
+exclusions:
+  - method: idn
+    reason: "Alias of get_identity (already a realized vector: get-identity); identical outbound protocol."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_driver_connection.py
+  - method: reset
+    reason: "Thin wrapper reset_device calls internally; reset_device is already a realized vector."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit
+  - method: get_error
+    reason: "Alias of get_device_error (already a realized vector: get-device-error-when-empty)."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_errors_and_safety.py
+  - method: drain_errors
+    reason: "Repeats get_device_error's already-vectored SYST:ERR? query in a loop; no new protocol shape."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_errors_and_safety.py
+  - method: get_all_device_errors
+    reason: "LPDS-002 canonical name for drain_errors; same protocol shape."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_errors_and_safety.py
+  - method: clear_device_errors
+    reason: "Calls drain_errors; same SYST:ERR? protocol shape as the already-vectored query."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_errors_and_safety.py
+  - method: check_errors
+    reason: "Calls drain_errors and raises; protocol shape already covered, error-raising path covered by protocol-error-on-unmatched-command vector via write_scpi."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_errors_and_safety.py
+  - method: device_error_queue_should_be_empty
+    reason: "Thin wrapper around check_errors; no new protocol shape."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_errors_and_safety.py
+  - method: query_scpi
+    reason: "Raw passthrough; every typed vector already exercises query_scpi under the hood. A dedicated raw-query vector is planned for the next conformance pass."
+    risk: medium
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit
+  - method: channel
+    reason: "Returns a typed channel accessor; issues module-discovery queries only on first access, which discover_modules already exercises. No vector of its own planned; discover_modules is planned separately."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_power_supply_and_measurement.py
+  - method: get_channel
+    reason: "Alias of channel(); identical behavior."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit
+  - method: power_supply
+    reason: "Returns a typed channel accessor via channel(); no protocol traffic of its own."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_power_supply_and_measurement.py
+  - method: smu
+    reason: "Returns a typed channel accessor via channel(); no protocol traffic of its own."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_power_supply_and_measurement.py
+  - method: load
+    reason: "Returns a typed channel accessor via channel(); no protocol traffic of its own."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_power_supply_and_measurement.py
+  - method: discover_modules
+    reason: "Planned for the next conformance pass: exercises SYST:CHAN:COUN?/MOD?/OPT?/SER? across every channel; the individual queries (SYST:CHAN:COUN? via channel_count) are partially covered."
+    risk: medium
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_driver_connection.py
+  - method: channel_model
+    reason: "Exercised indirectly by discover_modules; planned as its own vector in the next pass."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_driver_connection.py
+  - method: channel_options
+    reason: "Exercised indirectly by discover_modules; planned as its own vector in the next pass."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit
+  - method: channel_serial
+    reason: "Exercised indirectly by discover_modules; planned as its own vector in the next pass."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit
+  - method: list_channels
+    reason: "Pure computation over an already-fetched channel_count; no additional protocol traffic."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_driver_connection.py
+  - method: validate_channel
+    reason: "Pure computation over channel_count; no additional protocol traffic."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_power_supply_and_measurement.py
+  - method: get_dc_current_setpoint
+    reason: "Symmetric getter for the already-vectored set_dc_current; identical CURR? shape to the vectored VOLT? getter. Planned for the next pass."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_power_supply_and_measurement.py
+  - method: get_dc_voltage_limits
+    reason: "Composite getter (OVP + range queries); planned for the next conformance pass."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit
+  - method: get_dc_current_limits
+    reason: "Composite getter (range query); planned for the next conformance pass."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit
+  - method: measure_dc_power
+    reason: "Same MEAS:POW?/calculated-fallback shape as measure_power; planned as its own vector next pass."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit
+  - method: measure_power
+    reason: "Same measurement family as the already-vectored measure_dc_voltage/measure_dc_current; planned next pass."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit
+  - method: measure_all
+    reason: "Batches the already-vectored per-channel measurement queries; planned as its own vector next pass."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_power_supply_and_measurement.py
+  - method: output_should_be_enabled
+    reason: "Thin assertion wrapper around the already-vectored get_output_state."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_power_supply_and_measurement.py
+  - method: output_should_be_disabled
+    reason: "Thin assertion wrapper around the already-vectored get_output_state."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_power_supply_and_measurement.py
+  - method: set_power_outputs
+    reason: "Loops the already-vectored enable_output/disable_output per channel; planned as its own multi-channel vector next pass."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit
+  - method: set_load_inputs
+    reason: "Loops the load-channel input command; planned as its own vector next pass."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_power_supply_and_measurement.py
+  - method: set_channel_enabled
+    reason: "Dispatches to enable_output/set_input depending on module type; both already vectored individually."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit
+  - method: shutdown_all
+    reason: "Underlying loop for the already-vectored safe_shutdown; same OUTP OFF shape."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_errors_and_safety.py
+  - method: get_load_mode
+    reason: "Symmetric getter for the already-vectored set_load_mode; planned next pass."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_power_supply_and_measurement.py
+  - method: configure_smu_voltage_priority
+    reason: "Composes already-covered SMU primitives (set_smu_mode, set_dc_voltage, set_dc_current); planned as its own vector next pass."
+    risk: medium
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_power_supply_and_measurement.py
+  - method: configure_smu_current_priority
+    reason: "Composes already-covered SMU primitives; planned as its own vector next pass."
+    risk: medium
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit
+  - method: configure_load_cc
+    reason: "Composes the already-vectored set_load_mode with a load-current write; planned next pass."
+    risk: medium
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_power_supply_and_measurement.py
+  - method: get_operation_status
+    reason: "STAT:OPER:COND? query; planned for the next conformance pass."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: none
+  - method: get_questionable_status
+    reason: "Same STAT:QUES:COND? shape channel.get_protection_status already sends; planned as its own vector next pass."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_errors_and_safety.py
+  - method: clear_protection
+    reason: "OUTP:PROT:CLE write plus before/after status reads; planned for the next conformance pass."
+    risk: medium
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_errors_and_safety.py
+  - method: get_remote_state
+    reason: "Simulator-only SYST:REM? query, out of scope for the transport-agnostic v0.1.0 vector set; planned once real-hardware remote/local behavior is verified."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: none
+  - method: set_remote_state
+    reason: "Simulator-only SYST:LOC/REM/RWL write, out of scope for the transport-agnostic v0.1.0 vector set; planned with get_remote_state."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: none
+  - method: remote_lockout
+    reason: "Thin wrapper around set_remote_state; excluded for the same reason."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: none
+  - method: is_connected
+    reason: "Transport-state query with no SCPI traffic; not a protocol vector candidate. Covered by state-machine unit tests instead."
+    risk: none
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_driver_connection.py
+  - method: get_connection_state
+    reason: "Composite of get_identity (already vectored) plus local bookkeeping; no protocol shape of its own beyond the *IDN? already covered."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_driver_connection.py
+  - method: check_communication
+    reason: "Delegates to ScpiSession.check_communication, which sends *IDN? — the same query already vectored under get-identity."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: none
+  - method: set_communication_timeout
+    reason: "Local timeout bookkeeping in scpi-driver-core; sends no SCPI traffic."
+    risk: none
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: none
+  - method: disconnect
+    reason: "Lifecycle teardown; behavior (including the safe-shutdown hook) is covered by tests/unit/test_errors_and_safety.py rather than a single-command protocol vector."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_errors_and_safety.py
+  - method: disconnect_all
+    reason: "Loops disconnect(); excluded for the same reason."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_driver_connection.py

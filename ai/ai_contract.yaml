@@ -1,0 +1,534 @@
+contract_schema_version: '1.0'
+identity:
+  plugin_id: keysight.n6700
+  driver_name: keysight_n6700
+  distribution_name: keysight-n6700-driver
+  distribution_version: 0.1.0
+  driver_import_path: keysight_n6700.driver
+  driver_class: keysight_n6700.driver.N6700
+  supported_models:
+  - N67xx series mainframe
+  - N673x/N674x/N675x/N676x/N677x
+  - N678xA
+mental_model:
+  summary: One N6700 mainframe session exposes up to four independently addressed module channels. Installed
+    modules determine whether a channel acts as a power source, SMU, measurement source, or verified electronic
+    load.
+  session_model: One driver instance may hold several named sessions (aliases) at once; most methods accept
+    an optional `alias` and default to the currently selected one.
+  state_ownership: The driver tracks session and connection state; the instrument is the sole authority
+    for channel configuration, output state, protection state, and measurements.
+  safety_model: Typed configuration defaults outputs/load inputs off. disconnect()/disconnect_all() attempt
+    a best-effort shutdown first unless set_auto_shutdown_on_disconnect(False) was called. Raw SCPI (write_scpi/query_scpi)
+    bypasses typed safeguards.
+state_machine:
+  reference: keysight_n6700.base.SessionState (LPDS-003 canonical enum)
+  public_projection: keysight_n6700.base.SUPPORT_STATE_PROJECTION
+  states:
+  - disconnected
+  - connecting
+  - connected
+  - configured
+  - busy
+  - waiting
+  - recovering
+  - error
+  - closing
+resources:
+  consumed:
+  - id: visa_resource
+    type: exclusive
+    description: VISA resource string for USB/LAN/vendor transport.
+  - id: tcp_socket
+    type: exclusive
+    description: Host and TCP port, normally 5025.
+  - id: session_alias
+    type: exclusive_within_driver
+    description: Unique named session.
+  - id: mainframe_channel
+    type: exclusive_for_mutation
+    description: Channel 1..4; coordinate concurrent test ownership.
+  provided:
+  - id: dc_source
+    quantity:
+    - voltage
+    - current
+    - power
+    availability: module-dependent
+  - id: smu
+    quantity:
+    - source_voltage
+    - source_current
+    - measure_voltage
+    - measure_current
+    availability: SMU module-dependent
+  - id: electronic_load
+    quantity:
+    - cc
+    - cv
+    - cr
+    - cp
+    availability: verified module-dependent; real load modules remain restricted unless explicitly supported
+  - id: internal_measurement
+    quantity:
+    - voltage
+    - current
+    - power
+    availability: module-dependent
+dependencies:
+  runtime:
+  - Python >=3.10
+  - scpi-driver-core
+  optional:
+  - pyvisa (via scpi-driver-core[visa]) for VISA/USB transports
+  - robotframework >=7,<9 for the adapter
+  external:
+  - A VISA backend (vendor IO suite or pyvisa-py) for VISA/USB resources
+  - Network reachability for raw Ethernet
+  - Reviewed cabling, fixtures, DUT limits, and interlocks
+capabilities:
+- capability_id: connection.session.open
+  display_name: Connect
+  description: Open a session to an N6700 mainframe over VISA, USB, Ethernet, or the simulator.
+  category: connection
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions:
+  - Session alias is registered and selected.
+  - Instrument identity has been queried.
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: connect
+    canonical_method: connect
+    aliases: []
+- capability_id: connection.session.close
+  display_name: Disconnect
+  description: Safely disconnect one session (or every session if none was ever selected).
+  category: connection
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects:
+  - May command all outputs/load inputs off.
+  - Closes transport resources.
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: disconnect
+    canonical_method: disconnect
+    aliases: []
+- capability_id: connection.session.status
+  display_name: Get Connection State
+  description: "Return connection/identity state as a plain dict (LPDS-002 \xA712)."
+  category: connection
+  standard: true
+  risk_level: none
+  mutating: false
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: get_connection_state
+    canonical_method: get_connection_state
+    aliases: []
+- capability_id: identity.driver.read
+  display_name: Get Identity
+  description: 'LPDS-002 mandatory: return ``*IDN?`` as one string.'
+  category: identity
+  standard: true
+  risk_level: none
+  mutating: false
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: get_identity
+    canonical_method: get_identity
+    aliases: []
+- capability_id: system.reset.execute
+  display_name: Reset Device
+  description: 'LPDS-002 mandatory-when-applicable: ``*RST`` and wait for completion.'
+  category: system
+  standard: true
+  risk_level: high
+  mutating: true
+  may_energize_or_sink_power: true
+  preconditions: []
+  postconditions:
+  - Instrument reset; all prior assumptions about configuration must be re-established.
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: reset_device
+    canonical_method: reset_device
+    aliases: []
+- capability_id: system.error.read
+  display_name: Get Device Error
+  description: 'LPDS-002: return one entry from the SCPI error queue.'
+  category: system
+  standard: true
+  risk_level: none
+  mutating: false
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: get_device_error
+    canonical_method: get_device_error
+    aliases: []
+- capability_id: system.error.clear
+  display_name: Clear Device Errors
+  description: ''
+  category: system
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: clear_device_errors
+    canonical_method: clear_device_errors
+    aliases: []
+- capability_id: channel.selection.list
+  display_name: List Channels
+  description: 'LPDS-002: return every installed channel number.'
+  category: channel
+  standard: true
+  risk_level: none
+  mutating: false
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: list_channels
+    canonical_method: list_channels
+    aliases: []
+- capability_id: channel.module.discover
+  display_name: Discover Modules
+  description: Discover installed modules and build the per-channel API for them.
+  category: channel
+  standard: true
+  risk_level: none
+  mutating: false
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: discover_modules
+    canonical_method: discover_modules
+    aliases: []
+- capability_id: source.voltage.set
+  display_name: Set Dc Voltage
+  description: 'LPDS-002: program the voltage setpoint on ``channel``.'
+  category: source
+  standard: true
+  risk_level: medium
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: set_dc_voltage
+    canonical_method: set_dc_voltage
+    aliases: []
+- capability_id: source.current.set
+  display_name: Set Dc Current
+  description: 'LPDS-002: program the current limit on ``channel``.'
+  category: source
+  standard: true
+  risk_level: medium
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: set_dc_current
+    canonical_method: set_dc_current
+    aliases: []
+- capability_id: source.output.enable
+  display_name: Enable Output
+  description: 'LPDS-002: enable one power-supply/SMU output.'
+  category: source
+  standard: true
+  risk_level: high
+  mutating: true
+  may_energize_or_sink_power: true
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: enable_output
+    canonical_method: enable_output
+    aliases: []
+- capability_id: source.output.disable
+  display_name: Disable Output
+  description: 'LPDS-002: disable one power-supply/SMU output. Idempotent.'
+  category: source
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: disable_output
+    canonical_method: disable_output
+    aliases: []
+- capability_id: measure.voltage.dc
+  display_name: Measure Dc Voltage
+  description: 'LPDS-002: measure channel voltage in volts.'
+  category: measure
+  standard: true
+  risk_level: none
+  mutating: false
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: measure_dc_voltage
+    canonical_method: measure_dc_voltage
+    aliases: []
+- capability_id: measure.current.dc
+  display_name: Measure Dc Current
+  description: 'LPDS-002: measure channel current in amperes.'
+  category: measure
+  standard: true
+  risk_level: none
+  mutating: false
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: measure_dc_current
+    canonical_method: measure_dc_current
+    aliases: []
+- capability_id: measure.power.dc
+  display_name: Measure Dc Power
+  description: 'LPDS-002: measure (or compute) channel power in watts.'
+  category: measure
+  standard: true
+  risk_level: none
+  mutating: false
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: measure_dc_power
+    canonical_method: measure_dc_power
+    aliases: []
+- capability_id: safety.output.disable_all
+  display_name: Safe Shutdown
+  description: 'LPDS-002 mandatory-when-applicable: best-effort shutdown of every channel.'
+  category: safety
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions:
+  - Every controllable output/load input has been commanded off, best-effort.
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: safe_shutdown
+    canonical_method: safe_shutdown
+    aliases: []
+error_catalogue:
+- error_code: LPDS-CFG-001
+  exception_class: DriverConfigurationError
+  condition: Invalid driver/session configuration.
+  retryable: 'no'
+  recovery: NONE_REQUIRED
+- error_code: LPDS-CFG-002
+  exception_class: DriverConfigurationError
+  condition: import_driver_configuration() given a document that fails schema validation.
+  retryable: 'no'
+  recovery: NONE_REQUIRED
+- error_code: LPDS-TMO-001
+  exception_class: DriverTimeoutError
+  condition: A transport or *OPC? wait exceeded its timeout.
+  retryable: 'yes'
+  recovery: RETRY_ALLOWED
+- error_code: LPDS-CON-001
+  exception_class: DriverConnectionError
+  condition: connect() called for an alias already connected without replace=True.
+  retryable: 'no'
+  recovery: NONE_REQUIRED
+- error_code: LPDS-CON-002
+  exception_class: DriverConnectionError
+  condition: I/O attempted while the transport is not open.
+  retryable: 'no'
+  recovery: RECONNECT_REQUIRED
+- error_code: LPDS-PRT-001
+  exception_class: DriverMalformedResponseError
+  condition: A response could not be parsed into the documented type.
+  retryable: 'no'
+  recovery: RESYNC_REQUIRED
+- error_code: LPDS-PRT-003
+  exception_class: DriverMalformedResponseError
+  condition: SYST:ERR? returned something other than code,"message".
+  retryable: 'no'
+  recovery: RESYNC_REQUIRED
+- error_code: LPDS-DEV-001
+  exception_class: DriverCommandRejectedError
+  condition: The instrument rejected a SCPI command.
+  retryable: 'no'
+  recovery: READBACK_REQUIRED
+- error_code: LPDS-DEV-002
+  exception_class: DriverCommandRejectedError
+  condition: The instrument's error queue reported one or more entries.
+  retryable: 'no'
+  recovery: READBACK_REQUIRED
+- error_code: LPDS-DEV-003
+  exception_class: DriverIdentityError
+  condition: '*IDN? was missing, unparsable, or from an unsupported manufacturer.'
+  retryable: 'no'
+  recovery: OPERATOR_ACTION_REQUIRED
+- error_code: LPDS-DEV-004
+  exception_class: DriverUnsupportedOperationError
+  condition: The installed module/transport does not support the requested operation.
+  retryable: 'no'
+  recovery: NOT_RECOVERABLE
+- error_code: LPDS-STA-002
+  exception_class: DriverPreconditionError
+  condition: A method requiring an active session was called on a disconnected alias.
+  retryable: 'no'
+  recovery: RECONNECT_REQUIRED
+- error_code: LPDS-STA-005
+  exception_class: DriverPreconditionError
+  condition: A method was called while the session was not in a required state.
+  retryable: 'no'
+  recovery: NONE_REQUIRED
+- error_code: LPDS-ARG-001
+  exception_class: DriverArgumentValueError
+  condition: Channel argument outside the installed range.
+  retryable: 'no'
+  recovery: NONE_REQUIRED
+safety_rules:
+- connect() never energizes an output or load input by itself.
+- Typed configuration methods (set_dc_voltage, set_dc_current, configure_*) never enable an output; enable_output()/set_input()
+  are separate, explicit calls.
+- disconnect()/disconnect_all() attempt a best-effort shutdown of every installed channel first, unless
+  set_auto_shutdown_on_disconnect(False) was called explicitly.
+- Raw SCPI (write_scpi/query_scpi) bypasses every typed safeguard; do not use it to work around a typed
+  method's restriction.
+- Electronic-load SCPI commands are refused for real modules unless verified in keysight_n6700.module_capabilities.VERIFIED_LOAD_MODELS;
+  the simulator's SIM_LOAD is the only load model exempted for testing.
+verification_objectives:
+- id: VO-IDENTITY
+  description: get_identity()/idn() returns a supported manufacturer, model, serial, and firmware.
+- id: VO-MODULE-MAP
+  description: discover_modules() classifies every installed channel by module family.
+- id: VO-SETPOINT
+  description: A programmed voltage/current setpoint reads back as programmed.
+- id: VO-OUTPUT
+  description: enable_output()/disable_output() change, and get_output_state() reports, the output state.
+- id: VO-MEASUREMENT
+  description: measure_dc_voltage/current/power return a finite value with a documented source (instrument
+    vs. calculated).
+- id: VO-PROTECTION
+  description: get_protection_status()/clear_protection() report and clear a tripped protection condition.
+- id: VO-SHUTDOWN
+  description: safe_shutdown() disables every installed channel and reports per-channel success.
+setup_teardown_contract:
+  setup: connect() (or a connect_* classmethod) must succeed and *IDN? must be answered by a supported
+    manufacturer before any other method is called.
+  teardown: disconnect()/disconnect_all() should always be called, ideally from a finally block or context
+    manager (`with N6700.connect_simulated() as drv:`), even after a failed operation.
+limitations:
+- Real electronic-load SCPI command support is unverified for every module currently on the market; only
+  the simulator's SIM_LOAD is exercised.
+- Remote/local control (get_remote_state/set_remote_state/remote_lockout) is implemented against the simulator
+  only; real N6700 remote/local behavior is transport-specific and not yet verified.
+- No real-hardware conformance run has been performed yet (see review/known_risks.md); driver status is
+  `untested`, not `stable`.
+planning_hints:
+- Always call discover_modules() (or let connect()'s default discover=True do it) before addressing a
+  channel by type-specific accessor (power_supply/smu/load).
+- Configure a channel's setpoints and protection with the output/load input off, then enable it explicitly,
+  mirroring TEMPLATE-SAFE-SOURCE-CHANNEL.
+- Prefer typed methods over write_scpi/query_scpi; raw SCPI has no capability or safety gating.
+unknown_handling:
+  policy: fail_closed
+  blocking_unknowns:
+  - installed module map
+  - DUT/fixture wiring
+  - DUT limits
+  - external interlock
+  - stabilization requirements
+  planner_rule: An AI planner may draft a plan with explicit UNKNOWN placeholders, but must not generate
+    an executable energizing sequence until every blocking unknown is resolved and approved by a human
+    operator.
+conformance_rules:
+- identity.plugin_id, driver_name, and driver_class must match the values a caller observes from the installed
+  package.
+- Every capability's risk_level must be one of none/low/medium/high/critical.
+- Every capability's binding.python_method must exist on keysight_n6700.driver.N6700 (enforced by validate_driver_capabilities()).
+- No capability entry may name a test-automation framework, keyword, fixture, or CLI command.
+- Every error_catalogue entry's exception_class must be a class in keysight_n6700.exceptions.

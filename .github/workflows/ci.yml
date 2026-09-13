@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: pip install -e ".[dev,robotframework]"
+      - name: Ruff
+        run: ruff check src adapters tests scripts
+      - name: Mypy (driver)
+        run: mypy src/keysight_n6700
+      - name: Mypy (adapter)
+        run: mypy --ignore-missing-imports adapters/robotframework/keysight_n6700_robotframework_adapter
+      - name: Pytest
+        run: pytest --cov=keysight_n6700 --cov-report=term-missing
+      - name: Structure validation
+        run: python scripts/validate_structure.py
+      - name: AI contract / capability model freshness
+        run: |
+          python scripts/generate_conformance_inventory.py
+          python scripts/generate_capability_model.py
+          python scripts/generate_ai_contract.py
+          # ai_contract.lock's generated_at timestamp always changes; only the
+          # content-bearing files must be byte-identical to what's committed.
+          git diff --exit-code -- \
+            tests/conformance/data/method_inventory.yaml \
+            capability/capability_model.yaml \
+            capability/examples/capability_snapshot.json \
+            ai/ai_contract.yaml || \
+            (echo "Generated LPDS artifacts are stale; run the generate_*.py scripts and commit the result." && exit 1)

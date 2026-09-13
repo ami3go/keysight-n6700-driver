@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ami3go/keysight-n6700-driver/capability/capability_model.schema.json",
+  "title": "keysight_n6700 LPDS-013 capability model",
+  "type": "object",
+  "required": ["lpds013_version", "driver_name", "capabilities"],
+  "properties": {
+    "lpds013_version": { "type": "string" },
+    "driver_name": { "type": "string", "const": "keysight_n6700" },
+    "generated_by": { "type": "string" },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "capability_id", "display_name", "description", "category", "risk_level",
+          "mutating", "may_energize_or_sink_power", "preconditions", "postconditions",
+          "side_effects", "support", "binding"
+        ],
+        "properties": {
+          "capability_id": { "type": "string", "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)+$" },
+          "display_name": { "type": "string" },
+          "description": { "type": "string" },
+          "category": { "type": "string" },
+          "standard": { "type": "boolean" },
+          "risk_level": { "type": "string", "enum": ["none", "low", "medium", "high", "critical"] },
+          "mutating": { "type": "boolean" },
+          "may_energize_or_sink_power": { "type": "boolean" },
+          "preconditions": { "type": "array", "items": { "type": "string" } },
+          "postconditions": { "type": "array", "items": { "type": "string" } },
+          "side_effects": { "type": "array", "items": { "type": "string" } },
+          "support": {
+            "type": "object",
+            "required": ["state", "confidence"],
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": ["supported", "unsupported", "conditional", "restricted", "unavailable", "deprecated", "unknown"]
+              },
+              "confidence": {
+                "type": "string",
+                "enum": ["declared", "configured", "detected", "confirmed", "assumed", "unknown"]
+              }
+            }
+          },
+          "binding": {
+            "type": "object",
+            "required": ["python_method", "canonical_method", "aliases"],
+            "properties": {
+              "python_method": { "type": "string" },
+              "canonical_method": { "type": "string" },
+              "aliases": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    }
+  }
+}
