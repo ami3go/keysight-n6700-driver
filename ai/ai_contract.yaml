@@ -3,7 +3,7 @@ identity:
   plugin_id: keysight.n6700
   driver_name: keysight_n6700
   distribution_name: keysight-n6700-driver
-  distribution_version: 0.1.0
+  distribution_version: 0.2.0
   driver_import_path: keysight_n6700.driver
   driver_class: keysight_n6700.driver.N6700
   supported_models:
@@ -87,6 +87,24 @@ dependencies:
   - Network reachability for raw Ethernet
   - Reviewed cabling, fixtures, DUT limits, and interlocks
 capabilities:
+- capability_id: safety.raw_scpi.guard
+  display_name: Set Raw SCPI Guard
+  description: Require a confirmation phrase before write_scpi()/query_scpi() will run.
+  category: safety
+  standard: true
+  risk_level: low
+  mutating: false
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: set_raw_scpi_guard
+    canonical_method: set_raw_scpi_guard
+    aliases: []
 - capability_id: connection.session.open
   display_name: Connect
   description: Open a session to an N6700 mainframe over VISA, USB, Ethernet, or the simulator.
@@ -379,6 +397,42 @@ capabilities:
   binding:
     python_method: measure_dc_power
     canonical_method: measure_dc_power
+    aliases: []
+- capability_id: measure.voltage.wait_in_range
+  display_name: Wait For Voltage In Range
+  description: Poll ``measure_dc_voltage`` until it falls within ``[minimum, maximum]``.
+  category: measure
+  standard: true
+  risk_level: none
+  mutating: false
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: wait_for_voltage_in_range
+    canonical_method: wait_for_voltage_in_range
+    aliases: []
+- capability_id: measure.current.wait_in_range
+  display_name: Wait For Current In Range
+  description: Poll ``measure_dc_current`` until it falls within ``[minimum, maximum]``.
+  category: measure
+  standard: true
+  risk_level: none
+  mutating: false
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: wait_for_current_in_range
+    canonical_method: wait_for_current_in_range
     aliases: []
 - capability_id: safety.output.disable_all
   display_name: Safe Shutdown

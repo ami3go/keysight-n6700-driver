@@ -236,6 +236,15 @@ methods:
   - alias
   device_facing: true
   execution_status: not_yet_run
+- method: disable_raw_scpi
+  canonical_method: disable_raw_scpi
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.disable_raw_scpi
+  signature: disable_raw_scpi(self) -> 'None'
+  required_arguments: []
+  optional_arguments: []
+  device_facing: false
+  execution_status: not_yet_run
 - method: disconnect
   canonical_method: disconnect
   aliases: []
@@ -287,6 +296,16 @@ methods:
   optional_arguments:
   - alias
   device_facing: true
+  execution_status: not_yet_run
+- method: enable_raw_scpi
+  canonical_method: enable_raw_scpi
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.enable_raw_scpi
+  signature: 'enable_raw_scpi(self, phrase: ''str'') -> ''None'''
+  required_arguments:
+  - phrase
+  optional_arguments: []
+  device_facing: false
   execution_status: not_yet_run
 - method: export_diagnostics
   canonical_method: export_diagnostics
@@ -775,11 +794,14 @@ methods:
   canonical_method: query_scpi
   aliases: []
   implementation_target: keysight_n6700.driver.N6700.query_scpi
-  signature: 'query_scpi(self, command: ''str'', alias: ''str | None'' = None) -> ''str'''
+  signature: 'query_scpi(self, command: ''str'', alias: ''str | None'' = None, *, retry_attempts: ''int''
+    = 1, retry_delay_s: ''float'' = 0.0) -> ''str'''
   required_arguments:
   - command
   optional_arguments:
   - alias
+  - retry_attempts
+  - retry_delay_s
   device_facing: true
   execution_status: not_yet_run
 - method: refresh_driver_capabilities
@@ -977,6 +999,16 @@ methods:
   - alias
   device_facing: true
   execution_status: not_yet_run
+- method: set_raw_scpi_guard
+  canonical_method: set_raw_scpi_guard
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.set_raw_scpi_guard
+  signature: 'set_raw_scpi_guard(self, phrase: ''str'') -> ''None'''
+  required_arguments:
+  - phrase
+  optional_arguments: []
+  device_facing: false
+  execution_status: not_yet_run
 - method: set_remote_state
   canonical_method: set_remote_state
   aliases: []
@@ -1081,6 +1113,40 @@ methods:
   signature: 'wait(self, alias: ''str | None'' = None) -> ''None'''
   required_arguments: []
   optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: wait_for_current_in_range
+  canonical_method: wait_for_current_in_range
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.wait_for_current_in_range
+  signature: 'wait_for_current_in_range(self, channel: ''int'', minimum: ''float'', maximum: ''float'',
+    *, timeout_s: ''float'' = 10.0, poll_interval_s: ''float'' = 0.2, alias: ''str | None'' = None) ->
+    ''float'''
+  required_arguments:
+  - channel
+  - minimum
+  - maximum
+  optional_arguments:
+  - timeout_s
+  - poll_interval_s
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: wait_for_voltage_in_range
+  canonical_method: wait_for_voltage_in_range
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.wait_for_voltage_in_range
+  signature: 'wait_for_voltage_in_range(self, channel: ''int'', minimum: ''float'', maximum: ''float'',
+    *, timeout_s: ''float'' = 10.0, poll_interval_s: ''float'' = 0.2, alias: ''str | None'' = None) ->
+    ''float'''
+  required_arguments:
+  - channel
+  - minimum
+  - maximum
+  optional_arguments:
+  - timeout_s
+  - poll_interval_s
   - alias
   device_facing: true
   execution_status: not_yet_run

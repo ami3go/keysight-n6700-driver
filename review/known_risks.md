@@ -45,15 +45,25 @@ been attempted or proven.
 
 ## LPDS-008 evidence/logging is a software-verifiable subset
 
-`export_diagnostics()` produces a JSON-serializable snapshot (driver
-metadata + per-session state), not the full LPDS-008 §11 results-directory
-tree (`events.jsonl`, `measurements.csv`, correlation IDs propagated through
-every log line, `evidence_manifest.json`, ...). That full tree is
-infrastructure a *test harness* running against this driver would produce,
-not something the driver itself should hard-code the shape of before any
-harness exists to consume it. `logging_utils.configure_rotating_log` and
-`N6700(audit_log_path=...)`'s JSONL audit trail are the software-verifiable
-pieces actually shipped.
+As of the `scpi-driver-core` integration pass, `connect(..., protocol_trace=...)`
+wraps the transport in `InstrumentedTransport` and gives it a real
+`Tracer`, so every write/read/open/close at the transport boundary is
+recorded with sequence numbers, both clocks, and session/generation context
+— to a `JsonlTraceSink` (path), a `RecordingTraceObserver` (in-memory, for
+tests), or any custom `TraceObserver`. An optional `Redactor`
+(`protocol_trace_redactor=`) can scrub sensitive payloads before they are
+recorded. This is real LPDS-008 protocol-level evidence, not a
+driver-specific approximation.
+
+What is still not implemented is the full LPDS-008 §11 *results-directory*
+tree (`events.jsonl` correlated against `measurements.csv`,
+`evidence_manifest.json`, coverage/, attachments/, ...) — that is
+infrastructure a *test harness* running against this driver would produce
+by consuming the trace above and this driver's return values, not something
+the driver itself should hard-code the shape of before a harness exists to
+consume it. `export_diagnostics()` (driver/session summary) and
+`N6700(audit_log_path=...)`'s higher-level JSONL audit trail remain the
+other software-verifiable evidence pieces shipped directly by the driver.
 
 ## LPDS-019 conformance: 25 realized vectors, 48 documented exclusions
 

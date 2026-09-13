@@ -30,6 +30,7 @@ from typing import Any, TypeVar
 from scpi_driver_core.exceptions import ScpiDriverError
 from scpi_driver_core.scpi.client import ScpiClient
 from scpi_driver_core.session import ScpiSession, SessionRegistry
+from scpi_driver_core.tracing.observer import Tracer
 from scpi_driver_core.transport.base import Transport
 
 from ._translate import translated
@@ -172,8 +173,20 @@ class BaseInstrument:
 
     # -- hooks a concrete driver overrides -----------------------------------
 
-    def _build_transport(self, *, resource: str, connection_type: str, **options: Any) -> Transport:
+    def _build_transport(
+        self, *, alias: str, resource: str, connection_type: str, **options: Any
+    ) -> Transport:
         raise NotImplementedError
+
+    def _get_tracer(self, alias: str) -> Tracer | None:
+        """Return the protocol tracer for ``alias``, if one was set up. None by default.
+
+        Called after :meth:`_build_transport`, so a driver that builds a
+        tracer there (typically wrapping the transport in
+        ``InstrumentedTransport``) can hand the same instance back here for
+        :class:`ScpiSession` to propagate trace context into.
+        """
+        return None
 
     def _validate_identity(self, identity: Mapping[str, str]) -> None:
         """Reject an unacceptable ``*IDN?`` reply. No-op by default."""
@@ -183,6 +196,13 @@ class BaseInstrument:
 
     def _apply_safe_state(self, alias: str, session: ScpiSession, *, reason: str) -> None:
         """Best-effort safe-state before disconnect. No-op by default."""
+
+    def _on_disconnected(self, alias: str) -> None:
+        """Run after ``alias``'s session has closed. No-op by default.
+
+        For a driver that opened per-alias resources in :meth:`_build_transport`
+        (a trace sink, for example), this is where to release them.
+        """
 
     # -- session lifecycle ----------------------------------------------------
 
@@ -217,10 +237,12 @@ class BaseInstrument:
                 self._disconnect_session(alias, raise_on_error=False)
 
             transport = self._build_transport(
-                resource=resource, connection_type=connection_type, **options
+                alias=alias, resource=resource, connection_type=connection_type, **options
             )
             client = ScpiClient(transport, timeout_s=timeout_s)
-            session = ScpiSession(alias, client, communication_timeout_s=timeout_s)
+            session = ScpiSession(
+                alias, client, communication_timeout_s=timeout_s, tracer=self._get_tracer(alias)
+            )
             entry = _AliasEntry(session=session, resource=resource)
             self._aliases[alias] = entry
             self._set_state(alias, SessionState.CONNECTING)
@@ -232,6 +254,7 @@ class BaseInstrument:
                 self._set_state(alias, SessionState.ERROR)
                 self._set_state(alias, SessionState.CLOSING)
                 del self._aliases[alias]
+                self._on_disconnected(alias)
                 raise
 
             self._registry.register(alias, session, replace=True)
@@ -272,6 +295,7 @@ class BaseInstrument:
             with self._registry_lock:
                 if alias in self._registry:
                     self._registry.remove(alias)
+            self._on_disconnected(alias)
 
     def _resolve_alias(self, alias: str | None) -> str:
         if alias is not None:

@@ -79,3 +79,28 @@ def test_multiple_aliases_stay_independent() -> None:
         assert lib.get_n6700_voltage_setpoint(1, alias="b") == 2.0
     finally:
         lib.disconnect_all_n6700()
+
+
+def test_wait_until_voltage_in_range_delegates_to_the_driver(library: KeysightN6700Library) -> None:
+    library.set_n6700_voltage(1, "5V")
+    library.turn_on_n6700_output(1)
+    value = library.wait_until_n6700_voltage_is_in_range(1, 4.9, 5.1, timeout="2s", poll_interval="20ms")
+    assert value == pytest.approx(5.0)
+
+
+def test_wait_until_voltage_in_range_raises_assertion_error_on_timeout(library: KeysightN6700Library) -> None:
+    library.set_n6700_voltage(1, "5V")
+    library.turn_on_n6700_output(1)
+    with pytest.raises(AssertionError):
+        library.wait_until_n6700_voltage_is_in_range(1, 100, 101, timeout="0.2s", poll_interval="20ms")
+
+
+def test_raw_scpi_guard_keywords_delegate_to_the_driver(library: KeysightN6700Library) -> None:
+    library.set_n6700_raw_scpi_guard("confirm")
+    with pytest.raises(Exception):  # noqa: B017 - keysight_n6700.DriverUnsafeOperationError
+        library.write_n6700_scpi("*CLS")
+    library.enable_n6700_raw_scpi("confirm")
+    library.write_n6700_scpi("*CLS")
+    library.disable_n6700_raw_scpi()
+    with pytest.raises(Exception):  # noqa: B017 - keysight_n6700.DriverUnsafeOperationError
+        library.write_n6700_scpi("*CLS")

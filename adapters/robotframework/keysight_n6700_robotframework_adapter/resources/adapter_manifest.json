@@ -8,7 +8,7 @@
   "display_name": "Keysight N6700 Robot Framework adapter",
   "description": "Robot Framework keyword library translating keysight_n6700's public API.",
   "distribution_name": "keysight-n6700-driver",
-  "distribution_version": "0.1.0",
+  "distribution_version": "0.2.0",
   "provider": "keysight_n6700_robotframework_adapter.plugin:KeysightN6700RobotFrameworkAdapterPlugin",
   "adapter_import_path": "keysight_n6700_robotframework_adapter.adapter",
   "adapter_class": "keysight_n6700_robotframework_adapter.adapter.KeysightN6700Library",

@@ -10,6 +10,20 @@
 # to each reason); what is missing is specifically the transport-boundary
 # outbound/inbound protocol vector.
 exclusions:
+  - method: wait_for_voltage_in_range
+    reason: "Loops the already-vectored measure_dc_voltage query (measure-dc-voltage); no new protocol shape. Bounded-timeout behavior is covered by tests/unit."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_scpi_driver_core_integration.py
+  - method: wait_for_current_in_range
+    reason: "Loops the already-vectored measure_dc_current query (measure-dc-current); no new protocol shape."
+    risk: low
+    approval: maintainer
+    scope: v0.1.0
+    review_date: "2026-09-13"
+    covered_by: tests/unit/test_scpi_driver_core_integration.py
   - method: idn
     reason: "Alias of get_identity (already a realized vector: get-identity); identical outbound protocol."
     risk: low

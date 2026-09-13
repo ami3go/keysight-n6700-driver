@@ -33,6 +33,9 @@ from scpi_driver_core.exceptions import (
     ResponseParseError as CoreResponseParseError,
 )
 from scpi_driver_core.exceptions import (
+    SafetyGuardError as CoreSafetyGuardError,
+)
+from scpi_driver_core.exceptions import (
     ScpiCommandError as CoreScpiCommandError,
 )
 from scpi_driver_core.exceptions import (
@@ -63,6 +66,7 @@ from .exceptions import (
     DriverInternalError,
     DriverMalformedResponseError,
     DriverTimeoutError,
+    DriverUnsafeOperationError,
     DriverUnsupportedOperationError,
 )
 
@@ -104,6 +108,8 @@ def translate_core_error(exc: CoreScpiDriverError, *, operation: str | None = No
         return DriverIdentityError(str(exc), operation=operation, code="LPDS-DEV-003")
     if isinstance(exc, CoreUnsupportedOperationError):
         return DriverUnsupportedOperationError(str(exc), operation=operation, code="LPDS-DEV-004")
+    if isinstance(exc, CoreSafetyGuardError):
+        return DriverUnsafeOperationError(str(exc), operation=operation, code="LPDS-SAF-001")
     if isinstance(exc, CoreProtocolError):
         return DriverIncompleteResponseError(str(exc), operation=operation, code="LPDS-PRT-002")
     if isinstance(exc, CoreTransportError):

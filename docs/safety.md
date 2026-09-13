@@ -20,7 +20,9 @@
   manufacturer's programming guide.
 - `write_scpi()` / `query_scpi()` bypass every typed safeguard above. Use
   them for diagnostics, not as a way to work around a typed method's
-  restriction.
+  restriction. `set_raw_scpi_guard(phrase)` can require an explicit
+  `enable_raw_scpi(phrase)` before either will run — off by default, so
+  existing scripts are unaffected unless a guard is configured.
 - Nothing in this driver has been verified against real hardware yet (see
   [`review/known_risks.md`](../review/known_risks.md)). Treat any first
   real-hardware run as a new-instrument acceptance test: verify wiring,

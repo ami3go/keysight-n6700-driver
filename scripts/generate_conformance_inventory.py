@@ -26,6 +26,9 @@ _NOT_DEVICE_FACING = {
     "connect_visa",
     "connect_ethernet",
     "connect_simulated",  # construction shortcuts; connect() itself is device-facing
+    "disable_raw_scpi",  # local ConfirmationGuard bookkeeping, no SCPI traffic
+    "enable_raw_scpi",  # local ConfirmationGuard bookkeeping, no SCPI traffic
+    "set_raw_scpi_guard",  # local ConfirmationGuard bookkeeping, no SCPI traffic
     "export_diagnostics",
     "export_driver_configuration",
     "find_driver_capabilities",

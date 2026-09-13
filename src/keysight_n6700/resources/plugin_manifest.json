@@ -6,7 +6,7 @@
   "display_name": "Keysight/Agilent N6700 modular power system driver",
   "description": "Framework-independent Python driver for Keysight/Agilent N6700-family modular power systems.",
   "distribution_name": "keysight-n6700-driver",
-  "distribution_version": "0.1.0",
+  "distribution_version": "0.2.0",
   "provider": "keysight_n6700.plugin:KeysightN6700Plugin",
   "driver_import_path": "keysight_n6700.driver",
   "driver_class": "keysight_n6700.driver.N6700",

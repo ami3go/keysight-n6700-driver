@@ -22,9 +22,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
+from scpi_driver_core.execution.guards import ConfirmationGuard
+from scpi_driver_core.execution.polling import poll_until
+from scpi_driver_core.execution.retry import RetryPolicy
+from scpi_driver_core.session import ScpiSession
+from scpi_driver_core.tracing.instrumented import InstrumentedTransport
+from scpi_driver_core.tracing.jsonl import JsonlTraceSink
+from scpi_driver_core.tracing.observer import TraceObserver, Tracer
+from scpi_driver_core.tracing.redaction import Redactor
+from scpi_driver_core.transport.base import Transport
+from scpi_driver_core.transport.models import ReplayPolicy
 from scpi_driver_core.transport.tcp import TcpTransport
 from scpi_driver_core.transport.visa import VisaTransport
 
+from ._translate import translated
 from .base import (
     SUPPORT_STATE_PROJECTION,
     BaseInstrument,
@@ -38,6 +49,7 @@ from .configuration import ConfigurationMixin
 from .exceptions import (
     DriverArgumentValueError,
     DriverCommandRejectedError,
+    DriverConfigurationError,
     DriverPreconditionError,
     DriverUnsupportedOperationError,
 )
@@ -66,7 +78,7 @@ _CONNECTED_STATES = frozenset(
 _DRIVER_METADATA = DriverMetadata(
     driver_name="keysight_n6700",
     display_name="Keysight/Agilent N6700 modular power system driver",
-    version="0.1.0",
+    version="0.2.0",
     package_name="keysight-n6700-driver",
     manufacturer="Keysight Technologies",
     supported_models=("N67xx series mainframe", "N673x/N674x/N675x/N676x/N677x", "N678xA"),
@@ -132,6 +144,44 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         self._discovery: dict[str, _AliasDiscovery] = {}
         self.audit_log_path = Path(audit_log_path) if audit_log_path else None
         self._auto_shutdown_on_disconnect = True
+        self._tracers: dict[str, tuple[Tracer, JsonlTraceSink | None]] = {}
+        self._raw_scpi_guard: ConfirmationGuard | None = None
+
+    @capability(
+        "safety.raw_scpi.guard",
+        category="safety",
+        risk_level="low",
+        display_name="Set Raw SCPI Guard",
+        description="Require a confirmation phrase before write_scpi()/query_scpi() will run.",
+    )
+    def set_raw_scpi_guard(self, phrase: str) -> None:
+        """Guard raw SCPI behind a confirmation phrase (scpi_driver_core's ``ConfirmationGuard``).
+
+        Off by default, matching ``write_scpi``/``query_scpi``'s documented
+        safe default of bypassing typed safeguards freely. Call this once
+        during setup to make that bypass deliberate; enable it per call site
+        with :meth:`enable_raw_scpi`.
+        """
+        self._raw_scpi_guard = ConfirmationGuard(phrase, name="raw SCPI")
+
+    def enable_raw_scpi(self, phrase: str) -> None:
+        """Unlock a previously set raw-SCPI guard for subsequent calls.
+
+        Raises:
+            DriverConfigurationError: if no guard was set.
+            DriverUnsafeOperationError: if ``phrase`` does not match.
+        """
+        if self._raw_scpi_guard is None:
+            raise DriverConfigurationError(
+                "no raw SCPI guard is set; call set_raw_scpi_guard() first", code="LPDS-CFG-003"
+            )
+        with translated(operation="enable_raw_scpi"):
+            self._raw_scpi_guard.enable(phrase)
+
+    def disable_raw_scpi(self) -> None:
+        """Re-lock a previously set raw-SCPI guard. No-op if none is set."""
+        if self._raw_scpi_guard is not None:
+            self._raw_scpi_guard.disable()
 
     def set_auto_shutdown_on_disconnect(self, enabled: bool) -> None:
         """Whether :meth:`disconnect`/:meth:`disconnect_all` attempt a safe
@@ -175,21 +225,54 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
 
     # -- LPDS-003 hooks --------------------------------------------------------
 
-    def _build_transport(self, *, resource: str, connection_type: str, **options: Any) -> Any:
+    def _build_transport(
+        self, *, alias: str, resource: str, connection_type: str, **options: Any
+    ) -> Transport:
+        trace = options.pop("protocol_trace", None)
+        redactor: Redactor | None = options.pop("protocol_trace_redactor", None)
+
+        transport: Transport
         if connection_type in {"sim", "simulation", "simulated"}:
-            return build_simulated_transport()
-        if connection_type in {"visa", "usb"}:
+            transport = build_simulated_transport()
+        elif connection_type in {"visa", "usb"}:
             if not resource:
                 raise DriverArgumentValueError("resource must contain a VISA resource string")
-            return VisaTransport(resource)
-        if connection_type in {"ethernet", "socket", "tcp", "tcpip"}:
+            transport = VisaTransport(resource)
+        elif connection_type in {"ethernet", "socket", "tcp", "tcpip"}:
             if not resource:
                 raise DriverArgumentValueError("resource must contain an Ethernet host or IP address")
             port = int(options.get("port", 5025))
-            return TcpTransport(resource, port)
-        raise DriverArgumentValueError(
-            "connection_type must be visa, usb, ethernet/socket, or simulated"
-        )
+            transport = TcpTransport(resource, port)
+        else:
+            raise DriverArgumentValueError(
+                "connection_type must be visa, usb, ethernet/socket, or simulated"
+            )
+
+        if trace is None:
+            return transport
+
+        observer: TraceObserver
+        owned_sink: JsonlTraceSink | None
+        if isinstance(trace, (str, Path)):
+            owned_sink = JsonlTraceSink(trace)
+            observer = owned_sink
+        else:
+            owned_sink = None
+            observer = trace
+        tracer = Tracer(observer, redactor=redactor)
+        self._tracers[alias] = (tracer, owned_sink)
+        return InstrumentedTransport(transport, tracer)
+
+    def _get_tracer(self, alias: str) -> Tracer | None:
+        entry = self._tracers.get(alias)
+        return entry[0] if entry is not None else None
+
+    def _on_disconnected(self, alias: str) -> None:
+        entry = self._tracers.pop(alias, None)
+        if entry is not None:
+            _tracer, owned_sink = entry
+            if owned_sink is not None:
+                owned_sink.close()
 
     def _validate_identity(self, identity: Mapping[str, str]) -> None:
         manufacturer = " ".join(identity["manufacturer"].upper().split())
@@ -236,6 +319,15 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
             reset_on_connect: send ``*RST`` after opening. Defaults to ``False``.
             clear_errors_on_connect: drain the error queue after opening. Defaults to ``False``.
             replace: allow replacing an existing session with the same alias.
+            protocol_trace: a path (or open ``TraceObserver``, such as
+                ``scpi_driver_core.tracing.observer.RecordingTraceObserver``)
+                to record every SCPI write/read at the transport boundary.
+                ``None`` (default) disables tracing. A path is wrapped in a
+                ``JsonlTraceSink`` and closed automatically on disconnect; an
+                observer instance is the caller's to close.
+            protocol_trace_redactor: an optional ``scpi_driver_core.tracing.
+                redaction.Redactor`` (e.g. ``PatternRedactor``) applied to
+                traced payloads before they reach ``protocol_trace``.
 
         Returns:
             The connection-state dict, see :meth:`get_connection_state`.
@@ -246,6 +338,8 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         reset_on_connect = bool(options.pop("reset_on_connect", False))
         clear_errors_on_connect = bool(options.pop("clear_errors_on_connect", False))
         replace = bool(options.pop("replace", False))
+        protocol_trace = options.pop("protocol_trace", None)
+        protocol_trace_redactor = options.pop("protocol_trace_redactor", None)
         if options:
             raise DriverArgumentValueError(f"unknown connect() options: {sorted(options)}")
 
@@ -257,6 +351,8 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
             probe=False,
             timeout_s=timeout_s,
             port=port,
+            protocol_trace=protocol_trace,
+            protocol_trace_redactor=protocol_trace_redactor,
         )
         self._discovery[alias] = _AliasDiscovery()
         if reset_on_connect:
@@ -307,22 +403,61 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
     # -- write/query: the single choke point for instrument I/O -------------
 
     def write_scpi(self, command: str, alias: str | None = None) -> None:
-        """Write a raw SCPI command. Prefer typed methods for normal use."""
+        """Write a raw SCPI command. Prefer typed methods for normal use.
+
+        Rejected with ``DriverUnsafeOperationError`` if :meth:`set_raw_scpi_guard`
+        was called and the guard has not been unlocked with
+        :meth:`enable_raw_scpi`.
+        """
+
+        def action(session: ScpiSession) -> None:
+            if self._raw_scpi_guard is not None:
+                self._raw_scpi_guard.require_enabled()
+            session.client.write(command)
+
         self._execute_operation(
-            "write_scpi",
-            lambda session: session.client.write(command),
-            alias=alias,
-            required_states=_CONNECTED_STATES,
+            "write_scpi", action, alias=alias, required_states=_CONNECTED_STATES
         )
         self._audit("write_scpi", (), {"command": command}, (command,), (), ())
 
-    def query_scpi(self, command: str, alias: str | None = None) -> str:
-        """Send a raw SCPI query and return its response string."""
+    def query_scpi(
+        self,
+        command: str,
+        alias: str | None = None,
+        *,
+        retry_attempts: int = 1,
+        retry_delay_s: float = 0.0,
+    ) -> str:
+        """Send a raw SCPI query and return its response string.
+
+        Rejected with ``DriverUnsafeOperationError`` under the same guard as
+        :meth:`write_scpi`.
+
+        Args:
+            retry_attempts: total attempts, including the first. Values above
+                1 assert that resending ``command`` has no side effect
+                (``ReplayPolicy.SAFE``) and retry a transport failure, per
+                ``scpi_driver_core.execution.retry.RetryPolicy``. Defaults to
+                1: no retry, since most SCPI queries are not safe to assume
+                idempotent without the caller's explicit say.
+            retry_delay_s: pause before the second attempt.
+        """
+        retry_policy = (
+            RetryPolicy(attempts=retry_attempts, initial_delay_s=retry_delay_s)
+            if retry_attempts > 1
+            else None
+        )
+        replay_policy = ReplayPolicy.SAFE if retry_policy is not None else ReplayPolicy.NEVER
+
+        def action(session: ScpiSession) -> str:
+            if self._raw_scpi_guard is not None:
+                self._raw_scpi_guard.require_enabled()
+            return session.client.query(
+                command, replay_policy=replay_policy, retry_policy=retry_policy
+            )
+
         response = self._execute_operation(
-            "query_scpi",
-            lambda session: session.client.query(command),
-            alias=alias,
-            required_states=_CONNECTED_STATES,
+            "query_scpi", action, alias=alias, required_states=_CONNECTED_STATES
         )
         self._audit("query_scpi", (), {"command": command}, (command,), (response,), ())
         return response
@@ -664,6 +799,84 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
     def measure_all(self, alias: str | None = None) -> dict[int, Measurement]:
         key = self._resolve_alias(alias)
         return {ch: self._measure_channel(ch, alias=key) for ch in self._discovery.get(key, _AliasDiscovery()).channels}
+
+    @capability(
+        "measure.voltage.wait_in_range",
+        category="measure",
+        risk_level="none",
+        canonical_method="wait_for_voltage_in_range",
+    )
+    def wait_for_voltage_in_range(
+        self,
+        channel: int,
+        minimum: float,
+        maximum: float,
+        *,
+        timeout_s: float = 10.0,
+        poll_interval_s: float = 0.2,
+        alias: str | None = None,
+    ) -> float:
+        """Poll ``measure_dc_voltage`` until it falls within ``[minimum, maximum]``.
+
+        Bounded by ``scpi_driver_core.execution.polling.poll_until``: raises
+        ``DriverTimeoutError`` if the range is never entered within
+        ``timeout_s``, never blocks longer than that regardless of
+        ``poll_interval_s``.
+
+        Returns:
+            The last measured voltage, which is within range on success.
+        """
+        last = 0.0
+
+        def predicate() -> bool:
+            nonlocal last
+            last = self.measure_dc_voltage(channel, alias=alias)
+            return minimum <= last <= maximum
+
+        with translated(operation="wait_for_voltage_in_range"):
+            poll_until(
+                predicate,
+                timeout_s=timeout_s,
+                interval_s=poll_interval_s,
+                description=f"channel {channel} voltage in [{minimum:.12g}, {maximum:.12g}] V",
+            )
+        return last
+
+    @capability(
+        "measure.current.wait_in_range",
+        category="measure",
+        risk_level="none",
+        canonical_method="wait_for_current_in_range",
+    )
+    def wait_for_current_in_range(
+        self,
+        channel: int,
+        minimum: float,
+        maximum: float,
+        *,
+        timeout_s: float = 10.0,
+        poll_interval_s: float = 0.2,
+        alias: str | None = None,
+    ) -> float:
+        """Poll ``measure_dc_current`` until it falls within ``[minimum, maximum]``.
+
+        See :meth:`wait_for_voltage_in_range`; identical contract for current.
+        """
+        last = 0.0
+
+        def predicate() -> bool:
+            nonlocal last
+            last = self.measure_dc_current(channel, alias=alias)
+            return minimum <= last <= maximum
+
+        with translated(operation="wait_for_current_in_range"):
+            poll_until(
+                predicate,
+                timeout_s=timeout_s,
+                interval_s=poll_interval_s,
+                description=f"channel {channel} current in [{minimum:.12g}, {maximum:.12g}] A",
+            )
+        return last
 
     def _timestamp(self) -> tuple[str, float]:
         ts = time.time()

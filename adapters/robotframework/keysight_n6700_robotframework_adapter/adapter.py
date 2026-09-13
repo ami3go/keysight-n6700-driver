@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import math
 import re
-import time
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
@@ -21,7 +20,7 @@ from typing import Any, cast
 from robot.api import logger
 from robot.api.deco import keyword, library, not_keyword
 
-from keysight_n6700 import N6700
+from keysight_n6700 import N6700, DriverTimeoutError
 
 from .version import __version__
 
@@ -323,6 +322,21 @@ class KeysightN6700Library:
         """Send a raw SCPI query and return its response string."""
         return self._driver.query_scpi(str(command), alias=alias)
 
+    @keyword("Set N6700 Raw SCPI Guard")
+    def set_n6700_raw_scpi_guard(self, phrase: str) -> None:
+        """Require ``phrase`` before ``Write N6700 SCPI``/``Query N6700 SCPI`` will run."""
+        self._driver.set_raw_scpi_guard(str(phrase))
+
+    @keyword("Enable N6700 Raw SCPI")
+    def enable_n6700_raw_scpi(self, phrase: str) -> None:
+        """Unlock a previously set raw-SCPI guard for subsequent keyword calls."""
+        self._driver.enable_raw_scpi(str(phrase))
+
+    @keyword("Disable N6700 Raw SCPI")
+    def disable_n6700_raw_scpi(self) -> None:
+        """Re-lock a previously set raw-SCPI guard."""
+        self._driver.disable_raw_scpi()
+
     @keyword("Clear N6700 Status")
     def clear_n6700_status(self, alias: str | None = None) -> None:
         """Send ``*CLS``."""
@@ -555,23 +569,24 @@ class KeysightN6700Library:
         poll_interval: Any = "200ms",
         alias: str | None = None,
     ) -> float:
-        """Poll voltage until ``minimum <= value <= maximum`` or fail on timeout."""
+        """Poll voltage until ``minimum <= value <= maximum`` or fail on timeout.
+
+        Delegates to :meth:`keysight_n6700.N6700.wait_for_voltage_in_range`,
+        which does the actual bounded polling; this keyword only converts
+        Robot argument strings and the timeout exception.
+        """
         low = _as_float(minimum, name="minimum")
         high = _as_float(maximum, name="maximum")
         if low > high:
             raise ValueError("minimum cannot be greater than maximum")
         timeout_s = _as_seconds(timeout)
         poll_s = _as_seconds(poll_interval, name="poll_interval")
-        deadline = time.monotonic() + timeout_s
-        last = self.measure_n6700_voltage(channel, alias)
-        while not low <= last <= high:
-            if time.monotonic() >= deadline:
-                raise AssertionError(
-                    f"Voltage did not enter range [{low:.12g}, {high:.12g}] within {timeout_s:.3g}s; last value was {last:.12g}"
-                )
-            time.sleep(poll_s)
-            last = self.measure_n6700_voltage(channel, alias)
-        return last
+        try:
+            return self._driver.wait_for_voltage_in_range(
+                _as_channel(channel), low, high, timeout_s=timeout_s, poll_interval_s=poll_s, alias=alias
+            )
+        except DriverTimeoutError as exc:
+            raise AssertionError(str(exc)) from exc
 
     @keyword("Get N6700 Protection Status")
     def get_n6700_protection_status(self, channel: Any, alias: str | None = None) -> dict[str, Any]:

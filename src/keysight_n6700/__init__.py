@@ -18,6 +18,7 @@ from .exceptions import (
     DriverSafetyError,
     DriverStateError,
     DriverTimeoutError,
+    DriverUnsafeOperationError,
     DriverUnsupportedOperationError,
     DriverValidationError,
 )
@@ -50,6 +51,7 @@ __all__ = [
     "DriverSafetyError",
     "DriverStateError",
     "DriverTimeoutError",
+    "DriverUnsafeOperationError",
     "DriverUnsupportedOperationError",
     "DriverValidationError",
     "ElectronicLoadChannel",
