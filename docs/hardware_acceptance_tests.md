@@ -111,16 +111,47 @@ Refuses to run if either channel isn't the discovered type it expects, or if
 either is already energized. Writes every point's requested and measured
 values to `results/hardware_load_sweep/<timestamp>.json`.
 
+## 4. `test_hardware_protocol_conformance.py` — LPDS-019 vectors, for real
+
+LPDS-001 §9 defines `stable` status as "LPDS-019 conformance passes against
+real hardware." The simulator-based suite
+(`tests/conformance/test_driver_call_protocol_conformance.py`) can't be
+pointed at real hardware directly — it asserts exact outbound SCPI text via
+`ScriptedScpiTransport.history`, a simulator-only feature. This module
+realizes the *same* `tests/conformance/data/protocol_vectors.yaml` vectors
+against real hardware instead, using `connect(protocol_trace=
+RecordingTraceObserver())` (LPDS-008 tracing) to capture the real outbound
+bytes at the transport boundary.
+
+| Variable | Meaning |
+|---|---|
+| `N6700_HIL_PROTOCOL_TEST_ENABLED` | must be `true` |
+| `N6700_HIL_PROTOCOL_ALLOW_RESET` | must be `yes` to include the `reset-device` vector (`*RST`, resets every channel) |
+| `N6700_HIL_PROTOCOL_OUTPUT_CONFIRM` | must be `yes` to include the `enable-output` vector (energizes a real output) |
+
+```bash
+N6700_HIL_ENABLED=true N6700_RESOURCE=192.168.1.50 N6700_CONNECTION_TYPE=ethernet \
+N6700_HIL_PROTOCOL_TEST_ENABLED=true \
+  pytest tests/hardware/test_hardware_protocol_conformance.py -v
+```
+
+Vectors that don't apply to real hardware are skipped with a clear reason,
+not silently dropped: `connect-simulated` and `set-load-mode` (simulator-
+only syntax) always skip; `set-smu-mode`/`get-smu-mode` skip if this
+mainframe has no real SMU module installed. Every other vector's channel
+number is remapped from the simulator's default map onto whatever channel
+this mainframe actually has that module type on.
+
 ## What none of these prove
 
-Passing all three is evidence the driver's read-only calls, one basic
-enable/measure/disable cycle, and the power-supply/electronic-load
-interaction work against your specific instrument and wiring — it is not
-the full LPDS-019 conformance suite (that runs against the simulator; see
-[`docs/call_protocol_conformance.md`](call_protocol_conformance.md)) and it
-does not cover SMU priority-mode switching on real SMU hardware,
-protection-trip/clear behavior, or remote/local control, none of which are
-exercised here yet. See [`review/known_risks.md`](../review/known_risks.md).
+Passing all four is real evidence the driver's read-only calls, one basic
+enable/measure/disable cycle, the power-supply/electronic-load interaction,
+and (for the vectors this mainframe's topology supports) LPDS-019
+conformance itself all work against your specific instrument and wiring.
+It does not cover SMU priority-mode switching on real SMU hardware
+(no SMU vector can pass without one installed), protection-trip/clear
+behavior, or remote/local control, none of which are exercised here yet.
+See [`review/known_risks.md`](../review/known_risks.md).
 
 ## What it already found
 

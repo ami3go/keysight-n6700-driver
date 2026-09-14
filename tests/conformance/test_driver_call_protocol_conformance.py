@@ -30,28 +30,12 @@ import pytest
 from keysight_n6700 import exceptions as n6700_exceptions
 from keysight_n6700.driver import N6700
 
-from .conftest import ConformanceDriver, load_yaml
+from .checks import check_return, load_yaml
+from .conftest import ConformanceDriver
 
 INVENTORY = load_yaml("method_inventory.yaml")
 VECTORS = load_yaml("protocol_vectors.yaml")["vectors"]
 EXCLUSIONS = load_yaml("exclusions.yaml")["exclusions"]
-
-_TYPE_NAMES = {
-    "str": str,
-    "int": int,
-    "float": float,
-    "bool": bool,
-    "dict": dict,
-    "list": list,
-    "NoneType": type(None),
-}
-
-
-def _check_type(value: Any, expected: str) -> None:
-    if expected in _TYPE_NAMES:
-        assert isinstance(value, _TYPE_NAMES[expected]), f"expected {expected}, got {type(value)!r}"
-    else:
-        assert type(value).__name__ == expected, f"expected {expected}, got {type(value).__name__!r}"
 
 
 def _apply_preconditions(conformance_driver: ConformanceDriver, preconditions: list[str]) -> None:
@@ -109,18 +93,7 @@ def test_protocol_vector(conformance_driver: ConformanceDriver, vector: dict[str
         f"expected {expected_command!r} in outbound history, got {current_transport.history}"
     )
 
-    expected_return = vector.get("expected_return")
-    if expected_return:
-        _check_type(result, expected_return["type"])
-        if "equals" in expected_return:
-            assert result == expected_return["equals"]
-        if "contains" in expected_return:
-            assert expected_return["contains"] in result
-        if "one_of" in expected_return:
-            assert result in expected_return["one_of"]
-        if "field_equals" in expected_return:
-            for field, value in expected_return["field_equals"].items():
-                assert result[field] == value, f"{field}: expected {value!r}, got {result[field]!r}"
+    check_return(result, vector.get("expected_return"))
 
     for cleanup in vector.get("cleanup", []):
         getattr(driver, cleanup["method"])(**cleanup["arguments"])

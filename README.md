@@ -11,11 +11,12 @@ power systems, with an optional Robot Framework adapter.
   `keysight_n6700.module_capabilities.LOAD_PREFIXES`.
 - **Transports**: VISA (USB/LAN/GPIB via PyVISA), raw TCP/SCPI (port 5025),
   and a built-in no-hardware simulator.
-- **Status**: `untested` (LPDS-001 §9) — the driver has been run against
-  real hardware (a power-supply channel and an N6791A load, see below), but
-  not enough of the surface (no real SMU, no protection-trip, no
-  remote/local) to call it `stable`. Unit tests and the LPDS-019
-  protocol-conformance suite pass against the simulator regardless. See
+- **Status**: `untested` (LPDS-001 §9) — LPDS-019 protocol conformance now
+  passes against real hardware too (18/24 vectors; the rest need a real SMU
+  module or are simulator-only by design, see below), which is the specific
+  bar LPDS-001 §9 sets for `stable`. It isn't called `stable` yet because
+  that evidence only covers the power-supply/electronic-load path — no real
+  SMU, no protection-trip, no remote/local control have been exercised. See
   [`review/known_risks.md`](review/known_risks.md).
 
 ## Why this repo exists
@@ -89,11 +90,11 @@ device logic.
 - [`ai/ai_contract.yaml`](ai/ai_contract.yaml) — the LPDS-017 AI-facing
   contract: mental model, state machine, safety rules, error catalogue.
 - [`tests/conformance/`](tests/conformance/) — the LPDS-019 call/protocol
-  conformance suite.
+  conformance suite (simulator).
 - [`scripts/run_hardware_self_check.py`](scripts/run_hardware_self_check.py) /
-  [`tests/hardware/`](tests/hardware/) — read-only, guarded-output-test, and
-  PS-to-load sweep checks against real hardware; see
-  [`docs/hardware_acceptance_tests.md`](docs/hardware_acceptance_tests.md).
+  [`tests/hardware/`](tests/hardware/) — read-only, guarded-output-test,
+  PS-to-load sweep, and LPDS-019 conformance checks against real hardware;
+  see [`docs/hardware_acceptance_tests.md`](docs/hardware_acceptance_tests.md).
 - [`review/known_risks.md`](review/known_risks.md) — honest scope decisions
   and deferred work for this first release.
 
@@ -128,11 +129,24 @@ closed-loop test.
 
 All of this ran under a hard, independent voltage/current safety envelope
 (never approached) and a guaranteed-shutdown discipline (both channels
-verified off after every phase, regardless of outcome). This is real
-evidence for the driver's power-supply and N679xA electronic-load command
-paths specifically; a real SMU module, protection-trip/clear behavior, and
-remote/local control remain simulator-only. See
-[`review/known_risks.md`](review/known_risks.md) and
+verified off after every phase, regardless of outcome).
+
+- **LPDS-019 conformance, against real hardware** (`tests/hardware/
+  test_hardware_protocol_conformance.py`) — LPDS-001 §9 defines `stable`
+  status as this suite passing against real hardware specifically, which
+  the simulator-only suite can't itself prove. This module captures real
+  outbound SCPI via `connect(protocol_trace=...)` (LPDS-008 tracing) and
+  checks it against the same `protocol_vectors.yaml` vectors the simulator
+  suite uses. Result: **18/24 vectors passed** (19 including
+  `enable-output`, which needs its own explicit confirmation). The other 5:
+  2 are permanently simulator-only by design, 2 need a real SMU module this
+  bench doesn't have, and 1 (`*RST`, resets every channel) is deliberately
+  opt-in and wasn't exercised.
+
+This is real evidence for the driver's power-supply and N679xA
+electronic-load command paths specifically; a real SMU module,
+protection-trip/clear behavior, and remote/local control remain
+simulator-only. See [`review/known_risks.md`](review/known_risks.md) and
 [`docs/hardware_acceptance_tests.md`](docs/hardware_acceptance_tests.md)
 for the full detail and how to reproduce or extend this on your own
 hardware.

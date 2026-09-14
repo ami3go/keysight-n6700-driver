@@ -107,12 +107,45 @@ previously confirmed against real hardware) — all 12 tests in
 `tests/hardware/test_hardware_acceptance.py` passed. Final state confirmed
 independently afterward: both channels off, error queue empty.
 
-Everything else remains simulator-only. Driver status remains `untested`
-(LPDS-001 §9), not `stable`. Before calling it `stable`:
+**Update 2026-09-14 (LPDS-019 conformance realized against real hardware):**
+LPDS-001 §9 defines `stable` status specifically as "LPDS-019 conformance
+passes against real hardware." Until now that was structurally impossible
+to satisfy: `tests/conformance/test_driver_call_protocol_conformance.py`
+asserts the exact outbound SCPI text via `ScriptedScpiTransport.history`, a
+simulator-only recording feature no real VISA/TCP transport exposes.
+`tests/hardware/test_hardware_protocol_conformance.py` closes this by
+realizing the same `protocol_vectors.yaml` vectors against real hardware
+using `connect(protocol_trace=RecordingTraceObserver())` — the LPDS-008
+tracing mechanism — as the source of outbound history instead. Run against
+the real N6700C: **18 of 24 vectors passed** (and a 19th, `enable-output`,
+passes when its explicit output-energizing confirmation is given). The
+remaining 5: 2 are permanently simulator-only by design (`connect-simulated`,
+and `set-load-mode`'s `SIM:LOAD:*` placeholder syntax — real N679xA load
+conformance is covered by `test_hardware_load_sweep.py` instead), 2 need a
+real SMU module this mainframe doesn't have, and 1 (`reset-device`, `*RST`)
+is gated behind its own explicit signal and was not exercised this run —
+resetting the whole instrument wasn't asked for, so it wasn't done.
 
-- Repeat the read-only run against a mainframe with a genuine SMU module
-  (`N678x`) installed — the one run so far had none, so `get_smu_mode`/SMU
-  priority-mode switching remain simulator-only for the write path.
+This run also surfaced two real, vector-specific findings, both fixed in
+the real-hardware test rather than the driver (neither is a driver bug):
+`get_identity()`'s manufacturer string is `"Keysight Technologies"` (title
+case) on real hardware vs. the simulator's `"KEYSIGHT TECHNOLOGIES"`
+(uppercase) — the driver's own manufacturer check already normalizes case
+(`driver.py`'s `_validate_identity`), so the real-hardware test now does
+too. And `channel_count()`'s vector expects `4` (the simulator's fixed
+fixture topology) but a real mainframe reports however many modules are
+actually installed (`2`, here) — checked for type/positivity on real
+hardware, not exact equality.
+
+Driver status remains `untested` (LPDS-001 §9), not `stable` — real LPDS-019
+conformance evidence now exists for the power-supply/electronic-load path,
+but not yet for a real SMU, and the remaining items below are still open.
+Before calling it `stable`:
+
+- Repeat the read-only run *and* the LPDS-019 conformance run against a
+  mainframe with a genuine SMU module (`N678x`) installed — the one run so
+  far had none, so `get_smu_mode`/SMU priority-mode switching remain
+  simulator-only for the write path, and 2 of the 24 vectors stay skipped.
 - Verify `get_remote_state`/`set_remote_state`/`remote_lockout`, which are
   currently gated to the simulator transport only (see `docs/troubleshooting.md`)
   because real N6700 remote/local SCPI behavior has not been checked.
@@ -170,6 +203,12 @@ protocol shape as an already-vectored method," a few: "planned for the next
 conformance pass"). `test_every_device_facing_method_has_a_vector_or_exclusion`
 enforces that this list cannot silently rot — a newly added device-facing
 method fails CI until it gets a vector or an exclusion entry.
+
+The same 24 vectors are now also realized against real hardware by
+`tests/hardware/test_hardware_protocol_conformance.py` (see the hardware
+section above) — the two suites share their pass/fail logic
+(`tests/conformance/checks.py`) so "what it means for a vector to pass"
+cannot silently diverge between the simulator and real-hardware runs.
 
 ## LPDS-015 plugin/adapter packaging: one distribution, not two
 

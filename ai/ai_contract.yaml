@@ -3,7 +3,7 @@ identity:
   plugin_id: keysight.n6700
   driver_name: keysight_n6700
   distribution_name: keysight-n6700-driver
-  distribution_version: 0.4.0
+  distribution_version: 0.5.0
   driver_import_path: keysight_n6700.driver
   driver_class: keysight_n6700.driver.N6700
   supported_models:

@@ -3,6 +3,24 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.5.0 — 2026-09-14
+
+LPDS-001 §9 defines `stable` status as "LPDS-019 conformance passes against
+real hardware" — the simulator-based suite couldn't itself prove that,
+since it asserts exact outbound SCPI text via a simulator-only transport
+feature. Added `tests/hardware/test_hardware_protocol_conformance.py`,
+which realizes the same `protocol_vectors.yaml` vectors against real
+hardware using LPDS-008 protocol tracing as the source of outbound history
+instead. Run against a real N6700C: 18/24 vectors passed (19 including
+`enable-output`, gated behind its own confirmation); the rest are
+permanently simulator-only, need a real SMU module, or (`*RST`) are
+deliberately opt-in and weren't exercised. Surfaced two vector-specific,
+non-driver findings along the way: the real manufacturer string's casing
+differs from the simulator's, and `channel_count()`'s expected value is the
+simulator's fixed fixture topology, not a real property. Extracted
+`tests/conformance/checks.py` so the simulator and real-hardware suites
+share the same pass/fail logic. No driver source changed.
+
 ## v0.4.0 — 2026-09-14
 
 Reading the official Keysight N6705C User's Guide / Programmer's Reference
