@@ -3,12 +3,12 @@ identity:
   plugin_id: keysight.n6700
   driver_name: keysight_n6700
   distribution_name: keysight-n6700-driver
-  distribution_version: 0.3.0
+  distribution_version: 0.3.1
   driver_import_path: keysight_n6700.driver
   driver_class: keysight_n6700.driver.N6700
   supported_models:
   - N67xx series mainframe
-  - N673x/N674x/N675x/N676x/N677x
+  - N673x/N674x/N675x/N676x/N677x/N679x
   - N678xA
 mental_model:
   summary: One N6700 mainframe session exposes up to four independently addressed module channels. Installed

@@ -3,6 +3,25 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.3.1 — 2026-09-14
+
+First real-hardware run: `scripts/run_hardware_self_check.py`'s read-only
+checks passed 43/43 against a real N6700C mainframe. Two real findings
+from that run, both fixed:
+
+- Fixed: the script's/`tests/hardware`'s default communication timeout was
+  5s (the transport's own default), too short for `*TST?` on real hardware
+  (~5.4s here). Both now default to 15s (`--timeout-s`/`N6700_TIMEOUT_S`).
+- Fixed: `module_capabilities.classify_module()` didn't recognize the
+  `N679x` module family. Confirmed against real hardware that `N6791A`
+  answers `VOLT?`/`CURR?`/`MEAS:VOLT?`/`MEAS:CURR?`/`OUTP?` correctly but
+  never replies to `FUNC:MODE?` (times out and faults the connection
+  instead of erroring) — classified as `power_supply`, not `smu`, so that
+  query is never sent to this family.
+- Known limitation still open: the guarded output test has not been run
+  against real hardware yet, and no run so far has included a genuine SMU
+  or electronic-load module. See [`review/known_risks.md`](review/known_risks.md).
+
 ## v0.3.0 — 2026-09-14
 
 - Added: `scripts/run_hardware_self_check.py` — a standalone script that

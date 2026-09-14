@@ -24,6 +24,10 @@ HIL_ENABLED = _truthy(os.environ.get("N6700_HIL_ENABLED"))
 RESOURCE = os.environ.get("N6700_RESOURCE")
 CONNECTION_TYPE = os.environ.get("N6700_CONNECTION_TYPE", "visa")
 PORT = int(os.environ.get("N6700_PORT", "5025"))
+# The transport's own default (5s) is marginal for *TST? on real hardware --
+# confirmed against a real N6700C, self-test took ~5.4s. See
+# scripts/run_hardware_self_check.py's --timeout-s default for the same fix.
+TIMEOUT_S = float(os.environ.get("N6700_TIMEOUT_S", "15.0"))
 
 
 @pytest.fixture(autouse=True, scope="package")
@@ -38,7 +42,9 @@ def _require_hil() -> None:
 @pytest.fixture(scope="module")
 def hardware_driver() -> Iterator[N6700]:
     drv = N6700()
-    drv.connect(RESOURCE or "", connection_type=CONNECTION_TYPE, port=PORT, discover=True)
+    drv.connect(
+        RESOURCE or "", connection_type=CONNECTION_TYPE, port=PORT, timeout_s=TIMEOUT_S, discover=True
+    )
     try:
         yield drv
     finally:

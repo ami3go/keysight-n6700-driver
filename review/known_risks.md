@@ -7,33 +7,44 @@ team would add is listed here explicitly, per LPDS-001 §32's allowance for a
 solo/small-team project to document a gap honestly rather than fake
 compliance or silently drop it.
 
-## No real hardware has touched this driver
+## Real hardware: one read-only run done, most of the surface still untouched
 
-Every test in this repository still runs against the bundled simulator
-(`keysight_n6700.simulator`) or pure Python — that part of this gap is
-unchanged, and cannot be closed without a physical instrument. What *has*
-been added is the tooling to close it the moment one is available:
-`scripts/run_hardware_self_check.py` (a standalone script exercising the
-full read-only API plus one guarded output test, producing a JSON/Markdown
-report) and `tests/hardware/` (the same coverage as individually-reported
-pytest tests), both gated behind explicit environment variables/flags with
-no default resource and no silent fallback to the simulator — see
-`docs/hardware_acceptance_tests.md`. Neither has actually been run against
-hardware yet, so driver status remains `untested` (LPDS-001 §9), not
+Updated 2026-09-14: `scripts/run_hardware_self_check.py`'s read-only checks
+have now actually been run against a real N6700C mainframe (192.168.0.6,
+firmware E.02.09.3271, channel 1 a power-supply-family module, channel 2 an
+`N6791A`) — 43/43 passed. This is the first real-hardware contact this
+driver has had. It immediately found two real things the simulator could
+not have:
+
+1. The default communication timeout (5s, the transport's own default) is
+   too short for `*TST?` on real hardware (~5.4s here), which faulted the
+   connection and cascaded into every later check failing. Fixed: both the
+   script's `--timeout-s` and `tests/hardware`'s `N6700_TIMEOUT_S` now
+   default to 15s instead of the transport default.
+2. `N6791A` (channel 2) answers `VOLT?`/`CURR?`/`MEAS:VOLT?`/`MEAS:CURR?`/
+   `OUTP?` correctly but never replies at all to `FUNC:MODE?` — it times
+   out and faults the connection rather than erroring. `classify_module()`
+   didn't recognize the `N679x` prefix at all before this (fell to
+   `unknown`, correctly skipping typed queries rather than guessing); it's
+   now classified as `power_supply`, specifically *not* `smu`, so
+   `FUNC:MODE?` is never sent to this family. See
+   `tests/unit/test_module_capabilities.py`.
+
+Everything else remains simulator-only, and the *guarded output test*
+specifically has still never been run against real hardware (it requires a
+human to supply and confirm channel/voltage/current-limit, which hasn't
+happened yet). Driver status remains `untested` (LPDS-001 §9), not
 `stable`. Before calling it `stable`:
 
-- Actually run both of the above against a real N6700 mainframe with at
-  least one power-supply and one SMU module installed, and fix whatever
-  they find.
-- Verify `discover_modules()`'s `SYST:CHAN:MOD?`/`OPT?`/`SER?` parsing against
-  real module identification strings — the simulator's are illustrative, not
-  copied from a real instrument's exact reply format.
+- Run the guarded output test for real, on a channel/voltage/current-limit
+  someone has actually reviewed against the wiring.
+- Repeat the read-only run against a mainframe with a genuine SMU module
+  (`N678x`) installed — the one run so far had none, so `get_smu_mode`/SMU
+  priority-mode switching remain simulator-only. Same for electronic-load
+  modules and protection-trip/clear behavior.
 - Verify `get_remote_state`/`set_remote_state`/`remote_lockout`, which are
   currently gated to the simulator transport only (see `docs/troubleshooting.md`)
   because real N6700 remote/local SCPI behavior has not been checked.
-- Extend hardware coverage to electronic-load modules, SMU priority-mode
-  switching, and protection-trip/clear behavior, none of which
-  `tests/hardware/`/`run_hardware_self_check.py` exercise yet.
 - Complete the full LPDS-010 review checklist's Domain J (hardware
   qualification, performance, compatibility), which is entirely
   hardware-dependent and not attempted here.

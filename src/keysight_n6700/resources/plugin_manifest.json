@@ -6,14 +6,14 @@
   "display_name": "Keysight/Agilent N6700 modular power system driver",
   "description": "Framework-independent Python driver for Keysight/Agilent N6700-family modular power systems.",
   "distribution_name": "keysight-n6700-driver",
-  "distribution_version": "0.3.0",
+  "distribution_version": "0.3.1",
   "provider": "keysight_n6700.plugin:KeysightN6700Plugin",
   "driver_import_path": "keysight_n6700.driver",
   "driver_class": "keysight_n6700.driver.N6700",
   "supported_device_families": ["N6700 modular power system mainframes"],
   "supported_models": [
     "N6700B", "N6701A", "N6702A", "N6705B", "N6705C",
-    "N673x", "N674x", "N675x", "N676x", "N677x", "N678xA"
+    "N673x", "N674x", "N675x", "N676x", "N677x", "N678xA", "N679x"
   ],
   "supported_transports": ["visa", "usb", "ethernet_socket", "simulated"],
   "capability_descriptor": "capability/capability_model.yaml",

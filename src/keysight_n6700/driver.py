@@ -78,10 +78,10 @@ _CONNECTED_STATES = frozenset(
 _DRIVER_METADATA = DriverMetadata(
     driver_name="keysight_n6700",
     display_name="Keysight/Agilent N6700 modular power system driver",
-    version="0.3.0",
+    version="0.3.1",
     package_name="keysight-n6700-driver",
     manufacturer="Keysight Technologies",
-    supported_models=("N67xx series mainframe", "N673x/N674x/N675x/N676x/N677x", "N678xA"),
+    supported_models=("N67xx series mainframe", "N673x/N674x/N675x/N676x/N677x/N679x", "N678xA"),
     supported_transport_profiles=("visa", "usb", "ethernet_socket", "simulated"),
 )
 

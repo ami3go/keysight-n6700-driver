@@ -34,8 +34,15 @@ class ChannelCapabilities:
     verified_real_load_commands: bool = False
 
 
-POWER_PREFIXES = ("N673", "N674", "N675", "N676", "N677")
+POWER_PREFIXES = ("N673", "N674", "N675", "N676", "N677", "N679")
 SMU_PREFIXES = ("N678",)
+# N679x (found on real hardware: N6791A) responds correctly to VOLT?/CURR?/
+# MEAS:VOLT?/MEAS:CURR?/OUTP? like any power-supply channel, but FUNC:MODE?
+# — the SMU voltage/current-priority-mode query — does not just error, it
+# never replies at all and faults the transport. Classifying it as
+# power_supply (not smu) is what keeps the driver from ever sending that
+# query to this family. Confirmed 2026-09-14 against a real N6700C
+# mainframe; see review/known_risks.md.
 
 # Deliberately empty for real hardware until official load docs are added.
 VERIFIED_LOAD_MODELS: dict[str, dict[str, object]] = {}

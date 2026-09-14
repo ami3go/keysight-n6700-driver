@@ -310,7 +310,16 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--resource", required=True, help="VISA resource string, or host/IP for --connection-type ethernet")
     parser.add_argument("--connection-type", default="visa", choices=["visa", "usb", "ethernet", "socket"])
     parser.add_argument("--port", type=int, default=5025, help="TCP port for ethernet/socket (default 5025)")
-    parser.add_argument("--timeout-s", type=float, default=None, help="communication timeout")
+    parser.add_argument(
+        "--timeout-s",
+        type=float,
+        default=15.0,
+        help=(
+            "communication timeout (default 15s). The transport's own default "
+            "is 5s, which is marginal for *TST? on real hardware -- confirmed "
+            "against a real N6700C, self-test took ~5.4s"
+        ),
+    )
     parser.add_argument("--results-dir", type=Path, default=REPO_ROOT / "results" / "hardware_self_check")
 
     output = parser.add_argument_group("guarded output test (all four required together)")

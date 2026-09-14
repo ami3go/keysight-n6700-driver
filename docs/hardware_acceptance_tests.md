@@ -24,6 +24,11 @@ python scripts/run_hardware_self_check.py --resource "USB0::0x0957::0x0907::MY43
 python scripts/run_hardware_self_check.py --resource 192.168.1.50 --connection-type ethernet
 ```
 
+`--timeout-s` defaults to 15s, not the transport's own 5s default: on a real
+N6700C, `*TST?` alone took ~5.4s, which faulted the connection under the
+transport default and failed every check after it. Raise `--timeout-s`
+further if your instrument's self-test takes longer.
+
 Add the guarded output test with `--output-test` plus all three of
 `--output-channel`, `--output-voltage`, and `--output-current-limit` — no
 defaults exist for these, so you must type the exact values you intend.
@@ -54,6 +59,7 @@ IDE/CI "run all tests" button can accidentally reach real hardware:
 | `N6700_RESOURCE` | any hardware test | VISA resource string, or host/IP for `ethernet` |
 | `N6700_CONNECTION_TYPE` | optional | `visa` (default), `usb`, `ethernet`, `socket` |
 | `N6700_PORT` | ethernet/socket only | default `5025` |
+| `N6700_TIMEOUT_S` | optional | default `15.0`; see the `--timeout-s` note above |
 | `N6700_HIL_OUTPUT_TEST_ENABLED` | guarded output test | must be `true` |
 | `N6700_HIL_OUTPUT_CHANNEL` | guarded output test | channel number, no default |
 | `N6700_HIL_OUTPUT_VOLTAGE` | guarded output test | volts, no default |
@@ -84,3 +90,15 @@ the simulator; see [`docs/call_protocol_conformance.md`](call_protocol_conforman
 and it does not cover electronic-load modules, SMU priority-mode switching,
 protection-trip/clear behavior, or remote/local control, none of which are
 exercised here yet. See [`review/known_risks.md`](../review/known_risks.md).
+
+## What it already found
+
+The read-only script has been run against one real N6700C (2 channels:
+N6751A-family + N6791A) and, after the timeout fix above, passed all 43
+checks. It also found a real classification gap the simulator could never
+have surfaced: `N6791A` answers `VOLT?`/`CURR?`/`MEAS:VOLT?`/`MEAS:CURR?`/
+`OUTP?` correctly but never replies at all to `FUNC:MODE?` (the SMU
+priority-mode query) — it times out and faults the connection rather than
+returning a SCPI error. `module_capabilities.py`'s `POWER_PREFIXES` now
+includes `N679x` specifically so the driver never sends that query to this
+family. See `tests/unit/test_module_capabilities.py`.
