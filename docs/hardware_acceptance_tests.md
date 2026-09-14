@@ -1,7 +1,7 @@
 # Hardware acceptance testing
 
 Everything else in this repository runs against the bundled simulator. These
-are the only two things that talk to a real N6700. Neither runs unless you
+are the only things that talk to a real N6700. None of them run unless you
 explicitly enable it — there is no default resource and no silent fallback
 to the simulator.
 
@@ -81,15 +81,46 @@ Without `N6700_HIL_ENABLED`/`N6700_RESOURCE`, every test under
 `tests/hardware/` skips with a message explaining why (`tests/hardware/
 conftest.py`) — `pytest` with no arguments never touches hardware.
 
-## What neither of these proves
+## 3. `test_hardware_load_sweep.py` — PS-to-load 100-point sweep
 
-Passing both is evidence the driver's read-only calls and one basic
-enable/measure/disable cycle work against your specific instrument and
-wiring — it is not the full LPDS-019 conformance suite (that runs against
-the simulator; see [`docs/call_protocol_conformance.md`](call_protocol_conformance.md))
-and it does not cover SMU priority-mode switching or protection-trip/clear
-behavior or remote/local control, none of which are exercised here yet.
-See [`review/known_risks.md`](../review/known_risks.md).
+A power-supply/SMU channel physically wired into an electronic-load
+channel's input, both energized together across 100 points (4 phases × 25):
+the supply's CV region, its CC (current-limiting) crossover, the load's CR
+mode, and the load's CV (voltage-priority) mode. Unlike the guarded output
+test, this does not take caller-supplied voltage/current — every setpoint
+(2V–20V, 0.2A–2A) is fixed and already reviewed, because the safe envelope
+depends on both channels' ratings interacting, not just one. A hard 20V/2A
+safety cap, independent of any phase's expectation, aborts and shuts down
+immediately if ever approached.
+
+| Variable | Meaning |
+|---|---|
+| `N6700_HIL_SWEEP_TEST_ENABLED` | must be `true` |
+| `N6700_HIL_SWEEP_PS_CHANNEL` | the power-supply/SMU channel number, no default |
+| `N6700_HIL_SWEEP_LOAD_CHANNEL` | the electronic-load channel number, no default |
+| `N6700_HIL_SWEEP_CONFIRM` | must be `yes` — attests the PS channel's output is physically wired to the load channel's input, correct polarity, both otherwise disconnected |
+
+```bash
+N6700_HIL_ENABLED=true N6700_RESOURCE=192.168.1.50 N6700_CONNECTION_TYPE=ethernet \
+N6700_HIL_SWEEP_TEST_ENABLED=true N6700_HIL_SWEEP_PS_CHANNEL=1 N6700_HIL_SWEEP_LOAD_CHANNEL=2 \
+N6700_HIL_SWEEP_CONFIRM=yes \
+  pytest tests/hardware/test_hardware_load_sweep.py -v
+```
+
+Refuses to run if either channel isn't the discovered type it expects, or if
+either is already energized. Writes every point's requested and measured
+values to `results/hardware_load_sweep/<timestamp>.json`.
+
+## What none of these prove
+
+Passing all three is evidence the driver's read-only calls, one basic
+enable/measure/disable cycle, and the power-supply/electronic-load
+interaction work against your specific instrument and wiring — it is not
+the full LPDS-019 conformance suite (that runs against the simulator; see
+[`docs/call_protocol_conformance.md`](call_protocol_conformance.md)) and it
+does not cover SMU priority-mode switching on real SMU hardware,
+protection-trip/clear behavior, or remote/local control, none of which are
+exercised here yet. See [`review/known_risks.md`](../review/known_risks.md).
 
 ## What it already found
 
@@ -120,6 +151,16 @@ current priority at 1.0A (`FUNC CURR,(@2)`, `CURR 1,(@2)`), then both
 enabled (`OUTP ON,(@1)`, `OUTP ON,(@2)`). Result: channel 1 measured
 11.98V/0.9996A, channel 2 measured 11.98V/0.9998A — the load sank the
 commanded 1A, matching the supply's delivered current, with no SCPI errors
-and both channels confirmed off after shutdown. This was run as a one-off
-script, not yet added as a permanent `tests/hardware` test — see
-[`review/known_risks.md`](../review/known_risks.md).
+and both channels confirmed off after shutdown.
+
+**Then a 100-point sweep across all four modes**, using the same wiring
+(`test_hardware_load_sweep.py`, section 3 above): the supply's voltage
+setpoint tracked to within millivolts across its full CV region; at the
+programmed 1.0A current limit, the supply crossed sharply into CC mode
+(current pinned at ~1.00A, voltage collapsing to ~0.07V); the load's CR
+mode matched Ohm's law (I ≈ V/R) to within ~0.3% at every point; and the
+load's CV (voltage-priority) mode stayed inactive whenever its target was
+above the bus voltage and clamped correctly at its own `CURR:LIM` once
+active. Zero envelope violations, zero SCPI errors, across all 100 points.
+See [`review/known_risks.md`](../review/known_risks.md) for the full
+per-phase breakdown.

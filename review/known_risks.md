@@ -62,6 +62,40 @@ errors at any point; both channels confirmed OFF after shutdown. This
 confirms the entire real N679xA command path this release added: `FUNC`
 (priority mode), `CURR` (level), and `OUTP` (input on/off).
 
+**Update 2026-09-14 (100-point CV/CC/CR/load-CV sweep):** a much more
+thorough real-hardware run followed the single-point write-path check
+above, still with channel 1 (`N6775A`) wired into channel 2 (`N6791A`)'s
+load input, capped by a hard 20V/2A safety envelope (independent of any
+per-phase expectation — an immediate abort-and-shutdown trigger, never
+reached). 100 points across 4 phases, 25 each:
+
+1. **PS CV region** — load held at a fixed 0.2A while the supply's voltage
+   setpoint was swept 2V→20V. Supply voltage tracked its setpoint to within
+   millivolts at every point; load current stayed at 0.2A throughout.
+2. **PS CC crossover** — supply fixed at 20V/1.0A limit, load's current
+   setpoint swept 0.2A→1.8A. Below 1.0A: bus held at 20V, current tracked
+   the load's setpoint exactly (CV region). At/above 1.0A: supply current
+   pinned at 1.000–1.002A and its voltage collapsed to ~0.07V — a sharp,
+   correct CC crossover exactly at the programmed limit.
+3. **Load CR mode** — fixed 20Ω, supply voltage swept 2V→20V. Measured load
+   current matched V/R (Ohm's law) to within ~0.3% at every point.
+4. **Load CV (voltage-priority) mode** — supply fixed at 15V/1.0A limit,
+   load's own `CURR:LIM` set to 1.0A, load's voltage target swept
+   20V→2V. Load stayed inactive (~0A) for every target at or above the bus
+   voltage, and clamped at its 1.0A `CURR:LIM` the instant the target
+   dropped below it — since the load's `CURR:LIM` and the supply's own
+   current limit were both 1.0A, the two loops coupled and the bus voltage
+   tracked the falling target rather than settling on a plateau (correct,
+   expected behavior given equal limits on both sides, not a bug).
+
+All 100 points passed with zero envelope violations and zero SCPI errors;
+both channels confirmed OFF after every phase's guaranteed shutdown. This
+is the strongest real-hardware evidence so far for the entire N679xA write
+path plus the supply's CV/CC crossover behavior. Implemented as
+`tests/hardware/test_hardware_load_sweep.py`
+(`test_ps_to_load_cv_cc_cr_sweep`), gated behind its own explicit signals —
+see [`docs/hardware_acceptance_tests.md`](../docs/hardware_acceptance_tests.md).
+
 Everything else remains simulator-only, and the *guarded output test* in
 `tests/hardware/test_hardware_acceptance.py` (channel 1 alone, no load
 attached) specifically has still never been run against real hardware.
@@ -70,14 +104,11 @@ calling it `stable`:
 
 - Run the standalone guarded output test (`test_guarded_output_enable_
   measure_disable`) for real, on a channel/voltage/current-limit someone
-  has actually reviewed against the wiring — the write-path run above used
-  a separate, ad hoc script, not this test.
+  has actually reviewed against the wiring — the write-path and sweep runs
+  above used separate tests, not this one.
 - Repeat the read-only run against a mainframe with a genuine SMU module
   (`N678x`) installed — the one run so far had none, so `get_smu_mode`/SMU
   priority-mode switching remain simulator-only for the write path.
-- Add the PS-to-load write-path test above as a permanent, safety-gated
-  `tests/hardware` test (it currently only exists as a one-off script) so
-  it's repeatable rather than a one-time manual run.
 - Verify `get_remote_state`/`set_remote_state`/`remote_lockout`, which are
   currently gated to the simulator transport only (see `docs/troubleshooting.md`)
   because real N6700 remote/local SCPI behavior has not been checked.
