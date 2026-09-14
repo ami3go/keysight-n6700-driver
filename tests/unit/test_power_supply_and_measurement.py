@@ -53,6 +53,15 @@ def test_smu_channel_voltage_priority(driver) -> None:
     assert smu.get_voltage_setpoint() == pytest.approx(3.3)
 
 
+def test_smu_channel_current_priority(driver) -> None:
+    # Regression: set_smu_mode/get_smu_mode use plain FUNC, not FUNC:MODE,
+    # which is not a valid N6700 command for any module family.
+    smu = driver.smu(2)
+    smu.configure_current_priority(0.1, 5.0, output=False)
+    assert smu.get_smu_mode() == "current"
+    assert smu.get_current_setpoint() == pytest.approx(0.1)
+
+
 def test_load_channel_cc_mode(driver) -> None:
     load = driver.load(3)
     load.configure_cc(0.5, input_on=True)

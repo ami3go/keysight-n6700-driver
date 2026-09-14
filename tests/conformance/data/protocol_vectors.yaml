@@ -126,14 +126,14 @@ vectors:
     method: set_smu_mode
     arguments: { channel: 2, mode: voltage }
     preconditions: [connected]
-    expected_outbound: { operation: write, command: "FUNC:MODE VOLT,(@2)" }
+    expected_outbound: { operation: write, command: "FUNC VOLT,(@2)" }
     expected_return: { type: "NoneType" }
 
   - id: get-smu-mode
     method: get_smu_mode
     arguments: { channel: 2 }
     preconditions: [connected]
-    expected_outbound: { operation: query, command: "FUNC:MODE? (@2)" }
+    expected_outbound: { operation: query, command: "FUNC? (@2)" }
     expected_return: { type: str, one_of: [voltage, current] }
 
   - id: set-load-mode

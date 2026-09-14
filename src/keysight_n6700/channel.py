@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, Protocol
+from typing import ClassVar, Literal, Protocol
 
 from .exceptions import DriverUnsupportedOperationError
 from .module_capabilities import ChannelCapabilities
@@ -214,11 +214,11 @@ class SMUChannel(PowerSupplyChannel):
     def set_smu_mode(self, mode: Literal["voltage", "current"]) -> None:
         self._require_smu()
         scpi_mode = "VOLT" if mode == "voltage" else "CURR"
-        self._write(f"FUNC:MODE {scpi_mode},{self._chan}")
+        self._write(f"FUNC {scpi_mode},{self._chan}")
 
     def get_smu_mode(self) -> Literal["voltage", "current"]:
         self._require_smu()
-        resp = self._query(f"FUNC:MODE? {self._chan}").upper()
+        resp = self._query(f"FUNC? {self._chan}").upper()
         return "current" if "CURR" in resp else "voltage"
 
     def set_current_setpoint(self, value: float, *, current_range: float | str | None = None) -> None:
@@ -283,11 +283,30 @@ class SMUChannel(PowerSupplyChannel):
 
 
 class ElectronicLoadChannel(BaseChannel):
-    """Electronic load channel API.
+    """Electronic-load channel API for Keysight N679xA Electronic Load Modules.
 
-    Real load commands are intentionally blocked unless verified. SIM_LOAD
-    supports simulator-only commands for tests.
+    Real commands follow the official Keysight N6705C User's Guide /
+    Programmer's Reference (see ``Keysight_documents/`` in this repository):
+    priority mode is ``[SOURce:]FUNCtion CURRent|VOLTage|RESistance|POWer``
+    (four modes — the N678xA SMU shares the same command but only accepts
+    CURRent|VOLTage), the corresponding level is set with the matching
+    ``VOLTage``/``CURRent``/``RESistance``/``POWer`` command, and the load's
+    input terminals are switched with the ordinary ``OUTP`` command — the
+    manual explicitly notes the load's input is referred to as "Output"
+    throughout ("Note 1"). There is no separate load-specific input command.
+
+    ``SIM_LOAD``, the simulator-only placeholder used by tests, has no real
+    hardware behind it and keeps its own ``SIM:LOAD:*`` command namespace,
+    untouched by this real-command path.
     """
+
+    _MODE_TO_SCPI: ClassVar[dict[str, str]] = {"cc": "CURR", "cv": "VOLT", "cr": "RES", "cp": "POW"}
+    _SCPI_TO_MODE: ClassVar[dict[str, Literal["cc", "cv", "cr", "cp"]]] = {
+        "CURR": "cc",
+        "VOLT": "cv",
+        "RES": "cr",
+        "POW": "cp",
+    }
 
     def _require_verified_or_sim(self) -> None:
         if self.capabilities.module_type != "electronic_load":
@@ -297,6 +316,10 @@ class ElectronicLoadChannel(BaseChannel):
                 "electronic-load SCPI commands are not verified for this exact module"
             )
 
+    @property
+    def _is_sim(self) -> bool:
+        return self.capabilities.model == "SIM_LOAD"
+
     def input_on(self) -> None:
         self.set_input(True)
 
@@ -305,16 +328,16 @@ class ElectronicLoadChannel(BaseChannel):
 
     def set_input(self, enabled: bool) -> None:
         self._require_verified_or_sim()
-        if self.capabilities.model == "SIM_LOAD":
+        if self._is_sim:
             self._write(f"SIM:LOAD:INP {format_bool(enabled)},{self._chan}")
             return
-        raise DriverUnsupportedOperationError("real load input command is not implemented without source map")
+        self._write(f"OUTP {format_bool(enabled)},{self._chan}")
 
     def get_input(self) -> bool:
         self._require_verified_or_sim()
-        if self.capabilities.model == "SIM_LOAD":
+        if self._is_sim:
             return self._query(f"SIM:LOAD:INP? {self._chan}").strip() not in {"0", "+0"}
-        raise DriverUnsupportedOperationError("real load input query is not implemented without source map")
+        return self._query(f"OUTP? {self._chan}").strip() not in {"0", "+0"}
 
     def _get_enable_state(self) -> bool | None:
         return self.get_input()
@@ -324,43 +347,90 @@ class ElectronicLoadChannel(BaseChannel):
 
     def set_load_mode(self, mode: Literal["cc", "cv", "cr", "cp"]) -> None:
         self._require_verified_or_sim()
-        self._write(f"SIM:LOAD:MODE {mode.upper()},{self._chan}")
+        if self._is_sim:
+            self._write(f"SIM:LOAD:MODE {mode.upper()},{self._chan}")
+            return
+        self._write(f"FUNC {self._MODE_TO_SCPI[mode]},{self._chan}")
 
     def get_load_mode(self) -> Literal["cc", "cv", "cr", "cp"]:
         self._require_verified_or_sim()
-        return self._query(f"SIM:LOAD:MODE? {self._chan}").strip().lower()  # type: ignore[return-value]
+        if self._is_sim:
+            return self._query(f"SIM:LOAD:MODE? {self._chan}").strip().lower()  # type: ignore[return-value]
+        resp = self._query(f"FUNC? {self._chan}").strip().upper()
+        for scpi_mode, mode in self._SCPI_TO_MODE.items():
+            if scpi_mode in resp:
+                return mode
+        raise DriverUnsupportedOperationError(f"unrecognized load priority mode reply: {resp!r}")
 
     def set_load_current(self, value: float) -> None:
         self._require_verified_or_sim()
-        self._write(f"SIM:LOAD:CURR {format_float(value)},{self._chan}")
+        if self._is_sim:
+            self._write(f"SIM:LOAD:CURR {format_float(value)},{self._chan}")
+            return
+        self._write(f"CURR {format_float(value)},{self._chan}")
 
     def get_load_current(self) -> float:
         self._require_verified_or_sim()
-        return float(self._query(f"SIM:LOAD:CURR? {self._chan}"))
+        if self._is_sim:
+            return float(self._query(f"SIM:LOAD:CURR? {self._chan}"))
+        return float(self._query(f"CURR? {self._chan}"))
 
     def set_load_voltage(self, value: float) -> None:
         self._require_verified_or_sim()
-        self._write(f"SIM:LOAD:VOLT {format_float(value)},{self._chan}")
+        if self._is_sim:
+            self._write(f"SIM:LOAD:VOLT {format_float(value)},{self._chan}")
+            return
+        self._write(f"VOLT {format_float(value)},{self._chan}")
 
     def get_load_voltage(self) -> float:
         self._require_verified_or_sim()
-        return float(self._query(f"SIM:LOAD:VOLT? {self._chan}"))
+        if self._is_sim:
+            return float(self._query(f"SIM:LOAD:VOLT? {self._chan}"))
+        return float(self._query(f"VOLT? {self._chan}"))
 
     def set_load_resistance(self, value: float) -> None:
         self._require_verified_or_sim()
-        self._write(f"SIM:LOAD:RES {format_float(value)},{self._chan}")
+        if self._is_sim:
+            self._write(f"SIM:LOAD:RES {format_float(value)},{self._chan}")
+            return
+        self._write(f"RES {format_float(value)},{self._chan}")
 
     def get_load_resistance(self) -> float:
         self._require_verified_or_sim()
-        return float(self._query(f"SIM:LOAD:RES? {self._chan}"))
+        if self._is_sim:
+            return float(self._query(f"SIM:LOAD:RES? {self._chan}"))
+        return float(self._query(f"RES? {self._chan}"))
 
     def set_load_power(self, value: float) -> None:
         self._require_verified_or_sim()
-        self._write(f"SIM:LOAD:POW {format_float(value)},{self._chan}")
+        if self._is_sim:
+            self._write(f"SIM:LOAD:POW {format_float(value)},{self._chan}")
+            return
+        self._write(f"POW {format_float(value)},{self._chan}")
 
     def get_load_power(self) -> float:
         self._require_verified_or_sim()
-        return float(self._query(f"SIM:LOAD:POW? {self._chan}"))
+        if self._is_sim:
+            return float(self._query(f"SIM:LOAD:POW? {self._chan}"))
+        return float(self._query(f"POW? {self._chan}"))
+
+    def set_load_current_limit(self, value: float) -> None:
+        """Limit the input current while operating in a non-current-priority mode.
+
+        Real hardware only: ``CURR:LIM`` applies in voltage/resistance/power
+        priority mode (manual example: "Optionally, set a current limit value
+        of 5A while in voltage priority mode"). Not modeled by SIM_LOAD.
+        """
+        self._require_verified_or_sim()
+        if self._is_sim:
+            raise DriverUnsupportedOperationError("current limit is not modeled by the simulator")
+        self._write(f"CURR:LIM {format_float(value)},{self._chan}")
+
+    def get_load_current_limit(self) -> float:
+        self._require_verified_or_sim()
+        if self._is_sim:
+            raise DriverUnsupportedOperationError("current limit is not modeled by the simulator")
+        return float(self._query(f"CURR:LIM? {self._chan}"))
 
     def configure_cc(
         self,
@@ -371,6 +441,51 @@ class ElectronicLoadChannel(BaseChannel):
     ) -> None:
         self.set_load_mode("cc")
         self.set_load_current(current)
+        if input_on:
+            self.input_on()
+        if verify:
+            self._driver.check_errors()
+
+    def configure_cv(
+        self,
+        voltage: float,
+        *,
+        current_limit: float | None = None,
+        input_on: bool = False,
+        verify: bool = True,
+    ) -> None:
+        self.set_load_mode("cv")
+        self.set_load_voltage(voltage)
+        if current_limit is not None:
+            self.set_load_current_limit(current_limit)
+        if input_on:
+            self.input_on()
+        if verify:
+            self._driver.check_errors()
+
+    def configure_cr(
+        self,
+        resistance: float,
+        *,
+        input_on: bool = False,
+        verify: bool = True,
+    ) -> None:
+        self.set_load_mode("cr")
+        self.set_load_resistance(resistance)
+        if input_on:
+            self.input_on()
+        if verify:
+            self._driver.check_errors()
+
+    def configure_cp(
+        self,
+        power: float,
+        *,
+        input_on: bool = False,
+        verify: bool = True,
+    ) -> None:
+        self.set_load_mode("cp")
+        self.set_load_power(power)
         if input_on:
             self.input_on()
         if verify:

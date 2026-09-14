@@ -34,18 +34,22 @@ class ChannelCapabilities:
     verified_real_load_commands: bool = False
 
 
-POWER_PREFIXES = ("N673", "N674", "N675", "N676", "N677", "N679")
+POWER_PREFIXES = ("N673", "N674", "N675", "N676", "N677")
 SMU_PREFIXES = ("N678",)
-# N679x (found on real hardware: N6791A) responds correctly to VOLT?/CURR?/
-# MEAS:VOLT?/MEAS:CURR?/OUTP? like any power-supply channel, but FUNC:MODE?
-# — the SMU voltage/current-priority-mode query — does not just error, it
-# never replies at all and faults the transport. Classifying it as
-# power_supply (not smu) is what keeps the driver from ever sending that
-# query to this family. Confirmed 2026-09-14 against a real N6700C
-# mainframe; see review/known_risks.md.
-
-# Deliberately empty for real hardware until official load docs are added.
-VERIFIED_LOAD_MODELS: dict[str, dict[str, object]] = {}
+# N679xA (N6791A=100W, N6792A=200W) are genuine Electronic Load Modules, not
+# power supplies or SMUs — confirmed via the official Keysight N6705C User's
+# Guide / Programmer's Reference (see Keysight_documents/). They support four
+# priority modes (voltage/current/resistance/power, vs. the N678xA SMU's two),
+# selected with the same [SOURce:]FUNCtion command the SMU uses but with two
+# extra arguments (RESistance, POWer). The load's input terminals are
+# programmed with the ordinary OUTP command (Note 1, "Quick Reference"
+# chapter): there is no separate INPut command. This matches the earlier
+# real-hardware finding (2026-09-14, real N6700C mainframe) that N6791A
+# answers VOLT?/CURR?/MEAS:VOLT?/MEAS:CURR?/OUTP? like a power-supply channel
+# but never replies to FUNC:MODE? — that finding was correct that FUNC:MODE is
+# not a valid command for this family, but the actual command is plain FUNC
+# (also true for the SMU; see review/known_risks.md for the matching SMU fix).
+LOAD_PREFIXES = ("N679",)
 
 
 def classify_module(model: str, options: list[str] | tuple[str, ...] | None = None) -> ChannelCapabilities:
@@ -63,7 +67,7 @@ def classify_module(model: str, options: list[str] | tuple[str, ...] | None = No
             supports_power_measurement=True,
             verified_real_load_commands=False,
         )
-    if model_clean in VERIFIED_LOAD_MODELS:
+    if model_clean.startswith(LOAD_PREFIXES):
         return ChannelCapabilities(
             model=model_clean,
             module_type="electronic_load",
@@ -73,6 +77,7 @@ def classify_module(model: str, options: list[str] | tuple[str, ...] | None = No
             supports_load_cr=True,
             supports_load_cp=True,
             supports_power_measurement=True,
+            supports_list_mode=True,
             verified_real_load_commands=True,
         )
     if model_clean.startswith(SMU_PREFIXES):

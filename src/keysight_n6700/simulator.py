@@ -44,6 +44,9 @@ class _ChannelState:
     load_voltage: float = 0.0
     load_resistance: float = 1.0
     load_power: float = 0.0
+    resistance: float = 100.0
+    power: float = 10.0
+    load_current_limit: float = 1.0
     protection_active: bool = False
     questionable_status: int = 0
     operation_status: int = 0
@@ -169,12 +172,15 @@ class SimN6700Instrument:
             for ch in self._channels_from_command(norm):
                 self.channels[ch].enabled = enabled
             return None
-        if upper.startswith("FUNC:MODE?") or upper.startswith("FUNCTION:MODE?"):
+        if upper.startswith("FUNC?") or upper.startswith("FUNCTION?"):
             ch = self._channels_from_command(norm)[0]
             return self.channels[ch].smu_mode
-        if upper.startswith("FUNC:MODE") or upper.startswith("FUNCTION:MODE"):
+        if upper.startswith("FUNC") or upper.startswith("FUNCTION"):
             ch = self._channels_from_command(norm)[0]
-            self.channels[ch].smu_mode = "CURR" if "CURR" in upper else "VOLT"
+            for mode in ("CURR", "VOLT", "RES", "POW"):
+                if mode in upper:
+                    self.channels[ch].smu_mode = mode
+                    break
             return None
         if upper.startswith("SIM:SMU:OFFMODE?"):
             ch = self._channels_from_command(norm)[0]
@@ -245,10 +251,21 @@ class SimN6700Instrument:
         if upper.startswith("CURR:PROT") or upper.startswith("CURRENT:PROTECTION"):
             self._push_error(-113, f"Undefined header: {cmd}")
             return None
+        if upper.startswith("CURR:LIM?") or upper.startswith("CURRENT:LIMIT?"):
+            return self._query_values(self._channels_from_command(norm), "load_current_limit")
+        if upper.startswith("CURR:LIM") or upper.startswith("CURRENT:LIMIT"):
+            value = float(norm.split(None, 1)[1].split(",")[0])
+            for ch in self._channels_from_command(norm):
+                self.channels[ch].load_current_limit = value
+            return None
         if upper.startswith("VOLT?") or upper.startswith("VOLTAGE?"):
             return self._query_values(self._channels_from_command(norm), "voltage")
         if upper.startswith("CURR?") or upper.startswith("CURRENT?"):
             return self._query_values(self._channels_from_command(norm), "current_limit")
+        if upper.startswith("RES?") or upper.startswith("RESISTANCE?"):
+            return self._query_values(self._channels_from_command(norm), "resistance")
+        if upper.startswith("POW?") or upper.startswith("POWER?"):
+            return self._query_values(self._channels_from_command(norm), "power")
         if upper.startswith("VOLT") or upper.startswith("VOLTAGE"):
             value = float(norm.split(None, 1)[1].split(",")[0])
             for ch in self._channels_from_command(norm):
@@ -258,6 +275,16 @@ class SimN6700Instrument:
             value = float(norm.split(None, 1)[1].split(",")[0])
             for ch in self._channels_from_command(norm):
                 self.channels[ch].current_limit = value
+            return None
+        if upper.startswith("RES") or upper.startswith("RESISTANCE"):
+            value = float(norm.split(None, 1)[1].split(",")[0])
+            for ch in self._channels_from_command(norm):
+                self.channels[ch].resistance = value
+            return None
+        if upper.startswith("POW") or upper.startswith("POWER"):
+            value = float(norm.split(None, 1)[1].split(",")[0])
+            for ch in self._channels_from_command(norm):
+                self.channels[ch].power = value
             return None
         if "MEAS" in upper or "FETCH" in upper or "FETC" in upper:
             channels = self._channels_from_command(norm)

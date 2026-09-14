@@ -81,7 +81,12 @@ _DRIVER_METADATA = DriverMetadata(
     version="0.3.1",
     package_name="keysight-n6700-driver",
     manufacturer="Keysight Technologies",
-    supported_models=("N67xx series mainframe", "N673x/N674x/N675x/N676x/N677x/N679x", "N678xA"),
+    supported_models=(
+        "N67xx series mainframe",
+        "N673x/N674x/N675x/N676x/N677x",
+        "N678xA SMU",
+        "N679xA Electronic Load Module",
+    ),
     supported_transport_profiles=("visa", "usb", "ethernet_socket", "simulated"),
 )
 

@@ -12,9 +12,10 @@ instrument's SCPI error queue has entries; `query_scpi("SYST:ERR?")` or
 argument validation, so a malformed command reaches the instrument as-is.
 
 **`DriverUnsupportedOperationError: electronic-load SCPI commands are not
-verified for this exact module`** — expected for any real load module; see
-[`docs/safety.md`](safety.md). Use the simulator (`SIM_LOAD`) for load-mode
-development until a real model is verified.
+verified for this exact module`** — expected for any real load module other
+than `N679x` (N6791A/N6792A); see [`docs/safety.md`](safety.md). Use the
+simulator (`SIM_LOAD`) for load-mode development, or a real N679xA module,
+until another real model is verified.
 
 **Robot Framework: `ModuleNotFoundError: No module named 'KeysightN6700Library'`**
 — import the fully qualified path:

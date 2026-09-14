@@ -23,12 +23,35 @@ not have:
    default to 15s instead of the transport default.
 2. `N6791A` (channel 2) answers `VOLT?`/`CURR?`/`MEAS:VOLT?`/`MEAS:CURR?`/
    `OUTP?` correctly but never replies at all to `FUNC:MODE?` — it times
-   out and faults the connection rather than erroring. `classify_module()`
-   didn't recognize the `N679x` prefix at all before this (fell to
-   `unknown`, correctly skipping typed queries rather than guessing); it's
-   now classified as `power_supply`, specifically *not* `smu`, so
-   `FUNC:MODE?` is never sent to this family. See
-   `tests/unit/test_module_capabilities.py`.
+   out and faults the connection rather than erroring.
+
+**Update 2026-09-14 (later the same day):** reading the official Keysight
+N6705C User's Guide / Programmer's Reference (see `Keysight_documents/`)
+resolved finding 2 correctly: `N6791A`/`N6792A` (`N679xA`) are genuine
+**Electronic Load Modules** (100W/200W), not power supplies — `FUNC:MODE?`
+hung not because it's forbidden for this family specifically, but because
+it was never a valid N6700 command for *any* module family. The real
+command is plain `FUNCtion` (`FUNC CURRent|VOLTage`, two modes, for the
+N678xA SMU; `FUNC CURRent|VOLTage|RESistance|POWer`, four modes, for
+N679xA), and the load's input terminals are switched with the ordinary
+`OUTP` command (the manual explicitly notes the load's input is called
+"Output" throughout). Both `module_capabilities.classify_module()` (now
+`electronic_load`, not `power_supply`) and `SMUChannel.set_smu_mode`/
+`get_smu_mode` (now `FUNC`, not `FUNC:MODE` — the same bug, just never
+noticed for the SMU because no real SMU has been tested yet) were fixed.
+See `tests/unit/test_module_capabilities.py` and
+`tests/unit/test_electronic_load_channel.py`.
+
+The real N679xA command set (priority mode, level setpoints, input on/off)
+is now implemented in `ElectronicLoadChannel`, verified against the
+official documentation and, for read-only queries only
+(`FUNC?`/`VOLT?`/`CURR?`/`OUTP?`), against real hardware. The *write* path
+(selecting a priority mode, setting a level, turning the input on) has not
+yet been run against real hardware — see
+`test_every_electronic_load_channel_reports_mode_and_measurements` in
+`tests/hardware/test_hardware_acceptance.py` for what has been covered so
+far, and the guarded output test below for what a real write-path check
+would require.
 
 Everything else remains simulator-only, and the *guarded output test*
 specifically has still never been run against real hardware (it requires a
@@ -40,8 +63,13 @@ happened yet). Driver status remains `untested` (LPDS-001 §9), not
   someone has actually reviewed against the wiring.
 - Repeat the read-only run against a mainframe with a genuine SMU module
   (`N678x`) installed — the one run so far had none, so `get_smu_mode`/SMU
-  priority-mode switching remain simulator-only. Same for electronic-load
-  modules and protection-trip/clear behavior.
+  priority-mode switching remain simulator-only for the write path.
+- Exercise the N679xA electronic-load *write* path (priority mode, level
+  setpoints, input on) against real hardware, with the same explicit
+  confirmation discipline as the guarded output test — switching priority
+  modes turns the load's input off and resets its settings to power-on
+  defaults per the manual, so it is a state change even before the input is
+  turned on.
 - Verify `get_remote_state`/`set_remote_state`/`remote_lockout`, which are
   currently gated to the simulator transport only (see `docs/troubleshooting.md`)
   because real N6700 remote/local SCPI behavior has not been checked.

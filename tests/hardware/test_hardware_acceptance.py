@@ -93,6 +93,23 @@ def test_every_power_or_smu_channel_reports_setpoints_and_measurements(
         assert isinstance(hardware_driver.get_output_state(channel), bool)
 
 
+def test_every_electronic_load_channel_reports_mode_and_measurements(
+    hardware_driver: N6700, discovered_modules: dict[int, ChannelCapabilities]
+) -> None:
+    """Read-only: FUNC?/VOLT?/CURR?/OUTP? per the N679xA command reference.
+
+    Never enables the load's input — this only exercises queries.
+    """
+    for channel, caps in discovered_modules.items():
+        if caps.module_type != "electronic_load" or not caps.verified_real_load_commands:
+            continue
+        load = hardware_driver.load(channel)
+        assert load.get_load_mode() in {"cc", "cv", "cr", "cp"}
+        assert isinstance(load.get_input(), bool)
+        assert isinstance(hardware_driver.measure_dc_voltage(channel), float)
+        assert isinstance(hardware_driver.measure_dc_current(channel), float)
+
+
 def test_every_channel_reports_protection_and_status(
     hardware_driver: N6700, discovered_modules: dict[int, ChannelCapabilities]
 ) -> None:

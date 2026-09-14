@@ -82,7 +82,7 @@ def build_contract() -> dict[str, object]:
             "provided": [
                 {"id": "dc_source", "quantity": ["voltage", "current", "power"], "availability": "module-dependent"},
                 {"id": "smu", "quantity": ["source_voltage", "source_current", "measure_voltage", "measure_current"], "availability": "SMU module-dependent"},
-                {"id": "electronic_load", "quantity": ["cc", "cv", "cr", "cp"], "availability": "verified module-dependent; real load modules remain restricted unless explicitly supported"},
+                {"id": "electronic_load", "quantity": ["cc", "cv", "cr", "cp"], "availability": "N679xA (N6791A/N6792A) verified against official Keysight documentation; other real load modules remain restricted unless explicitly supported"},
                 {"id": "internal_measurement", "quantity": ["voltage", "current", "power"], "availability": "module-dependent"},
             ],
         },
@@ -117,7 +117,7 @@ def build_contract() -> dict[str, object]:
             "Typed configuration methods (set_dc_voltage, set_dc_current, configure_*) never enable an output; enable_output()/set_input() are separate, explicit calls.",
             "disconnect()/disconnect_all() attempt a best-effort shutdown of every installed channel first, unless set_auto_shutdown_on_disconnect(False) was called explicitly.",
             "Raw SCPI (write_scpi/query_scpi) bypasses every typed safeguard; do not use it to work around a typed method's restriction.",
-            "Electronic-load SCPI commands are refused for real modules unless verified in keysight_n6700.module_capabilities.VERIFIED_LOAD_MODELS; the simulator's SIM_LOAD is the only load model exempted for testing.",
+            "Electronic-load SCPI commands are refused for real modules unless the model matches keysight_n6700.module_capabilities.LOAD_PREFIXES (currently N679x); the simulator's SIM_LOAD is the only other load model exempted, for testing.",
         ],
         "verification_objectives": [
             {"id": "VO-IDENTITY", "description": "get_identity()/idn() returns a supported manufacturer, model, serial, and firmware."},
@@ -133,7 +133,7 @@ def build_contract() -> dict[str, object]:
             "teardown": "disconnect()/disconnect_all() should always be called, ideally from a finally block or context manager (`with N6700.connect_simulated() as drv:`), even after a failed operation.",
         },
         "limitations": [
-            "Real electronic-load SCPI command support is unverified for every module currently on the market; only the simulator's SIM_LOAD is exercised.",
+            "N679xA (N6791A/N6792A) electronic-load commands are verified against the official Keysight N6705C documentation and, for reads only (FUNC?/VOLT?/CURR?/OUTP?), against real hardware; the write path (priority mode selection, level setpoints, input on/off) has not yet been exercised against real hardware. Every other real load module remains unsupported; only the simulator's SIM_LOAD is exercised for those.",
             "Remote/local control (get_remote_state/set_remote_state/remote_lockout) is implemented against the simulator only; real N6700 remote/local behavior is transport-specific and not yet verified.",
             "No real-hardware conformance run has been performed yet (see review/known_risks.md); driver status is `untested`, not `stable`.",
         ],

@@ -87,8 +87,9 @@ Passing both is evidence the driver's read-only calls and one basic
 enable/measure/disable cycle work against your specific instrument and
 wiring — it is not the full LPDS-019 conformance suite (that runs against
 the simulator; see [`docs/call_protocol_conformance.md`](call_protocol_conformance.md))
-and it does not cover electronic-load modules, SMU priority-mode switching,
-protection-trip/clear behavior, or remote/local control, none of which are
+and it does not cover SMU priority-mode switching, protection-trip/clear
+behavior, remote/local control, or the electronic-load *write* path
+(priority mode selection, level setpoints, input on), none of which are
 exercised here yet. See [`review/known_risks.md`](../review/known_risks.md).
 
 ## What it already found
@@ -97,8 +98,20 @@ The read-only script has been run against one real N6700C (2 channels:
 N6751A-family + N6791A) and, after the timeout fix above, passed all 43
 checks. It also found a real classification gap the simulator could never
 have surfaced: `N6791A` answers `VOLT?`/`CURR?`/`MEAS:VOLT?`/`MEAS:CURR?`/
-`OUTP?` correctly but never replies at all to `FUNC:MODE?` (the SMU
-priority-mode query) — it times out and faults the connection rather than
-returning a SCPI error. `module_capabilities.py`'s `POWER_PREFIXES` now
-includes `N679x` specifically so the driver never sends that query to this
-family. See `tests/unit/test_module_capabilities.py`.
+`OUTP?` correctly but never replies at all to `FUNC:MODE?` — it times out
+and faults the connection rather than returning a SCPI error.
+
+Reading the official Keysight N6705C documentation (see
+`Keysight_documents/`) explained why: `N6791A`/`N6792A` are genuine
+**Electronic Load Modules**, not power supplies, and `FUNC:MODE` was never
+a valid command for *any* module family on this instrument — the real
+command is plain `FUNCtion`. `module_capabilities.classify_module()` now
+classifies `N679x` as `electronic_load` (four priority modes: voltage,
+current, resistance, power), and `ElectronicLoadChannel`/`SMUChannel` both
+send `FUNC`/`FUNC?`, not `FUNC:MODE`. The load's input is switched with the
+ordinary `OUTP` command — the manual explicitly says the load's input
+terminals are referred to as "Output" throughout. See
+`tests/unit/test_module_capabilities.py` and
+`tests/unit/test_electronic_load_channel.py`. Only read-only queries
+(`FUNC?`/`VOLT?`/`CURR?`/`OUTP?`) have been confirmed against this real
+hardware so far; the write path has not.

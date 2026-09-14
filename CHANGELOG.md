@@ -3,6 +3,33 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.4.0 — 2026-09-14
+
+Reading the official Keysight N6705C User's Guide / Programmer's Reference
+(user-provided, `Keysight_documents/`) corrected v0.3.1's real-hardware
+finding about `N6791A`:
+
+- Fixed: `N6791A`/`N6792A` (`N679xA`) are genuine Electronic Load Modules
+  (100W/200W) with four priority modes (voltage/current/resistance/power),
+  not power supplies as v0.3.1 concluded from empirical probing alone.
+  `module_capabilities.classify_module()` now returns `electronic_load` for
+  this family.
+- Fixed: the real priority-mode command is plain `FUNCtion` (`FUNC
+  CURRent|VOLTage|RESistance|POWer`), never `FUNC:MODE` — the earlier
+  transport hang was because `FUNC:MODE` isn't a valid command for *any*
+  module family, not because it was specifically forbidden for loads. Fixed
+  in both `ElectronicLoadChannel` and `SMUChannel` (the SMU had the same
+  bug, undetected because no real SMU has been hardware-tested yet).
+- Added: `ElectronicLoadChannel` now implements the real N679xA command set
+  — priority mode, per-mode level setpoints, `OUTP`-based input on/off (the
+  manual confirms the load's input is called "Output" throughout), and a
+  current limit for non-current-priority modes — plus `configure_cv`/
+  `configure_cr`/`configure_cp` convenience methods.
+- Known limitation still open: the electronic-load *write* path and the
+  guarded output test have not been run against real hardware; only
+  read-only load queries have real-hardware evidence so far. See
+  [`review/known_risks.md`](review/known_risks.md).
+
 ## v0.3.1 — 2026-09-14
 
 First real-hardware run: `scripts/run_hardware_self_check.py`'s read-only
