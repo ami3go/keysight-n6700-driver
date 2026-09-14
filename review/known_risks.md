@@ -96,16 +96,20 @@ path plus the supply's CV/CC crossover behavior. Implemented as
 (`test_ps_to_load_cv_cc_cr_sweep`), gated behind its own explicit signals —
 see [`docs/hardware_acceptance_tests.md`](../docs/hardware_acceptance_tests.md).
 
-Everything else remains simulator-only, and the *guarded output test* in
-`tests/hardware/test_hardware_acceptance.py` (channel 1 alone, no load
-attached) specifically has still never been run against real hardware.
-Driver status remains `untested` (LPDS-001 §9), not `stable`. Before
-calling it `stable`:
+**Update 2026-09-14 (standalone guarded output test run):**
+`test_guarded_output_enable_measure_disable` — the actual pytest test, not
+an ad hoc script — has now been run for real too, on channel 1 at the same
+12V/1A already reviewed for the earlier tests in this file: passed, output
+disabled and `safe_shutdown()` verified afterward. The same run also
+exercised `test_every_electronic_load_channel_reports_mode_and_measurements`
+(added when the N679xA read-only checks were implemented, but not
+previously confirmed against real hardware) — all 12 tests in
+`tests/hardware/test_hardware_acceptance.py` passed. Final state confirmed
+independently afterward: both channels off, error queue empty.
 
-- Run the standalone guarded output test (`test_guarded_output_enable_
-  measure_disable`) for real, on a channel/voltage/current-limit someone
-  has actually reviewed against the wiring — the write-path and sweep runs
-  above used separate tests, not this one.
+Everything else remains simulator-only. Driver status remains `untested`
+(LPDS-001 §9), not `stable`. Before calling it `stable`:
+
 - Repeat the read-only run against a mainframe with a genuine SMU module
   (`N678x`) installed — the one run so far had none, so `get_smu_mode`/SMU
   priority-mode switching remain simulator-only for the write path.
