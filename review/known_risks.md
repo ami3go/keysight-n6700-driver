@@ -44,32 +44,40 @@ See `tests/unit/test_module_capabilities.py` and
 
 The real N679xA command set (priority mode, level setpoints, input on/off)
 is now implemented in `ElectronicLoadChannel`, verified against the
-official documentation and, for read-only queries only
-(`FUNC?`/`VOLT?`/`CURR?`/`OUTP?`), against real hardware. The *write* path
-(selecting a priority mode, setting a level, turning the input on) has not
-yet been run against real hardware — see
-`test_every_electronic_load_channel_reports_mode_and_measurements` in
-`tests/hardware/test_hardware_acceptance.py` for what has been covered so
-far, and the guarded output test below for what a real write-path check
-would require.
+official documentation and, for read-only queries
+(`FUNC?`/`VOLT?`/`CURR?`/`OUTP?`), against real hardware.
 
-Everything else remains simulator-only, and the *guarded output test*
-specifically has still never been run against real hardware (it requires a
-human to supply and confirm channel/voltage/current-limit, which hasn't
-happened yet). Driver status remains `untested` (LPDS-001 §9), not
-`stable`. Before calling it `stable`:
+**Update 2026-09-14 (write path verified):** the write path has now also
+been run against real hardware, wired for a real closed-loop test — channel
+1 (`N6775A`, power supply) physically connected to channel 2 (`N6791A`
+load) by the user, both channels explicitly confirmed by the user
+beforehand. Channel 1 set to 12V/1A limit; channel 2 set to current
+priority at 1.0A (`FUNC CURR,(@2)` then `CURR 1,(@2)`), both readback-
+verified before either channel was enabled. With channel 1 enabled and
+channel 2's input still off, channel 1 read ~12V/~0A (open circuit, as
+expected). With channel 2's input then turned on (`OUTP ON,(@2)`), channel
+1 measured 11.98V/0.9996A and channel 2 measured 11.98V/0.9998A — the load
+sank the commanded 1A, matching the supply's delivered current. No SCPI
+errors at any point; both channels confirmed OFF after shutdown. This
+confirms the entire real N679xA command path this release added: `FUNC`
+(priority mode), `CURR` (level), and `OUTP` (input on/off).
 
-- Run the guarded output test for real, on a channel/voltage/current-limit
-  someone has actually reviewed against the wiring.
+Everything else remains simulator-only, and the *guarded output test* in
+`tests/hardware/test_hardware_acceptance.py` (channel 1 alone, no load
+attached) specifically has still never been run against real hardware.
+Driver status remains `untested` (LPDS-001 §9), not `stable`. Before
+calling it `stable`:
+
+- Run the standalone guarded output test (`test_guarded_output_enable_
+  measure_disable`) for real, on a channel/voltage/current-limit someone
+  has actually reviewed against the wiring — the write-path run above used
+  a separate, ad hoc script, not this test.
 - Repeat the read-only run against a mainframe with a genuine SMU module
   (`N678x`) installed — the one run so far had none, so `get_smu_mode`/SMU
   priority-mode switching remain simulator-only for the write path.
-- Exercise the N679xA electronic-load *write* path (priority mode, level
-  setpoints, input on) against real hardware, with the same explicit
-  confirmation discipline as the guarded output test — switching priority
-  modes turns the load's input off and resets its settings to power-on
-  defaults per the manual, so it is a state change even before the input is
-  turned on.
+- Add the PS-to-load write-path test above as a permanent, safety-gated
+  `tests/hardware` test (it currently only exists as a one-off script) so
+  it's repeatable rather than a one-time manual run.
 - Verify `get_remote_state`/`set_remote_state`/`remote_lockout`, which are
   currently gated to the simulator transport only (see `docs/troubleshooting.md`)
   because real N6700 remote/local SCPI behavior has not been checked.

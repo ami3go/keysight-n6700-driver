@@ -87,17 +87,16 @@ Passing both is evidence the driver's read-only calls and one basic
 enable/measure/disable cycle work against your specific instrument and
 wiring — it is not the full LPDS-019 conformance suite (that runs against
 the simulator; see [`docs/call_protocol_conformance.md`](call_protocol_conformance.md))
-and it does not cover SMU priority-mode switching, protection-trip/clear
-behavior, remote/local control, or the electronic-load *write* path
-(priority mode selection, level setpoints, input on), none of which are
-exercised here yet. See [`review/known_risks.md`](../review/known_risks.md).
+and it does not cover SMU priority-mode switching or protection-trip/clear
+behavior or remote/local control, none of which are exercised here yet.
+See [`review/known_risks.md`](../review/known_risks.md).
 
 ## What it already found
 
 The read-only script has been run against one real N6700C (2 channels:
-N6751A-family + N6791A) and, after the timeout fix above, passed all 43
-checks. It also found a real classification gap the simulator could never
-have surfaced: `N6791A` answers `VOLT?`/`CURR?`/`MEAS:VOLT?`/`MEAS:CURR?`/
+N6775A + N6791A) and, after the timeout fix above, passed all 43 checks. It
+also found a real classification gap the simulator could never have
+surfaced: `N6791A` answers `VOLT?`/`CURR?`/`MEAS:VOLT?`/`MEAS:CURR?`/
 `OUTP?` correctly but never replies at all to `FUNC:MODE?` — it times out
 and faults the connection rather than returning a SCPI error.
 
@@ -112,6 +111,15 @@ send `FUNC`/`FUNC?`, not `FUNC:MODE`. The load's input is switched with the
 ordinary `OUTP` command — the manual explicitly says the load's input
 terminals are referred to as "Output" throughout. See
 `tests/unit/test_module_capabilities.py` and
-`tests/unit/test_electronic_load_channel.py`. Only read-only queries
-(`FUNC?`/`VOLT?`/`CURR?`/`OUTP?`) have been confirmed against this real
-hardware so far; the write path has not.
+`tests/unit/test_electronic_load_channel.py`.
+
+**The write path has since been confirmed too.** Channel 1 (`N6775A`) was
+physically wired to channel 2 (`N6791A`)'s load input and both channels
+were energized together: channel 1 set to 12V/1A limit, channel 2 set to
+current priority at 1.0A (`FUNC CURR,(@2)`, `CURR 1,(@2)`), then both
+enabled (`OUTP ON,(@1)`, `OUTP ON,(@2)`). Result: channel 1 measured
+11.98V/0.9996A, channel 2 measured 11.98V/0.9998A — the load sank the
+commanded 1A, matching the supply's delivered current, with no SCPI errors
+and both channels confirmed off after shutdown. This was run as a one-off
+script, not yet added as a permanent `tests/hardware` test — see
+[`review/known_risks.md`](../review/known_risks.md).

@@ -24,10 +24,11 @@
   restriction. `set_raw_scpi_guard(phrase)` can require an explicit
   `enable_raw_scpi(phrase)` before either will run — off by default, so
   existing scripts are unaffected unless a guard is configured.
-- Read-only checks have been run against real hardware (see
-  [`review/known_risks.md`](../review/known_risks.md)), but the *guarded
-  output test* and the N679xA electronic-load write path (priority mode,
-  level setpoints, input on) have not. Treat any first real-hardware
-  energizing run as a new-instrument acceptance test: verify wiring,
-  polarity, and DUT limits, and keep an operator present for first
-  energization.
+- Read-only checks and the N679xA electronic-load write path (priority
+  mode, level setpoints, input on) have both been run against real
+  hardware; the standalone *guarded output test*
+  (`test_guarded_output_enable_measure_disable`, channel 1 alone, no load
+  attached) has not. See [`review/known_risks.md`](../review/known_risks.md).
+  Treat any first real-hardware energizing run as a new-instrument
+  acceptance test: verify wiring, polarity, and DUT limits, and keep an
+  operator present for first energization.
