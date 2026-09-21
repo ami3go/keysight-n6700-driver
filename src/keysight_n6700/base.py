@@ -294,10 +294,9 @@ class BaseInstrument:
                 _log.error("transport close failed for alias %r: %s", key, exc)
             finally:
                 self._aliases.pop(key, None)
-                with self._registry_lock:
-                    with suppress(Exception):
-                        if key in self._registry:
-                            self._registry.remove(key)
+                with self._registry_lock, suppress(Exception):
+                    if key in self._registry:
+                        self._registry.remove(key)
                 with suppress(Exception):
                     self._on_disconnected(key)
 
