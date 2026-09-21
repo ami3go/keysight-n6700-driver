@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from enum import IntFlag
+from types import MappingProxyType
 from typing import Literal
 
 from scpi_driver_core.models import Identity as _CoreIdentity
@@ -66,20 +69,93 @@ class Measurement:
     power_source: Literal["instrument", "calculated", "unavailable"]
     timestamp_iso: str
     timestamp_unix: float
+    simultaneous: bool = False
+
+
+class QuesBit(IntFlag):
+    """N6700 Questionable Condition register bits."""
+
+    OV = 1
+    OC = 2
+    PF = 4
+    CP_POS = 8
+    OT = 16
+    CP_NEG = 32
+    OV_NEG = 64
+    LIM_POS = 128
+    LIM_NEG = 256
+    INH = 512
+    UNR = 1024
+    PROT = 2048
+    OSC = 4096
+
+
+TRIP_BITS = (
+    QuesBit.OV
+    | QuesBit.OC
+    | QuesBit.PF
+    | QuesBit.OT
+    | QuesBit.OV_NEG
+    | QuesBit.INH
+    | QuesBit.PROT
+    | QuesBit.OSC
+)
+LIMIT_BITS = QuesBit.CP_POS | QuesBit.CP_NEG | QuesBit.LIM_POS | QuesBit.LIM_NEG
 
 
 @dataclass(frozen=True)
 class ProtectionStatus:
     channel: int
-    active: bool
-    over_voltage: bool | None = None
-    over_current: bool | None = None
-    over_temperature: bool | None = None
-    power_limit: bool | None = None
-    power_fail: bool | None = None
-    inhibit: bool | None = None
-    oscillation: bool | None = None
-    raw_status: int | str | None = None
+    raw_status: int
+
+    @property
+    def raw(self) -> QuesBit:
+        return QuesBit(self.raw_status)
+
+    @property
+    def tripped(self) -> bool:
+        return bool(self.raw & TRIP_BITS)
+
+    @property
+    def active(self) -> bool:
+        """Backward-compatible alias for :attr:`tripped`."""
+        return self.tripped
+
+    @property
+    def limiting(self) -> bool:
+        return bool(self.raw & LIMIT_BITS)
+
+    @property
+    def unregulated(self) -> bool:
+        return bool(self.raw & QuesBit.UNR)
+
+    @property
+    def over_voltage(self) -> bool:
+        return bool(self.raw & (QuesBit.OV | QuesBit.OV_NEG))
+
+    @property
+    def over_current(self) -> bool:
+        return bool(self.raw & QuesBit.OC)
+
+    @property
+    def over_temperature(self) -> bool:
+        return bool(self.raw & QuesBit.OT)
+
+    @property
+    def power_limit(self) -> bool:
+        return bool(self.raw & (QuesBit.CP_POS | QuesBit.CP_NEG))
+
+    @property
+    def power_fail(self) -> bool:
+        return bool(self.raw & QuesBit.PF)
+
+    @property
+    def inhibit(self) -> bool:
+        return bool(self.raw & QuesBit.INH)
+
+    @property
+    def oscillation(self) -> bool:
+        return bool(self.raw & QuesBit.OSC)
 
 
 @dataclass(frozen=True)
@@ -95,12 +171,12 @@ class ProtectionClearResult:
 
 @dataclass(frozen=True)
 class OperationStatus:
-    raw_status: int | str
+    raw_status: int | Mapping[int, int]
 
 
 @dataclass(frozen=True)
 class QuestionableStatus:
-    raw_status: int | str
+    raw_status: int | Mapping[int, int]
 
 
 @dataclass(frozen=True)
@@ -139,7 +215,8 @@ class ShutdownResult:
 
     @property
     def success(self) -> bool:
-        return all(item.success for item in self.results)
+        """True only when at least one channel was verified off and all succeeded."""
+        return bool(self.results) and all(item.success for item in self.results)
 
 
 @dataclass(frozen=True)
@@ -148,9 +225,18 @@ class AuditRecord:
     timestamp_unix: float
     operation: str
     channels: tuple[int, ...]
-    requested_values: dict[str, object]
+    requested_values: Mapping[str, object]
     scpi_commands: tuple[str, ...]
     responses: tuple[str, ...]
     errors: tuple[str, ...]
     duration_s: float
-    final_output_states: dict[int, bool] | None = None
+    final_output_states: Mapping[int, bool] | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "requested_values", MappingProxyType(dict(self.requested_values)))
+        if self.final_output_states is not None:
+            object.__setattr__(
+                self,
+                "final_output_states",
+                MappingProxyType(dict(self.final_output_states)),
+            )
