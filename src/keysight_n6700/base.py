@@ -486,7 +486,7 @@ class BaseInstrument:
     def _io_timeout(self, alias: str | None = None) -> float | None:
         return self._entry(alias).io_timeout_s
 
-    def reconnect(self, alias: str | None = None) -> ConnectionInfo:
+    def _reconnect_info(self, alias: str | None = None) -> ConnectionInfo:
         key = self._resolve_alias(alias)
         entry = self._entry(key)
         with entry.lock:
