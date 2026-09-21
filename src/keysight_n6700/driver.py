@@ -322,7 +322,8 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
 
     def _shutdown_session(self, alias: str, session: ScpiSession) -> ShutdownResult:
         """Guard-free and state-machine-free shutdown for emergency/lifecycle use."""
-        timeout = self._aliases.get(alias).io_timeout_s if alias in self._aliases else None
+        entry = self._aliases.get(alias)
+        timeout = entry.io_timeout_s if entry is not None else None
         with translated(operation="shutdown"):
             count = parse_int(session.client.query("SYST:CHAN:COUN?", timeout_s=timeout))
             if count < 1:
@@ -475,7 +476,7 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         return _connection_info_dict(self._connection_info(alias=alias, refresh=refresh))
 
     def reconnect(self, alias: str | None = None) -> dict[str, Any]:
-        return _connection_info_dict(super().reconnect(alias))
+        return _connection_info_dict(self._reconnect_info(alias))
 
     def _write(self, command: str, *, alias: str | None, operation: str) -> None:
         key = self._resolve_alias(alias)
