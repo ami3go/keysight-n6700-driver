@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import math
-import time
 from typing import ClassVar, Literal, Protocol
 
 from scpi_driver_core.exceptions import ResponseParseError
 from scpi_driver_core.execution.polling import poll_until
 from scpi_driver_core.scpi.parsers import parse_bool, parse_float, parse_int
 
+from ._translate import translated
 from .exceptions import (
     DriverMalformedResponseError,
     DriverOperationUncertainError,
@@ -138,7 +138,10 @@ class BaseChannel:
         raise DriverUnsupportedOperationError("generic channel has no enable command")
 
     def get_protection_status(self) -> ProtectionStatus:
-        return ProtectionStatus(channel=self.channel, raw_status=self._query_int(f"STAT:QUES:COND? {self._chan}"))
+        return ProtectionStatus(
+            channel=self.channel,
+            raw_status=self._query_int(f"STAT:QUES:COND? {self._chan}"),
+        )
 
     def get_status_snapshot(self) -> ChannelStatusSnapshot:
         return ChannelStatusSnapshot(
@@ -173,16 +176,13 @@ class BaseChannel:
         self._write(f"OUTP:PROT:CLE {self._chan}")
 
         if verify_cleared:
-            try:
+            with translated(operation="clear_protection"):
                 poll_until(
                     lambda: not self.get_protection_status().tripped,
                     timeout_s=timeout_s,
                     interval_s=0.05,
                     description=f"channel {self.channel} protection cleared",
                 )
-            except Exception:
-                # The output remains explicitly OFF on every verification failure.
-                raise
 
         restored = False
         if restore_output and before_state:
@@ -238,12 +238,14 @@ class PowerSupplyChannel(BaseChannel):
         self, value: float, *, voltage_range: float | str | None = None
     ) -> None:
         minimum, maximum = self._voltage_bounds()
-        v = require_number("voltage", value, minimum=minimum, maximum=maximum)
+        voltage = require_number("voltage", value, minimum=minimum, maximum=maximum)
         if voltage_range is None:
-            self._write(f"VOLT {v:.12g},{self._chan}")
+            self._write(f"VOLT {voltage:.12g},{self._chan}")
             return
-        rng = format_numeric_param("voltage_range", voltage_range, minimum=0.0)
-        self._write(f"VOLT:RANG {rng},{self._chan};:VOLT {v:.12g},{self._chan}")
+        range_value = format_numeric_param("voltage_range", voltage_range, minimum=0.0)
+        self._write(
+            f"VOLT:RANG {range_value},{self._chan};:VOLT {voltage:.12g},{self._chan}"
+        )
 
     def get_voltage_setpoint(self) -> float:
         return self._query_float(f"VOLT? {self._chan}")
@@ -256,8 +258,10 @@ class PowerSupplyChannel(BaseChannel):
         if current_range is None:
             self._write(f"CURR {current:.12g},{self._chan}")
             return
-        rng = format_numeric_param("current_range", current_range, minimum=0.0)
-        self._write(f"CURR:RANG {rng},{self._chan};:CURR {current:.12g},{self._chan}")
+        range_value = format_numeric_param("current_range", current_range, minimum=0.0)
+        self._write(
+            f"CURR:RANG {range_value},{self._chan};:CURR {current:.12g},{self._chan}"
+        )
 
     def get_current_limit(self) -> float:
         return self._query_float(f"CURR? {self._chan}")
@@ -268,17 +272,19 @@ class PowerSupplyChannel(BaseChannel):
         if allow_output_glitch or not self.get_output():
             return
         present = self._query_float(f"{subsystem}:RANG? {self._chan}")
-        token = format_numeric_param(f"{subsystem.lower()}_range", value, minimum=0.0)
-        if token == "DEF":
+        range_value = format_numeric_param(
+            f"{subsystem.lower()}_range", value, minimum=0.0
+        )
+        if range_value == "DEF":
             raise DriverUnsafeOperationError(
                 "range change on an energized output may cause a temporary output dropout; "
                 "pass allow_output_glitch=True after reviewing the DUT impact",
                 code="LPDS-SAF-020",
             )
-        if token in {"MIN", "MAX"}:
-            target = self._query_float(f"{subsystem}:RANG? {token},{self._chan}")
+        if range_value in {"MIN", "MAX"}:
+            target = self._query_float(f"{subsystem}:RANG? {range_value},{self._chan}")
         else:
-            target = float(token)
+            target = float(range_value)
         if not math.isclose(present, target, rel_tol=1e-9, abs_tol=1e-12):
             raise DriverUnsafeOperationError(
                 "range change on an energized output may cause a temporary output dropout; "
@@ -290,15 +296,15 @@ class PowerSupplyChannel(BaseChannel):
         self, value: float | str, *, allow_output_glitch: bool = False
     ) -> None:
         self._guard_range_change("VOLT", value, allow_output_glitch)
-        token = format_numeric_param("voltage_range", value, minimum=0.0)
-        self._write(f"VOLT:RANG {token},{self._chan}")
+        range_value = format_numeric_param("voltage_range", value, minimum=0.0)
+        self._write(f"VOLT:RANG {range_value},{self._chan}")
 
     def set_current_range(
         self, value: float | str, *, allow_output_glitch: bool = False
     ) -> None:
         self._guard_range_change("CURR", value, allow_output_glitch)
-        token = format_numeric_param("current_range", value, minimum=0.0)
-        self._write(f"CURR:RANG {token},{self._chan}")
+        range_value = format_numeric_param("current_range", value, minimum=0.0)
+        self._write(f"CURR:RANG {range_value},{self._chan}")
 
     def get_voltage_range(self) -> float:
         return self._query_float(f"VOLT:RANG? {self._chan}")
@@ -340,7 +346,9 @@ class SMUChannel(PowerSupplyChannel):
             return "current"
         if "VOLT" in reply:
             return "voltage"
-        raise DriverMalformedResponseError(f"unexpected FUNC? reply {reply!r}", code="LPDS-PRT-012")
+        raise DriverMalformedResponseError(
+            f"unexpected FUNC? reply {reply!r}", code="LPDS-PRT-012"
+        )
 
     def set_current_limit(
         self, value: float, *, current_range: float | str | None = None
@@ -350,8 +358,10 @@ class SMUChannel(PowerSupplyChannel):
             "current_limit", value, minimum=0.0, maximum=self.capabilities.max_current
         )
         if current_range is not None:
-            rng = format_numeric_param("current_range", current_range, minimum=0.0)
-            self._write(f"CURR:RANG {rng},{self._chan};:CURR:LIM {current:.12g},{self._chan}")
+            range_value = format_numeric_param("current_range", current_range, minimum=0.0)
+            self._write(
+                f"CURR:RANG {range_value},{self._chan};:CURR:LIM {current:.12g},{self._chan}"
+            )
         else:
             self._write(f"CURR:LIM {current:.12g},{self._chan}")
 
@@ -370,8 +380,10 @@ class SMUChannel(PowerSupplyChannel):
             maximum=self.capabilities.max_current,
         )
         if current_range is not None:
-            rng = format_numeric_param("current_range", current_range, minimum=0.0)
-            self._write(f"CURR:RANG {rng},{self._chan};:CURR {current:.12g},{self._chan}")
+            range_value = format_numeric_param("current_range", current_range, minimum=0.0)
+            self._write(
+                f"CURR:RANG {range_value},{self._chan};:CURR {current:.12g},{self._chan}"
+            )
         else:
             self._write(f"CURR {current:.12g},{self._chan}")
 
@@ -381,7 +393,12 @@ class SMUChannel(PowerSupplyChannel):
 
     def set_voltage_limit(self, value: float) -> None:
         self._require_smu()
-        voltage = require_number("voltage_limit", value, minimum=0.0, maximum=self.capabilities.max_voltage)
+        voltage = require_number(
+            "voltage_limit",
+            value,
+            minimum=0.0,
+            maximum=self.capabilities.max_voltage,
+        )
         self._write(f"VOLT:LIM {voltage:.12g},{self._chan}")
 
     def get_voltage_limit(self) -> float:
@@ -410,7 +427,6 @@ class SMUChannel(PowerSupplyChannel):
         self.set_voltage_setpoint(voltage)
         self.set_current_limit(current_limit)
         if voltage_limit is not None:
-            # Historical API name: in voltage priority this is the remote OVP threshold.
             self.set_ovp(voltage_limit)
         if verify:
             self._driver.check_errors()
@@ -440,9 +456,13 @@ class SMUChannel(PowerSupplyChannel):
     def set_smu_output_off_mode(self, mode: Literal["high_z", "low_z"]) -> None:
         self._require_smu()
         if not self.capabilities.supports_smu_output_off_mode:
-            raise DriverUnsupportedOperationError("SMU output-off mode is not supported by this module")
+            raise DriverUnsupportedOperationError(
+                "SMU output-off mode is not supported by this module"
+            )
         if mode not in {"high_z", "low_z"}:
-            raise DriverUnsupportedValueError(f"invalid output-off mode {mode!r}", code="LPDS-ARG-016")
+            raise DriverUnsupportedValueError(
+                f"invalid output-off mode {mode!r}", code="LPDS-ARG-016"
+            )
         self._write(f"OUTP:TMOD {'LOWZ' if mode == 'low_z' else 'HIGHZ'},{self._chan}")
 
     def get_smu_output_off_mode(self) -> Literal["high_z", "low_z"]:
@@ -475,8 +495,13 @@ class ElectronicLoadChannel(BaseChannel):
 
     def _require_verified_or_sim(self) -> None:
         if self.capabilities.module_type != "electronic_load":
-            raise DriverUnsupportedOperationError(f"channel {self.channel} is not an electronic load")
-        if self.capabilities.model != "SIM_LOAD" and not self.capabilities.verified_real_load_commands:
+            raise DriverUnsupportedOperationError(
+                f"channel {self.channel} is not an electronic load"
+            )
+        if (
+            self.capabilities.model != "SIM_LOAD"
+            and not self.capabilities.verified_real_load_commands
+        ):
             raise DriverUnsupportedOperationError(
                 "electronic-load SCPI commands are not verified for this exact module"
             )
@@ -513,7 +538,9 @@ class ElectronicLoadChannel(BaseChannel):
     def set_load_mode(self, mode: Literal["cc", "cv", "cr", "cp"]) -> None:
         self._require_verified_or_sim()
         if mode not in self._MODE_TO_SCPI:
-            raise DriverUnsupportedValueError(f"invalid load mode {mode!r}", code="LPDS-ARG-017")
+            raise DriverUnsupportedValueError(
+                f"invalid load mode {mode!r}", code="LPDS-ARG-017"
+            )
         if self._is_sim:
             self._write(f"SIM:LOAD:MODE {mode.upper()},{self._chan}")
         else:
@@ -525,12 +552,16 @@ class ElectronicLoadChannel(BaseChannel):
             reply = self._query(f"SIM:LOAD:MODE? {self._chan}").strip().lower()
             if reply in self._MODE_TO_SCPI:
                 return reply  # type: ignore[return-value]
-            raise DriverMalformedResponseError(f"invalid SIM load mode {reply!r}", code="LPDS-PRT-014")
+            raise DriverMalformedResponseError(
+                f"invalid SIM load mode {reply!r}", code="LPDS-PRT-014"
+            )
         reply = self._query(f"FUNC? {self._chan}").strip().upper()
         for scpi_mode, mode in self._SCPI_TO_MODE.items():
             if scpi_mode in reply:
                 return mode
-        raise DriverMalformedResponseError(f"unrecognized load priority mode reply: {reply!r}", code="LPDS-PRT-014")
+        raise DriverMalformedResponseError(
+            f"unrecognized load priority mode reply: {reply!r}", code="LPDS-PRT-014"
+        )
 
     def _set_level(self, name: str, command: str, value: float) -> None:
         self._require_verified_or_sim()
@@ -538,32 +569,48 @@ class ElectronicLoadChannel(BaseChannel):
         self._write(f"{command} {level:.12g},{self._chan}")
 
     def set_load_current(self, value: float) -> None:
-        self._set_level("load_current", "SIM:LOAD:CURR" if self._is_sim else "CURR", value)
+        self._set_level(
+            "load_current", "SIM:LOAD:CURR" if self._is_sim else "CURR", value
+        )
 
     def get_load_current(self) -> float:
         self._require_verified_or_sim()
-        return self._query_float(f"{'SIM:LOAD:CURR' if self._is_sim else 'CURR'}? {self._chan}")
+        return self._query_float(
+            f"{'SIM:LOAD:CURR' if self._is_sim else 'CURR'}? {self._chan}"
+        )
 
     def set_load_voltage(self, value: float) -> None:
-        self._set_level("load_voltage", "SIM:LOAD:VOLT" if self._is_sim else "VOLT", value)
+        self._set_level(
+            "load_voltage", "SIM:LOAD:VOLT" if self._is_sim else "VOLT", value
+        )
 
     def get_load_voltage(self) -> float:
         self._require_verified_or_sim()
-        return self._query_float(f"{'SIM:LOAD:VOLT' if self._is_sim else 'VOLT'}? {self._chan}")
+        return self._query_float(
+            f"{'SIM:LOAD:VOLT' if self._is_sim else 'VOLT'}? {self._chan}"
+        )
 
     def set_load_resistance(self, value: float) -> None:
-        self._set_level("load_resistance", "SIM:LOAD:RES" if self._is_sim else "RES", value)
+        self._set_level(
+            "load_resistance", "SIM:LOAD:RES" if self._is_sim else "RES", value
+        )
 
     def get_load_resistance(self) -> float:
         self._require_verified_or_sim()
-        return self._query_float(f"{'SIM:LOAD:RES' if self._is_sim else 'RES'}? {self._chan}")
+        return self._query_float(
+            f"{'SIM:LOAD:RES' if self._is_sim else 'RES'}? {self._chan}"
+        )
 
     def set_load_power(self, value: float) -> None:
-        self._set_level("load_power", "SIM:LOAD:POW" if self._is_sim else "POW", value)
+        self._set_level(
+            "load_power", "SIM:LOAD:POW" if self._is_sim else "POW", value
+        )
 
     def get_load_power(self) -> float:
         self._require_verified_or_sim()
-        return self._query_float(f"{'SIM:LOAD:POW' if self._is_sim else 'POW'}? {self._chan}")
+        return self._query_float(
+            f"{'SIM:LOAD:POW' if self._is_sim else 'POW'}? {self._chan}"
+        )
 
     def set_load_current_limit(self, value: float) -> None:
         self._require_verified_or_sim()
