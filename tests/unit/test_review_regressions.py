@@ -6,9 +6,10 @@ import pytest
 from scpi_driver_core.tracing.observer import RecordingTraceObserver
 
 from keysight_n6700 import (
-    DriverArgumentTypeError,
-    DriverUnsupportedValueError,
     N6700,
+    DriverArgumentTypeError,
+    DriverUnsafeOperationError,
+    DriverUnsupportedValueError,
     classify_module,
 )
 from keysight_n6700.scpi import parse_multi_binary_real_arrays
@@ -46,7 +47,7 @@ def test_n67_003_raw_guard_does_not_block_typed_api_or_shutdown() -> None:
         driver.enable_output(1)
         result = driver.safe_shutdown()
         assert result["success"] is True
-        with pytest.raises(Exception):
+        with pytest.raises(DriverUnsafeOperationError):
             driver.write_scpi("*RST")
     finally:
         driver.set_auto_shutdown_on_disconnect(False)
