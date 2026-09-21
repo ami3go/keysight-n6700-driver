@@ -151,7 +151,7 @@ class SimN6700Instrument:
             return float(argument)
         except ValueError:
             self._push_error(-222, f"Data out of range: {argument}")
-            return getattr(state, attribute)
+            return float(getattr(state, attribute))
 
     def _set_numeric(
         self,
@@ -422,7 +422,7 @@ class SimN6700Instrument:
             is_voltage = header.startswith("VOLT")
             attribute = "voltage_range" if is_voltage else "current_range"
             argument = self._first_argument(norm)
-            values: list[str] = []
+            range_values: list[str] = []
             for channel in self._channels_from_command(norm):
                 state = self.channels[channel]
                 if argument == "MIN":
@@ -431,8 +431,8 @@ class SimN6700Instrument:
                     value = state.max_voltage if is_voltage else state.max_current
                 else:
                     value = getattr(state, attribute)
-                values.append(str(value))
-            return ",".join(values)
+                range_values.append(str(value))
+            return ",".join(range_values)
         if header in {"VOLT:RANG", "VOLTAGE:RANGE", "CURR:RANG", "CURRENT:RANGE"}:
             attribute = "voltage_range" if header.startswith("VOLT") else "current_range"
             for channel in self._channels_from_command(norm):
@@ -565,7 +565,7 @@ class SimN6700Instrument:
             is_voltage = header.startswith("VOLT")
             subsystem = "VOLT" if is_voltage else "CURR"
             argument = self._first_argument(norm)
-            values: list[str] = []
+            level_values: list[str] = []
             for channel in self._channels_from_command(norm):
                 state = self.channels[channel]
                 if argument == "MIN":
@@ -574,8 +574,8 @@ class SimN6700Instrument:
                     value = state.max_voltage if is_voltage else state.max_current
                 else:
                     value = getattr(state, self._level_attribute(state, subsystem))
-                values.append(str(value))
-            return ",".join(values)
+                level_values.append(str(value))
+            return ",".join(level_values)
 
         if header in {"VOLT", "VOLTAGE", "CURR", "CURRENT", "RES", "RESISTANCE", "POW", "POWER"}:
             if header.startswith("VOLT"):
@@ -612,13 +612,18 @@ class SimN6700Instrument:
         if header in {"RES?", "RESISTANCE?", "POW?", "POWER?"}:
             subsystem = "RES" if header.startswith("RES") else "POW"
             return ",".join(
-                str(getattr(self.channels[channel], self._level_attribute(self.channels[channel], subsystem)))
+                str(
+                    getattr(
+                        self.channels[channel],
+                        self._level_attribute(self.channels[channel], subsystem),
+                    )
+                )
                 for channel in self._channels_from_command(norm)
             )
 
         if header.startswith("MEAS:") or header.startswith("FETC:") or header.startswith("FETCH:"):
             channels = self._channels_from_command(norm)
-            values: list[str] = []
+            measurement_values: list[str] = []
             for channel in channels:
                 state = self.channels[channel]
                 active = state.enabled and not state.protection_active
@@ -645,15 +650,18 @@ class SimN6700Instrument:
                 elif "CURR" in header:
                     value = measured_current
                 elif "POW" in header:
-                    if not state.model.startswith(("N676", "N678", "N679")) and not state.is_sim_load:
+                    if (
+                        not state.model.startswith(("N676", "N678", "N679"))
+                        and not state.is_sim_load
+                    ):
                         self._push_error(310, "The command is not supported by this model")
                         return ""
                     value = measured_power
                 else:
                     self._push_error(-113, f"Undefined header: {command}")
                     return ""
-                values.append(str(value))
-            return ",".join(values)
+                measurement_values.append(str(value))
+            return ",".join(measurement_values)
 
         self._push_error(-113, f"Undefined header: {command}")
         return None
