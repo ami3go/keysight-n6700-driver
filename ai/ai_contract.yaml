@@ -3,7 +3,7 @@ identity:
   plugin_id: keysight.n6700
   driver_name: keysight_n6700
   distribution_name: keysight-n6700-driver
-  distribution_version: 0.5.0
+  distribution_version: 0.6.0
   driver_import_path: keysight_n6700.driver
   driver_class: keysight_n6700.driver.N6700
   supported_models:
@@ -436,6 +436,43 @@ capabilities:
     python_method: wait_for_current_in_range
     canonical_method: wait_for_current_in_range
     aliases: []
+- capability_id: acquisition.digitize.configure
+  display_name: Configure Digitize
+  description: Select the measured quantity, sample interval, point count, and trigger offset for a buffered
+    acquisition.
+  category: acquisition
+  standard: true
+  risk_level: none
+  mutating: false
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: configure_digitize
+    canonical_method: configure_digitize
+    aliases: []
+- capability_id: waveform.digitize.fetch
+  display_name: Fetch Digitized Array
+  description: Retrieve the full buffered-acquisition array from a channel configured by ``configure_digitize``.
+  category: waveform
+  standard: true
+  risk_level: none
+  mutating: false
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: fetch_digitized_array
+    canonical_method: fetch_digitized_array
+    aliases: []
 - capability_id: safety.output.disable_all
   display_name: Safe Shutdown
   description: 'LPDS-002 mandatory-when-applicable: best-effort shutdown of every channel.'
@@ -558,14 +595,13 @@ setup_teardown_contract:
   teardown: disconnect()/disconnect_all() should always be called, ideally from a finally block or context
     manager (`with N6700.connect_simulated() as drv:`), even after a failed operation.
 limitations:
-- N679xA (N6791A/N6792A) electronic-load commands are verified against the official Keysight N6705C documentation
-  and, for reads only (FUNC?/VOLT?/CURR?/OUTP?), against real hardware; the write path (priority mode
-  selection, level setpoints, input on/off) has not yet been exercised against real hardware. Every other
-  real load module remains unsupported; only the simulator's SIM_LOAD is exercised for those.
+- N679xA (N6791A/N6792A) electronic-load read/write and buffered-acquisition commands are verified against
+  official Keysight documentation and real N6791A hardware. Other real load module families remain unsupported;
+  only the simulator's SIM_LOAD is exercised for those.
 - Remote/local control (get_remote_state/set_remote_state/remote_lockout) is implemented against the simulator
   only; real N6700 remote/local behavior is transport-specific and not yet verified.
-- No real-hardware conformance run has been performed yet (see review/known_risks.md); driver status is
-  `untested`, not `stable`.
+- Hardware evidence is specific to N6700C firmware E.02.09.3271 with N6775A/N6791A modules; other mainframes,
+  firmware revisions, module families, and trigger sources remain unqualified.
 planning_hints:
 - Always call discover_modules() (or let connect()'s default discover=True do it) before addressing a
   channel by type-specific accessor (power_supply/smu/load).

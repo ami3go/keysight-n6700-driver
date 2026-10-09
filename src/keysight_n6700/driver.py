@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -57,6 +57,7 @@ from .module_capabilities import ChannelCapabilities, classify_module
 from .scpi import SUPPORTED_MANUFACTURERS, format_channel_list, parse_error
 from .simulator import build_simulated_transport
 from .types import (
+    ArrayMeasurement,
     AuditRecord,
     InstrumentIdentity,
     Measurement,
@@ -940,6 +941,80 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
 
     def configure_load_cc(self, channel: int, current: float, *, input_on: bool = False, verify: bool = True, alias: str | None = None, **_: object) -> None:
         self.load(channel, alias=alias).configure_cc(current, input_on=input_on, verify=verify)
+
+    # -- digitized/buffered measurement ---------------------------------------
+
+    @capability(
+        "acquisition.digitize.configure",
+        category="acquisition",
+        risk_level="none",
+        canonical_method="configure_digitize",
+    )
+    def configure_digitize(
+        self,
+        channel: int,
+        function: Literal["voltage", "current"],
+        *,
+        points: int,
+        interval_s: float,
+        offset_points: int = 0,
+        alias: str | None = None,
+    ) -> None:
+        """Select the measured quantity, sample interval, point count, and trigger offset for a buffered acquisition."""
+        self.load(channel, alias=alias).configure_digitize(
+            function, points=points, interval_s=interval_s, offset_points=offset_points
+        )
+
+    def configure_digitize_trigger(
+        self,
+        channel: int,
+        source: Literal["bus", "voltage", "current", "external", "transient"],
+        *,
+        level: float | None = None,
+        slope: Literal["pos", "neg"] | None = None,
+        source_channel: int | None = None,
+        alias: str | None = None,
+    ) -> None:
+        self.load(channel, alias=alias).configure_digitize_trigger(
+            source, level=level, slope=slope, source_channel=source_channel
+        )
+
+    def arm_digitize(self, channel: int, alias: str | None = None) -> None:
+        self.load(channel, alias=alias).arm_digitize()
+
+    def wait_digitize_armed(self, channel: int, timeout_s: float = 5.0, alias: str | None = None) -> None:
+        self.load(channel, alias=alias).wait_digitize_armed(timeout_s=timeout_s)
+
+    def trigger_digitize(self, channel: int, alias: str | None = None) -> None:
+        self.load(channel, alias=alias).trigger_digitize()
+
+    def wait_digitize_complete(
+        self,
+        channel: int,
+        timeout_s: float,
+        *,
+        abort_requested: Callable[[], bool] | None = None,
+        alias: str | None = None,
+    ) -> None:
+        self.load(channel, alias=alias).wait_digitize_complete(timeout_s, abort_requested=abort_requested)
+
+    def abort_digitize(self, channel: int, alias: str | None = None) -> None:
+        self.load(channel, alias=alias).abort_digitize()
+
+    @capability(
+        "waveform.digitize.fetch",
+        category="waveform",
+        risk_level="none",
+        canonical_method="fetch_digitized_array",
+    )
+    def fetch_digitized_array(
+        self,
+        channel: int,
+        function: Literal["voltage", "current"] | None = None,
+        alias: str | None = None,
+    ) -> ArrayMeasurement:
+        """Retrieve the full buffered-acquisition array from a channel configured by ``configure_digitize``."""
+        return self.load(channel, alias=alias).fetch_digitized_array(function)
 
     # -- protection / status --------------------------------------------------
 

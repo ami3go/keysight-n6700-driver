@@ -50,6 +50,7 @@ class _ChannelState:
     protection_active: bool = False
     questionable_status: int = 0
     operation_status: int = 0
+    sweep_points: int = 1
 
 
 class SimN6700Instrument:
@@ -286,6 +287,47 @@ class SimN6700Instrument:
             for ch in self._channels_from_command(norm):
                 self.channels[ch].power = value
             return None
+        # Digitized/buffered measurement (SENS:SWEep + TRIG:ACQuire + FETC:ARRay):
+        # kept to "accept the configuration, replay a flat buffer on fetch" —
+        # enough to exercise the driver's configure/arm/poll/fetch sequence
+        # without pretending to simulate real transient waveforms. Order matters:
+        # the colon-qualified sub-commands must be checked before their shorter
+        # prefixes (TRIG:ACQ:VOLT:SLOP before TRIG:ACQ:VOLT before bare TRIG:ACQ).
+        if upper.startswith("SENS:FUNC:VOLT") or upper.startswith("SENS:FUNC:CURR"):
+            return None
+        if upper.startswith("SENS:SWE:OFFS:POIN"):
+            return None
+        if upper.startswith("SENS:SWE:TINT"):
+            return None
+        if upper.startswith("SENS:SWE:POIN"):
+            value = int(float(norm.split(None, 1)[1].split(",")[0]))
+            for ch in self._channels_from_command(norm):
+                self.channels[ch].sweep_points = value
+            return None
+        if upper.startswith("TRIG:ACQ:SOUR"):
+            return None
+        if upper.startswith("TRIG:ACQ:VOLT:SLOP") or upper.startswith("TRIG:ACQ:CURR:SLOP"):
+            return None
+        if upper.startswith("TRIG:ACQ:VOLT") or upper.startswith("TRIG:ACQ:CURR"):
+            return None
+        if upper.startswith("INIT:ACQ"):
+            for ch in self._channels_from_command(norm):
+                self.channels[ch].operation_status |= 8  # WTG_meas
+            return None
+        if upper.startswith("TRIG:ACQ"):
+            for ch in self._channels_from_command(norm):
+                self.channels[ch].operation_status &= ~8
+            return None
+        if upper.startswith("ABOR:ACQ"):
+            for ch in self._channels_from_command(norm):
+                self.channels[ch].operation_status &= ~(8 | 32)
+            return None
+        if upper.startswith("FETC:ARR:VOLT?") or upper.startswith("FETCH:ARRAY:VOLTAGE?"):
+            st = self.channels[self._channels_from_command(norm)[0]]
+            return ",".join([str(st.voltage)] * st.sweep_points)
+        if upper.startswith("FETC:ARR:CURR?") or upper.startswith("FETCH:ARRAY:CURRENT?"):
+            st = self.channels[self._channels_from_command(norm)[0]]
+            return ",".join([str(st.current_limit)] * st.sweep_points)
         if "MEAS" in upper or "FETCH" in upper or "FETC" in upper:
             channels = self._channels_from_command(norm)
             values: list[str] = []

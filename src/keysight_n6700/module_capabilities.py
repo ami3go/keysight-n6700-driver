@@ -32,6 +32,11 @@ class ChannelCapabilities:
     supports_smu_priority_mode: bool = False
     supports_smu_output_off_mode: bool = False
     verified_real_load_commands: bool = False
+    # Buffered/triggered acquisition (SENS:SWEep + TRIG:ACQuire + FETC:ARRay), per the
+    # N6705C manual's "Digitizing Measurements" chapter. Not yet classified for the SMU/
+    # power-supply families, which the manual says also support it — see known_risks.md.
+    supports_digitizing: bool = False
+    digitize_min_interval_s: float | None = None
 
 
 POWER_PREFIXES = ("N673", "N674", "N675", "N676", "N677")
@@ -79,6 +84,10 @@ def classify_module(model: str, options: list[str] | tuple[str, ...] | None = No
             supports_power_measurement=True,
             supports_list_mode=True,
             verified_real_load_commands=True,
+            # "1 or 2 parameters (all models): 10.24 microseconds" per the manual's
+            # sample-rate table; the 5.12 microsecond single-parameter rate is SMU-only.
+            supports_digitizing=True,
+            digitize_min_interval_s=10.24e-6,
         )
     if model_clean.startswith(SMU_PREFIXES):
         return ChannelCapabilities(

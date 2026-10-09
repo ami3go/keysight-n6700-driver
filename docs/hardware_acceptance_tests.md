@@ -142,16 +142,64 @@ mainframe has no real SMU module installed. Every other vector's channel
 number is remapped from the simulator's default map onto whatever channel
 this mainframe actually has that module type on.
 
+## 5. `test_hardware_load_digitize.py` — digitized/buffered measurement smoke test
+
+A software round-trip check for the v0.6.0 digitizing capability
+(`configure_digitize`/`arm_digitize`/`fetch_digitized_array`, etc.): uses a
+software (`BUS`) trigger, not a level trigger on a real DUT event, so it
+needs no wiring beyond the load module itself. It only proves the
+instrument accepts the configuration, arms, triggers, and returns a buffer
+of the requested length — not that a real transient was captured
+correctly. See `review/known_risks.md`.
+
+| Variable | Meaning |
+|---|---|
+| `N6700_HIL_DIGITIZE_ENABLED` | must be `true` |
+| `N6700_HIL_DIGITIZE_CHANNEL` | the electronic-load channel number, no default |
+| `N6700_HIL_DIGITIZE_CONFIRM` | must be `yes` — attests the channel is a genuine, already-reviewed N679xA module |
+
+```bash
+N6700_HIL_ENABLED=true N6700_RESOURCE=192.168.1.50 N6700_CONNECTION_TYPE=ethernet \
+N6700_HIL_DIGITIZE_ENABLED=true N6700_HIL_DIGITIZE_CHANNEL=2 N6700_HIL_DIGITIZE_CONFIRM=yes \
+  pytest tests/hardware/test_hardware_load_digitize.py -v
+```
+
+### Retained real load-transient evidence
+
+On 2026-10-09 the updated driver was also used as the VOUT waveform source
+for the complete downstream load-transient matrix: 8 V, 13.5 V, and 18 V;
+both 0.5 A → 2.5 A and 2.5 A → 0.5 A. The N6791A triggered on its own
+measured current crossing 1.5 A and captured 1024 voltage samples at
+20.48 µs/sample with 512 pre-trigger points.
+
+All six edges landed at sample 511 or 512. Worst measured VOUT deviation
+was 3.357% (110.55 mV), recovery into the downstream test's 2% band was
+20.48–40.96 µs, no source/load protection became active, and final
+verification found both channels off with an empty SCPI error queue. The
+summary, exact harness, and all raw CSV waveforms are retained in
+`results/load_transient/20261009_n6791a_internal_buffer/`.
+
+The run exposed two mandatory sequencing rules for consumers:
+
+1. Select CC mode before arming. Re-sending `FUNC CURR` while acquisition
+   is armed is rejected by real firmware with SCPI error 315.
+2. Call `FETC:ARR:*?` immediately after acquisition completion. Any later
+   `MEASure` query starts a new acquisition and overwrites the triggered
+   buffer.
+
 ## What none of these prove
 
-Passing all four is real evidence the driver's read-only calls, one basic
+Passing all five is real evidence the driver's read-only calls, one basic
 enable/measure/disable cycle, the power-supply/electronic-load interaction,
-and (for the vectors this mainframe's topology supports) LPDS-019
-conformance itself all work against your specific instrument and wiring.
-It does not cover SMU priority-mode switching on real SMU hardware
-(no SMU vector can pass without one installed), protection-trip/clear
-behavior, or remote/local control, none of which are exercised here yet.
-See [`review/known_risks.md`](../review/known_risks.md).
+(for the vectors this mainframe's topology supports) LPDS-019 conformance
+itself, and a digitize configuration/arm/trigger/fetch round trip all work
+against your specific instrument and wiring. It does not cover SMU
+priority-mode switching on real SMU hardware (no SMU vector can pass
+without one installed), protection-trip/clear behavior, remote/local
+control, or every possible trigger/input topology. A current-level-triggered
+DUT transient is covered by the retained matrix above, while the digitize
+smoke test itself uses a software trigger. See
+[`review/known_risks.md`](../review/known_risks.md).
 
 ## What it already found
 

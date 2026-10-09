@@ -3,6 +3,46 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.6.0 — 2026-10-09
+
+Added digitized/buffered measurement (`SENS:SWEep` + `TRIGger:ACQuire` +
+`FETC:ARRay`) to `ElectronicLoadChannel`, for the N679xA family: the
+Keysight N6705C manual's "Load Model Differences" table marks "SCPI command
+array readback" and "SCPI command programmable sample rate" available for
+N6791A/N6792A over the remote interface (which is exactly how N6700 talks
+to it), at a minimum 10.24 µs/sample for 1-2 parameters, up to 512K points,
+with pre/post-trigger offset and a voltage/current level trigger.
+
+- Added: `configure_digitize`, `configure_digitize_trigger`, `arm_digitize`,
+  `wait_digitize_armed`, `trigger_digitize`, `wait_digitize_complete`,
+  `abort_digitize`, `fetch_digitized_array` on `ElectronicLoadChannel`, with
+  thin `N6700` convenience wrappers of the same names.
+- Added: `ChannelCapabilities.supports_digitizing` /
+  `digitize_min_interval_s`, set for the `N679xA` load family only — the
+  manual says the SMU/power-supply families can do this too, but they are
+  not classified for it yet (see `review/known_risks.md`). This is the
+  first bool+numeric-limit pairing in `ChannelCapabilities`.
+- Completed `types.ArrayMeasurement`'s evident original intent (defined,
+  exported, never used before this release) by adding `interval_s` and
+  trigger-relative `offset_points`, rather than introducing a new type.
+- Like `set_load_current_limit`, this is real-hardware-only: `SIM_LOAD`
+  raises `DriverUnsupportedOperationError` rather than gaining a
+  `SIM:LOAD:*` shadow branch, since there is no meaningful simulated-
+  waveform twin. Tested by pointing a channel built with
+  `classify_module("N6791A")` directly at the simulator's shared command
+  surface, the same way `test_electronic_load_channel.py` already covers
+  the other real-load commands.
+- Run against the real N6700C at 192.168.0.6 (channel 2, N6791A): the
+  software-triggered 256-point smoke test passed, followed by a six-case
+  current-level-triggered DUT matrix at 8/13.5/18 V and 0.5↔2.5 A. All
+  edges landed at sample 511–512 of 1024, worst VOUT deviation was
+  3.357%, and both channels were confirmed off with an empty error queue.
+  Raw evidence is retained under
+  `results/load_transient/20261009_n6791a_internal_buffer/`.
+- Documented two real-firmware sequencing requirements: select CC mode
+  before arming (firmware rejects `FUNC CURR` while acquisition is active),
+  and fetch the array before any `MEASure` query overwrites the buffer.
+
 ## v0.5.0 — 2026-09-14
 
 LPDS-001 §9 defines `stable` status as "LPDS-019 conformance passes against

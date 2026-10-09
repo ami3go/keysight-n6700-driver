@@ -3,6 +3,28 @@ driver_name: keysight_n6700
 driver_class: keysight_n6700.driver.N6700
 generated_by: scripts/generate_conformance_inventory.py
 methods:
+- method: abort_digitize
+  canonical_method: abort_digitize
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.abort_digitize
+  signature: 'abort_digitize(self, channel: ''int'', alias: ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: arm_digitize
+  canonical_method: arm_digitize
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.arm_digitize
+  signature: 'arm_digitize(self, channel: ''int'', alias: ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
 - method: channel
   canonical_method: channel
   aliases: []
@@ -121,6 +143,40 @@ methods:
   optional_arguments:
   - alias
   device_facing: false
+  execution_status: not_yet_run
+- method: configure_digitize
+  canonical_method: configure_digitize
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_digitize
+  signature: 'configure_digitize(self, channel: ''int'', function: "Literal[''voltage'', ''current'']",
+    *, points: ''int'', interval_s: ''float'', offset_points: ''int'' = 0, alias: ''str | None'' = None)
+    -> ''None'''
+  required_arguments:
+  - channel
+  - function
+  - points
+  - interval_s
+  optional_arguments:
+  - offset_points
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: configure_digitize_trigger
+  canonical_method: configure_digitize_trigger
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_digitize_trigger
+  signature: 'configure_digitize_trigger(self, channel: ''int'', source: "Literal[''bus'', ''voltage'',
+    ''current'', ''external'', ''transient'']", *, level: ''float | None'' = None, slope: "Literal[''pos'',
+    ''neg''] | None" = None, source_channel: ''int | None'' = None, alias: ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - channel
+  - source
+  optional_arguments:
+  - level
+  - slope
+  - source_channel
+  - alias
+  device_facing: true
   execution_status: not_yet_run
 - method: configure_load_cc
   canonical_method: configure_load_cc
@@ -327,6 +383,19 @@ methods:
   - destination
   - scope
   device_facing: false
+  execution_status: not_yet_run
+- method: fetch_digitized_array
+  canonical_method: fetch_digitized_array
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.fetch_digitized_array
+  signature: 'fetch_digitized_array(self, channel: ''int'', function: "Literal[''voltage'', ''current'']
+    | None" = None, alias: ''str | None'' = None) -> ''ArrayMeasurement'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - function
+  - alias
+  device_facing: true
   execution_status: not_yet_run
 - method: find_driver_capabilities
   canonical_method: find_driver_capabilities
@@ -1074,6 +1143,17 @@ methods:
   - alias
   device_facing: true
   execution_status: not_yet_run
+- method: trigger_digitize
+  canonical_method: trigger_digitize
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.trigger_digitize
+  signature: 'trigger_digitize(self, channel: ''int'', alias: ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
 - method: validate_channel
   canonical_method: validate_channel
   aliases: []
@@ -1113,6 +1193,33 @@ methods:
   signature: 'wait(self, alias: ''str | None'' = None) -> ''None'''
   required_arguments: []
   optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: wait_digitize_armed
+  canonical_method: wait_digitize_armed
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.wait_digitize_armed
+  signature: 'wait_digitize_armed(self, channel: ''int'', timeout_s: ''float'' = 5.0, alias: ''str | None''
+    = None) -> ''None'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - timeout_s
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: wait_digitize_complete
+  canonical_method: wait_digitize_complete
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.wait_digitize_complete
+  signature: 'wait_digitize_complete(self, channel: ''int'', timeout_s: ''float'', *, abort_requested:
+    ''Callable[[], bool] | None'' = None, alias: ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - channel
+  - timeout_s
+  optional_arguments:
+  - abort_requested
   - alias
   device_facing: true
   execution_status: not_yet_run

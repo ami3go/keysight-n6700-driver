@@ -149,6 +149,16 @@ Before calling it `stable`:
 - Verify `get_remote_state`/`set_remote_state`/`remote_lockout`, which are
   currently gated to the simulator transport only (see `docs/troubleshooting.md`)
   because real N6700 remote/local SCPI behavior has not been checked.
+- **Closed 2026-10-09:** `tests/hardware/test_hardware_load_digitize.py`
+  passed against N6700C `MY56320259` at 192.168.0.6, channel 2 (N6791A),
+  then the complete downstream six-case DUT transient matrix passed using
+  a 1.5 A current-level trigger, 1024 points, 20.48 µs/sample, and 512
+  pre-trigger points. All edges were centered at sample 511–512; both
+  channels were independently confirmed off afterward with no protection
+  flags and an empty error queue. Evidence is retained under
+  `results/load_transient/20261009_n6791a_internal_buffer/`. Remaining
+  qualification risk is broader trigger/topology coverage, not whether the
+  N6791A current-level trigger and pre-trigger buffer work at all.
 - Complete the full LPDS-010 review checklist's Domain J (hardware
   qualification, performance, compatibility), which is entirely
   hardware-dependent and not attempted here.

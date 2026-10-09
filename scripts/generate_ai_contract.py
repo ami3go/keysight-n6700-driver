@@ -133,9 +133,9 @@ def build_contract() -> dict[str, object]:
             "teardown": "disconnect()/disconnect_all() should always be called, ideally from a finally block or context manager (`with N6700.connect_simulated() as drv:`), even after a failed operation.",
         },
         "limitations": [
-            "N679xA (N6791A/N6792A) electronic-load commands are verified against the official Keysight N6705C documentation and, for reads only (FUNC?/VOLT?/CURR?/OUTP?), against real hardware; the write path (priority mode selection, level setpoints, input on/off) has not yet been exercised against real hardware. Every other real load module remains unsupported; only the simulator's SIM_LOAD is exercised for those.",
+            "N679xA (N6791A/N6792A) electronic-load read/write and buffered-acquisition commands are verified against official Keysight documentation and real N6791A hardware. Other real load module families remain unsupported; only the simulator's SIM_LOAD is exercised for those.",
             "Remote/local control (get_remote_state/set_remote_state/remote_lockout) is implemented against the simulator only; real N6700 remote/local behavior is transport-specific and not yet verified.",
-            "No real-hardware conformance run has been performed yet (see review/known_risks.md); driver status is `untested`, not `stable`.",
+            "Hardware evidence is specific to N6700C firmware E.02.09.3271 with N6775A/N6791A modules; other mainframes, firmware revisions, module families, and trigger sources remain unqualified.",
         ],
         "planning_hints": [
             "Always call discover_modules() (or let connect()'s default discover=True do it) before addressing a channel by type-specific accessor (power_supply/smu/load).",

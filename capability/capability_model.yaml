@@ -349,6 +349,43 @@ capabilities:
     python_method: wait_for_current_in_range
     canonical_method: wait_for_current_in_range
     aliases: []
+- capability_id: acquisition.digitize.configure
+  display_name: Configure Digitize
+  description: Select the measured quantity, sample interval, point count, and trigger offset for a buffered
+    acquisition.
+  category: acquisition
+  standard: true
+  risk_level: none
+  mutating: false
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: configure_digitize
+    canonical_method: configure_digitize
+    aliases: []
+- capability_id: waveform.digitize.fetch
+  display_name: Fetch Digitized Array
+  description: Retrieve the full buffered-acquisition array from a channel configured by ``configure_digitize``.
+  category: waveform
+  standard: true
+  risk_level: none
+  mutating: false
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: fetch_digitized_array
+    canonical_method: fetch_digitized_array
+    aliases: []
 - capability_id: safety.output.disable_all
   display_name: Safe Shutdown
   description: 'LPDS-002 mandatory-when-applicable: best-effort shutdown of every channel.'
