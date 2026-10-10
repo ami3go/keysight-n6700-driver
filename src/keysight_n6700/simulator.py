@@ -51,6 +51,9 @@ class _ChannelState:
     questionable_status: int = 0
     operation_status: int = 0
     sweep_points: int = 1
+    acquisition_state: str = "idle"
+    acquisition_generation: int = 0
+    completed_generation: int | None = None
 
 
 class SimN6700Instrument:
@@ -109,6 +112,9 @@ class SimN6700Instrument:
                 st.enabled = False
                 st.voltage = 0.0
                 st.current_limit = 1.0
+                st.operation_status &= ~(8 | 32)
+                st.acquisition_state = "idle"
+                st.completed_generation = None
             return None
         if upper == "*OPC?":
             return "1"
@@ -312,24 +318,49 @@ class SimN6700Instrument:
             return None
         if upper.startswith("INIT:ACQ"):
             for ch in self._channels_from_command(norm):
-                self.channels[ch].operation_status |= 8  # WTG_meas
+                st = self.channels[ch]
+                st.acquisition_generation += 1
+                st.completed_generation = None
+                st.acquisition_state = "waiting"
+                st.operation_status |= 8 | 32  # WTG_meas and MEAS_active
             return None
         if upper.startswith("TRIG:ACQ"):
             for ch in self._channels_from_command(norm):
-                self.channels[ch].operation_status &= ~8
+                st = self.channels[ch]
+                if st.acquisition_state != "waiting":
+                    self._push_error(-230, "Acquisition is not armed")
+                    continue
+                st.acquisition_state = "complete"
+                st.completed_generation = st.acquisition_generation
+                st.operation_status &= ~(8 | 32)
             return None
         if upper.startswith("ABOR:ACQ"):
             for ch in self._channels_from_command(norm):
-                self.channels[ch].operation_status &= ~(8 | 32)
+                st = self.channels[ch]
+                st.acquisition_state = "aborted"
+                st.completed_generation = None
+                st.operation_status &= ~(8 | 32)
             return None
         if upper.startswith("FETC:ARR:VOLT?") or upper.startswith("FETCH:ARRAY:VOLTAGE?"):
             st = self.channels[self._channels_from_command(norm)[0]]
+            if st.acquisition_state != "complete" or st.completed_generation != st.acquisition_generation:
+                self._push_error(-230, "No completed acquisition buffer")
+                return ""
             return ",".join([str(st.voltage)] * st.sweep_points)
         if upper.startswith("FETC:ARR:CURR?") or upper.startswith("FETCH:ARRAY:CURRENT?"):
             st = self.channels[self._channels_from_command(norm)[0]]
+            if st.acquisition_state != "complete" or st.completed_generation != st.acquisition_generation:
+                self._push_error(-230, "No completed acquisition buffer")
+                return ""
             return ",".join([str(st.current_limit)] * st.sweep_points)
         if "MEAS" in upper or "FETCH" in upper or "FETC" in upper:
             channels = self._channels_from_command(norm)
+            if "MEAS" in upper:
+                for ch in channels:
+                    st = self.channels[ch]
+                    st.acquisition_state = "idle"
+                    st.completed_generation = None
+                    st.operation_status &= ~(8 | 32)
             values: list[str] = []
             for ch in channels:
                 st = self.channels[ch]

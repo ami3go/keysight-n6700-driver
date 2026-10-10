@@ -21,8 +21,11 @@ import pytest
 from keysight_n6700 import (
     DriverArgumentValueError,
     DriverOperationUncertainError,
+    DriverPreconditionError,
+    DriverTimeoutError,
     DriverUnsupportedOperationError,
 )
+from keysight_n6700.acquisition import AcquisitionState
 from keysight_n6700.channel import ElectronicLoadChannel
 from keysight_n6700.module_capabilities import classify_module
 
@@ -55,6 +58,11 @@ def test_digitize_round_trip(driver) -> None:
 def test_digitize_current_uses_explicit_function_override(driver) -> None:
     load = _real_load_channel(driver)
     load.configure_digitize("voltage", points=10, interval_s=10.24e-6)
+    load.configure_digitize_trigger("bus")
+    load.arm_digitize()
+    load.wait_digitize_armed(timeout_s=1.0)
+    load.trigger_digitize()
+    load.wait_digitize_complete(timeout_s=1.0)
 
     result = load.fetch_digitized_array("current")
 
@@ -111,6 +119,114 @@ def test_digitize_is_not_modeled_by_the_simulator_placeholder(driver) -> None:
 def test_wait_digitize_complete_honors_abort_request(driver) -> None:
     load = _real_load_channel(driver)
     load.configure_digitize("voltage", points=10, interval_s=10.24e-6)
+    load.arm_digitize()
+    load.wait_digitize_armed(timeout_s=1.0)
 
     with pytest.raises(DriverOperationUncertainError):
         load.wait_digitize_complete(timeout_s=1.0, abort_requested=lambda: True)
+    assert load.digitize_status.state is AcquisitionState.ABORTED
+
+
+def test_status_does_not_report_completed_capture_before_trigger(driver) -> None:
+    """F04: MEAS_active alone must not be treated as a completion oracle."""
+    load = _real_load_channel(driver)
+    load.configure_digitize("voltage", points=10, interval_s=10.24e-6)
+    load.configure_digitize_trigger("bus")
+    load.arm_digitize()
+    assert load.digitize_status.state is AcquisitionState.ARMED
+    with pytest.raises(DriverPreconditionError):
+        load.fetch_digitized_array()
+    load.wait_digitize_armed(timeout_s=1.0)
+    assert load.digitize_status.state is AcquisitionState.WAITING
+    with pytest.raises(DriverTimeoutError):
+        load.wait_digitize_complete(timeout_s=0.1)
+    assert load.digitize_status.state is AcquisitionState.WAITING
+    with pytest.raises(DriverPreconditionError):
+        load.fetch_digitized_array()
+    load.abort_digitize()
+
+
+def test_generation_and_abort_invalidate_previous_buffer(driver) -> None:
+    load = _real_load_channel(driver)
+    load.configure_digitize("voltage", points=5, interval_s=10.24e-6)
+    load.arm_digitize()
+    load.wait_digitize_armed(timeout_s=1.0)
+    load.trigger_digitize()
+    load.wait_digitize_complete(timeout_s=1.0)
+    first = load.fetch_digitized_array()
+    assert len(first.values) == 5
+    token1 = load.digitize_status.generation
+    assert load.digitize_status.state is AcquisitionState.FETCHED
+
+    load.arm_digitize()
+    assert load.digitize_status.generation == token1 + 1
+    with pytest.raises(DriverPreconditionError):
+        load.fetch_digitized_array()
+    load.abort_digitize()
+    assert load.digitize_status.state is AcquisitionState.ABORTED
+    with pytest.raises(DriverPreconditionError):
+        load.fetch_digitized_array()
+
+    load.configure_digitize("voltage", points=4, interval_s=10.24e-6)
+    load.arm_digitize()
+    load.wait_digitize_armed(timeout_s=1.0)
+    load.trigger_digitize()
+    load.wait_digitize_complete(timeout_s=1.0)
+    assert len(load.fetch_digitized_array().values) == 4
+
+
+def test_reconfiguration_invalidates_completed_capture(driver) -> None:
+    load = _real_load_channel(driver)
+    load.configure_digitize("voltage", points=10, interval_s=10.24e-6)
+    load.arm_digitize()
+    load.wait_digitize_armed(timeout_s=1.0)
+    load.trigger_digitize()
+    load.wait_digitize_complete(timeout_s=1.0)
+
+    load.configure_digitize_trigger("current", level=0.5, slope="pos")
+    assert load.digitize_status.state is AcquisitionState.CONFIGURED
+    with pytest.raises(DriverPreconditionError):
+        load.fetch_digitized_array()
+
+
+def test_trigger_requires_verified_armed_status(driver) -> None:
+    load = _real_load_channel(driver)
+    load.configure_digitize("voltage", points=10, interval_s=10.24e-6)
+    load.arm_digitize()
+    with pytest.raises(DriverPreconditionError):
+        load.trigger_digitize()
+    load.wait_digitize_armed(timeout_s=1.0)
+    load.trigger_digitize()
+    load.wait_digitize_complete(timeout_s=1.0)
+    assert load.digitize_status.explicit_trigger_requested
+
+
+def test_second_configuration_while_armed_is_rejected(driver) -> None:
+    load = _real_load_channel(driver)
+    load.configure_digitize("voltage", points=5, interval_s=10.24e-6)
+    load.arm_digitize()
+    with pytest.raises(DriverPreconditionError):
+        load.configure_digitize("current", points=3, interval_s=10.24e-6)
+    with pytest.raises(DriverPreconditionError):
+        load.configure_digitize_trigger("bus")
+    load.abort_digitize()
+
+
+def test_simulator_exposes_in_progress_and_invalidates_aborted_array(driver) -> None:
+    load = _real_load_channel(driver)
+    load.configure_digitize("voltage", points=3, interval_s=10.24e-6)
+    load.arm_digitize()
+    assert int(driver.query_scpi("STAT:OPER:COND? (@3)")) & 8
+    assert int(driver.query_scpi("STAT:OPER:COND? (@3)")) & 32
+    load.abort_digitize()
+    assert int(driver.query_scpi("STAT:OPER:COND? (@3)")) & (8 | 32) == 0
+    assert driver.query_scpi("FETC:ARR:VOLT? (@3)") == ""
+
+
+def test_wait_without_arming_is_rejected(driver) -> None:
+    load = _real_load_channel(driver)
+    load.configure_digitize("voltage", points=5, interval_s=10.24e-6)
+    with pytest.raises(DriverPreconditionError):
+        load.wait_digitize_complete(timeout_s=0.1)
+    with pytest.raises(DriverPreconditionError):
+        load.wait_digitize_armed(timeout_s=0.1)
