@@ -1,6 +1,6 @@
 # Release notes
 
-Current release: v0.6.3. See [`CHANGELOG.md`](../CHANGELOG.md) for the
+Current release: v0.6.4. See [`CHANGELOG.md`](../CHANGELOG.md) for the
 concise index and [`history/`](../history/) for the detailed per-release
 record of every version.
 

@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
+from time import monotonic, sleep
 from typing import ClassVar, Literal, Protocol
 
 from scpi_driver_core.execution.polling import poll_until
 
 from ._translate import translated
-from .acquisition import AcquisitionSnapshot, AcquisitionState, AcquisitionTracker
+from .acquisition import AcquisitionSnapshot, AcquisitionState, AcquisitionTracker, DigitizeTiming
 from .exceptions import (
     DriverArgumentValueError,
     DriverError,
+    DriverMalformedResponseError,
     DriverOperationUncertainError,
+    DriverPreconditionError,
+    DriverTimeoutError,
     DriverUnsupportedOperationError,
 )
 from .module_capabilities import ChannelCapabilities
@@ -332,12 +336,18 @@ class ElectronicLoadChannel(BaseChannel):
         self._digitize_function: Literal["voltage", "current"] | None = None
         self._digitize_interval_s: float | None = None
         self._digitize_offset_points: int | None = None
+        self._digitize_timing: DigitizeTiming | None = None
         self._acquisition = AcquisitionTracker()
 
     @property
     def digitize_status(self) -> AcquisitionSnapshot:
         """Conservative driver-observed state of this channel's latest capture."""
         return self._acquisition.snapshot()
+
+    @property
+    def digitize_timing(self) -> DigitizeTiming | None:
+        """Last instrument-verified sweep configuration, or None."""
+        return self._digitize_timing
 
     def _require_verified_or_sim(self) -> None:
         if self.capabilities.module_type != "electronic_load":
@@ -593,21 +603,63 @@ class ElectronicLoadChannel(BaseChannel):
             AcquisitionState.ABORTED,
         )
         scpi_function = "VOLT" if function == "voltage" else "CURR"
+        self._digitize_timing = None
         try:
             self._write(f"SENS:FUNC:{scpi_function} ON,{self._chan}")
             self._write(f"SENS:SWE:TINT {format_float(interval_s)},{self._chan}")
             self._write(f"SENS:SWE:POIN {points},{self._chan}")
             # Always write zero too: don't inherit a prior pre-trigger offset.
             self._write(f"SENS:SWE:OFFS:POIN {offset_points},{self._chan}")
+            effective = self._read_digitize_interval()
+            actual_points = self._read_digitize_integral("SENS:SWE:POIN?")
+            actual_offset = self._read_digitize_integral("SENS:SWE:OFFS:POIN?")
+            if not math.isfinite(effective) or effective <= 0:
+                raise DriverMalformedResponseError(
+                    f"invalid instrument-reported digitizing interval {effective!r}"
+                )
+            if actual_points != points or actual_offset != offset_points:
+                raise DriverOperationUncertainError(
+                    f"channel {self.channel} digitizing readback mismatch: "
+                    f"requested points/offset={points}/{offset_points}, "
+                    f"reported={actual_points}/{actual_offset}"
+                )
+            timing = DigitizeTiming(
+                requested_interval_s=interval_s,
+                actual_interval_s=effective,
+                points=actual_points,
+                offset_points=actual_offset,
+            )
         except Exception:
-            # The instrument could have accepted a partial configuration.
-            # Full SCPI transaction validation and rollback are PR05.
+            # A readback/protocol failure can leave partially modified hardware.
+            # Full SCPI error-queue verification/rollback remains PR05.
             self._acquisition.unknown()
             raise
         self._acquisition.configure()
         self._digitize_function = function
-        self._digitize_interval_s = interval_s
-        self._digitize_offset_points = offset_points
+        self._digitize_interval_s = timing.actual_interval_s
+        self._digitize_offset_points = timing.offset_points
+        self._digitize_timing = timing
+
+    def _read_digitize_interval(self) -> float:
+        """Reject failed/unparseable effective timebases as protocol errors."""
+        raw = self._query(f"SENS:SWE:TINT? {self._chan}").strip()
+        try:
+            return float(raw)
+        except ValueError as exc:
+            raise DriverMalformedResponseError(
+                f"invalid instrument digitizing interval readback {raw!r}"
+            ) from exc
+
+    def _read_digitize_integral(self, command: str) -> int:
+        """Read an exact integer from NR3/numeric SCPI format; reject truncation."""
+        raw = self._query(f"{command} {self._chan}").strip()
+        try:
+            value = float(raw)
+        except ValueError as exc:
+            raise DriverMalformedResponseError(f"invalid {command} response {raw!r}") from exc
+        if not math.isfinite(value) or not value.is_integer():
+            raise DriverMalformedResponseError(f"non-integral {command} response {raw!r}")
+        return int(value)
 
     def configure_digitize_trigger(
         self,
@@ -710,13 +762,49 @@ class ElectronicLoadChannel(BaseChannel):
         if hasattr(primary, "add_note"):
             primary.add_note(f"digitizing cleanup: {outcome}")
 
-    def wait_digitize_armed(self, timeout_s: float = 5.0) -> None:
-        """Wait for WTG_meas; abort/verify idle if readiness cannot be confirmed."""
+    def wait_digitize_armed(
+        self,
+        timeout_s: float = 5.0,
+        *,
+        pretrigger_guard_s: float = 0.005,
+        abort_requested: Callable[[], bool] | None = None,
+    ) -> None:
+        """Wait for WTG_meas AND pre-trigger history before reporting readiness.
+
+        The Keysight N6705C User's Guide (p. 213) warns that a trigger
+        occurring before pre-trigger samples fill is ignored. The conservative
+        fill clock starts only after WTG_meas is first *observed*, not when
+        INIT was sent, because INIT-to-ready latency is firmware-dependent.
+
+        The guard is a configurable engineering margin, not a qualified
+        guarantee for spontaneous external events. For negative offsets, total
+        timeout includes WTG polling plus pre-trigger fill and guard.
+        """
         self._require_digitizing()
         self._validate_digitize_timeout(timeout_s)
+        if (
+            isinstance(pretrigger_guard_s, bool)
+            or not isinstance(pretrigger_guard_s, (int, float))
+            or not math.isfinite(pretrigger_guard_s)
+            or pretrigger_guard_s < 0
+        ):
+            raise DriverArgumentValueError(
+                f"pretrigger_guard_s must be a nonnegative finite number, got {pretrigger_guard_s!r}"
+            )
         self._acquisition.require(AcquisitionState.ARMED, AcquisitionState.WAITING)
+        timing = self._digitize_timing
+        if timing is None:
+            raise DriverPreconditionError("digitizing timing not verified; reconfigure sweep")
+        deadline = monotonic() + timeout_s
+
+        def check_abort() -> None:
+            if abort_requested is not None and abort_requested():
+                raise DriverOperationUncertainError(
+                    f"channel {self.channel} pretrigger fill canceled by operator"
+                )
 
         def predicate() -> bool:
+            check_abort()
             mask = int(self._query(f"STAT:OPER:COND? {self._chan}").strip())
             return self._acquisition.observe(mask) is AcquisitionState.WAITING
 
@@ -728,6 +816,40 @@ class ElectronicLoadChannel(BaseChannel):
                     interval_s=0.05,
                     description=f"channel {self.channel} armed for digitizing",
                 )
+
+            # No negative offset: there is no pre-trigger buffer to fill.
+            fill_s = timing.pretrigger_fill_s
+            if fill_s > 0:
+                # Start after first WTG observation; avoid assuming readiness
+                # existed at INIT submission or completion.
+                barrier = monotonic() + fill_s + pretrigger_guard_s
+                if barrier > deadline:
+                    raise DriverTimeoutError(
+                        f"channel {self.channel} pretrigger fill requires "
+                        f"{fill_s + pretrigger_guard_s:.6g} s after WTG_meas, "
+                        f"but only {max(0.0, deadline - monotonic()):.6g} s remain"
+                    )
+                while True:
+                    check_abort()
+                    now = monotonic()
+                    if now >= barrier:
+                        break
+                    if now >= deadline:
+                        raise DriverTimeoutError(
+                            f"channel {self.channel} pretrigger buffer did not fill "
+                            f"within {timeout_s} s (requires {fill_s + pretrigger_guard_s:.6g} s "
+                            "after WTG_meas observation)"
+                        )
+                    sleep(min(0.01, barrier - now, deadline - now))
+                # The level/external trigger may already have fired; this
+                # API must not report that an event can still be generated.
+                check_abort()
+                mask = int(self._query(f"STAT:OPER:COND? {self._chan}").strip())
+                if self._acquisition.observe(mask) is not AcquisitionState.WAITING:
+                    raise DriverOperationUncertainError(
+                        f"channel {self.channel} is no longer waiting for trigger "
+                        "after pretrigger buffer fill"
+                    )
         except BaseException as primary:
             self._cleanup_failed_digitize(primary)
             raise

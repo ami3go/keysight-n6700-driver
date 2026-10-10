@@ -1201,12 +1201,15 @@ methods:
   aliases: []
   implementation_target: keysight_n6700.driver.N6700.wait_digitize_armed
   signature: 'wait_digitize_armed(self, channel: ''int'', timeout_s: ''float'' = 5.0, alias: ''str | None''
-    = None) -> ''None'''
+    = None, *, pretrigger_guard_s: ''float'' = 0.005, abort_requested: ''Callable[[], bool] | None'' =
+    None) -> ''None'''
   required_arguments:
   - channel
   optional_arguments:
   - timeout_s
   - alias
+  - pretrigger_guard_s
+  - abort_requested
   device_facing: true
   execution_status: not_yet_run
 - method: wait_digitize_complete

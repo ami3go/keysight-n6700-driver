@@ -3,6 +3,10 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.6.4 — 2026-10-10
+
+PR03 of N679xA scope remediation (F01/F03): verifies effective sweep interval, sample count and offset with SCPI readbacks; waveform interval metadata now reflects instrument-quantized timing. `wait_digitize_armed` waits for WTG_meas **plus** negative-offset pretrigger fill and a configurable guard within one readiness timeout, with cooperative cancellation, status reconfirmation and PR02 abort/recovery on error. Simulated rounding and deterministic fake-clock tests cover relevant conditions. Real-hardware qualification remains pending; no additional source/load output controls were changed.
+
 ## v0.6.3 — 2026-10-10
 
 PR02 of the N679xA scope remediation (F02): readiness/completion polling failure or timeout now initiates best-effort abort and status-verified idle recovery; unacknowledged recovery leaves acquisition UNKNOWN. Preserve original errors with cleanup metadata; reject invalid/indefinite polling timeouts. Added simulator fault tests. No hardware qualification included.

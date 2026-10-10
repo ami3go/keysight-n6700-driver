@@ -31,6 +31,25 @@ class AcquisitionState(str, Enum):
 
 
 @dataclass(frozen=True)
+class DigitizeTiming:
+    """Instrument-verified sweep coordinates for the configured acquisition.
+
+    Actual interval may differ from the requested interval because the
+    instrument quantizes sample periods.  Offset and point count are
+    read back rather than inferred from last-write intent.
+    """
+
+    requested_interval_s: float
+    actual_interval_s: float
+    points: int
+    offset_points: int
+
+    @property
+    def pretrigger_fill_s(self) -> float:
+        return max(0, -self.offset_points) * self.actual_interval_s
+
+
+@dataclass(frozen=True)
 class AcquisitionSnapshot:
     """Read-only acquisition evidence (not a timestamp or full SCPI trace)."""
 
