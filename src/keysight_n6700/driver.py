@@ -1137,9 +1137,13 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         channel: int,
         function: Literal["voltage", "current"] | None = None,
         alias: str | None = None,
+        *,
+        transfer_format: Literal["auto", "ascii", "real32"] = "auto",
     ) -> ArrayMeasurement:
-        """Retrieve the full buffered-acquisition array from a channel configured by ``configure_digitize``."""
-        return self.load(channel, alias=alias).fetch_digitized_array(function)
+        """Retrieve validated buffered samples, using REAL32 for large captures by default."""
+        return self.load(channel, alias=alias).fetch_digitized_array(
+            function, transfer_format=transfer_format
+        )
 
     # -- protection / status --------------------------------------------------
 
