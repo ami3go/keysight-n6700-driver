@@ -51,6 +51,9 @@ class _ChannelState:
     questionable_status: int = 0
     operation_status: int = 0
     sweep_points: int = 1
+    sweep_interval_s: float = 20.48e-6
+    sweep_offset_points: int = 0
+    sweep_resolution: str = "RES20"
     acquisition_state: str = "idle"
     acquisition_generation: int = 0
     completed_generation: int | None = None
@@ -301,10 +304,40 @@ class SimN6700Instrument:
         # prefixes (TRIG:ACQ:VOLT:SLOP before TRIG:ACQ:VOLT before bare TRIG:ACQ).
         if upper.startswith("SENS:FUNC:VOLT") or upper.startswith("SENS:FUNC:CURR"):
             return None
+        if upper.startswith("SENS:SWE:OFFS:POIN?"):
+            return self._query_values(self._channels_from_command(norm), "sweep_offset_points")
         if upper.startswith("SENS:SWE:OFFS:POIN"):
+            value = int(float(norm.split(None, 1)[1].split(",")[0]))
+            for ch in self._channels_from_command(norm):
+                self.channels[ch].sweep_offset_points = value
             return None
+        if upper.startswith("SENS:SWE:TINT:RES?"):
+            return self.channels[self._channels_from_command(norm)[0]].sweep_resolution
+        if upper.startswith("SENS:SWE:TINT:RES"):
+            mode = norm.split(None, 1)[1].split(",")[0].upper()
+            if mode not in {"RES20", "RES40"}:
+                self._push_error(-222, f"Invalid time interval resolution: {mode}")
+            else:
+                for ch in self._channels_from_command(norm):
+                    self.channels[ch].sweep_resolution = mode
+            return None
+        if upper.startswith("SENS:SWE:TINT?"):
+            return self._query_values(self._channels_from_command(norm), "sweep_interval_s")
         if upper.startswith("SENS:SWE:TINT"):
+            requested = float(norm.split(None, 1)[1].split(",")[0])
+            for ch in self._channels_from_command(norm):
+                st = self.channels[ch]
+                # Approximate the manual's interval quantization, not the
+                # analog response or multi-channel memory scheduling.
+                step = (
+                    10.24e-6
+                    if requested <= 20.48e-6
+                    else 40.96e-6 if st.sweep_resolution == "RES40" else 20.48e-6
+                )
+                st.sweep_interval_s = max(step, int(requested / step + 0.5) * step)
             return None
+        if upper.startswith("SENS:SWE:POIN?"):
+            return self._query_values(self._channels_from_command(norm), "sweep_points")
         if upper.startswith("SENS:SWE:POIN"):
             value = int(float(norm.split(None, 1)[1].split(",")[0]))
             for ch in self._channels_from_command(norm):
