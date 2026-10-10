@@ -16,8 +16,10 @@ that legitimately answers with nothing.
 from __future__ import annotations
 
 import re
+import struct
 from dataclasses import dataclass
 
+from scpi_driver_core.scpi.binary_block import encode_definite_length_block
 from scpi_driver_core.simulation.scripted import ScriptedScpiTransport
 from scpi_driver_core.transport.models import TransportDescriptor
 
@@ -77,6 +79,7 @@ class SimN6700Instrument:
         self.errors: list[tuple[int, str]] = []
         self.remote_state = "local"
         self.array_format = "ASC"
+        self.array_border = "NORM"
         self.idn = "KEYSIGHT TECHNOLOGIES,N6700B,SIM000001,B.00.00"
 
     def clear(self) -> None:
@@ -305,6 +308,15 @@ class SimN6700Instrument:
         # without pretending to simulate real transient waveforms. Order matters:
         # the colon-qualified sub-commands must be checked before their shorter
         # prefixes (TRIG:ACQ:VOLT:SLOP before TRIG:ACQ:VOLT before bare TRIG:ACQ).
+        if upper == "FORM:BORD?":
+            return self.array_border
+        if upper.startswith("FORM:BORD "):
+            value = upper.split(None, 1)[1].split(",")[0]
+            if value not in {"SWAP", "NORM"}:
+                self._push_error(-222, "Invalid array byte order")
+            else:
+                self.array_border = value
+            return None
         if upper == "FORM?":
             return self.array_format
         if upper.startswith("FORM "):
@@ -405,12 +417,20 @@ class SimN6700Instrument:
             if st.acquisition_state != "complete" or st.completed_generation != st.acquisition_generation:
                 self._push_error(-230, "No completed acquisition buffer")
                 return ""
+            if self.array_format == "REAL":
+                fmt = "<" if self.array_border == "SWAP" else ">"
+                payload = struct.pack(f"{fmt}{st.sweep_points}f", *([st.voltage] * st.sweep_points))
+                return encode_definite_length_block(payload) + b"\n"
             return ",".join([str(st.voltage)] * st.sweep_points)
         if upper.startswith("FETC:ARR:CURR?") or upper.startswith("FETCH:ARRAY:CURRENT?"):
             st = self.channels[self._channels_from_command(norm)[0]]
             if st.acquisition_state != "complete" or st.completed_generation != st.acquisition_generation:
                 self._push_error(-230, "No completed acquisition buffer")
                 return ""
+            if self.array_format == "REAL":
+                fmt = "<" if self.array_border == "SWAP" else ">"
+                payload = struct.pack(f"{fmt}{st.sweep_points}f", *([st.current_limit] * st.sweep_points))
+                return encode_definite_length_block(payload) + b"\n"
             return ",".join([str(st.current_limit)] * st.sweep_points)
         if "MEAS" in upper or "FETCH" in upper or "FETC" in upper:
             channels = self._channels_from_command(norm)
