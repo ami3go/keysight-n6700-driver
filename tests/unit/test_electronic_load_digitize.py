@@ -56,7 +56,7 @@ def test_digitize_round_trip(driver) -> None:
     assert result.offset_points == -25
 
 
-def test_digitize_current_uses_explicit_function_override(driver) -> None:
+def test_digitize_rejects_unconfigured_fetch_function(driver) -> None:
     load = _real_load_channel(driver)
     load.configure_digitize("voltage", points=10, interval_s=10.24e-6)
     load.configure_digitize_trigger("bus")
@@ -65,10 +65,9 @@ def test_digitize_current_uses_explicit_function_override(driver) -> None:
     load.trigger_digitize()
     load.wait_digitize_complete(timeout_s=1.0)
 
-    result = load.fetch_digitized_array("current")
-
-    assert result.unit == "A"
-    assert len(result.values) == 10
+    with pytest.raises(DriverArgumentValueError, match="only 'voltage'"):
+        load.fetch_digitized_array("current")
+    assert len(load.fetch_digitized_array("voltage").values) == 10
 
 
 def test_digitize_rejects_interval_below_hardware_minimum(driver) -> None:
