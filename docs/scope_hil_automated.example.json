@@ -1,0 +1,73 @@
+{
+  "approved": false,
+  "operator": "Bench operator",
+  "bench_review_id": "REPLACE_WITH_REVIEW_ID",
+  "channel": 2,
+  "expected_module": "N6791A",
+  "expected_serial": "REPLACE_WITH_REAL_LOAD_SERIAL",
+  "expected_idn": "KEYSIGHT TECHNOLOGIES,N6700C,REPLACE_WITH_REAL_MAINFRAME_SERIAL",
+  "max_voltage_v": 20,
+  "max_current_a": 2.5,
+  "connection": {
+    "type": "ethernet",
+    "resource": "REPLACE_WITH_REAL_HOST",
+    "port": 5025,
+    "timeout_s": 15
+  },
+  "stop_on_failure": true,
+  "cases": [
+    {
+      "name": "voltage-ascii",
+      "scenario": "bus",
+      "function": "voltage",
+      "points": 256,
+      "interval_s": 0.00002048,
+      "offset_points": 0,
+      "transfer_format": "ascii",
+      "repetitions": 3,
+      "wait_timeout_s": 5
+    },
+    {
+      "name": "voltage-pretrigger",
+      "scenario": "bus",
+      "function": "voltage",
+      "points": 1024,
+      "interval_s": 0.00002048,
+      "offset_points": -512,
+      "transfer_format": "auto",
+      "repetitions": 3,
+      "wait_timeout_s": 5
+    },
+    {
+      "name": "current-real32",
+      "scenario": "bus",
+      "function": "current",
+      "points": 4096,
+      "interval_s": 0.00002048,
+      "offset_points": 0,
+      "transfer_format": "real32",
+      "repetitions": 3,
+      "wait_timeout_s": 5
+    },
+    {
+      "name": "abort-recovery",
+      "scenario": "abort",
+      "function": "voltage",
+      "points": 256,
+      "interval_s": 0.00002048,
+      "offset_points": 0,
+      "repetitions": 2,
+      "wait_timeout_s": 5
+    },
+    {
+      "name": "missing-trigger",
+      "scenario": "missing_trigger",
+      "function": "voltage",
+      "points": 256,
+      "interval_s": 0.00002048,
+      "offset_points": 0,
+      "repetitions": 2,
+      "wait_timeout_s": 0.3
+    }
+  ]
+}
