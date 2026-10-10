@@ -63,6 +63,7 @@ def test_second_channel_cannot_steal_ownership(driver: N6700) -> None:
 
 def test_different_mainframe_alias_is_not_blocked(driver: N6700) -> None:
     driver.connect(alias="other", connection_type="simulated")
+    driver.select("default")
     ch = load(driver)
     ch.configure_digitize("voltage", points=10, interval_s=20.48e-6)
     assert driver.query_scpi("MEAS:VOLT? (@3)", alias="other") != ""
