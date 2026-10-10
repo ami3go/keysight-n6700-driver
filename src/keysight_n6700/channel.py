@@ -9,6 +9,7 @@ from typing import ClassVar, Literal, Protocol
 from scpi_driver_core.execution.polling import poll_until
 
 from ._translate import translated
+from .acquisition import AcquisitionSnapshot, AcquisitionState, AcquisitionTracker
 from .exceptions import (
     DriverArgumentValueError,
     DriverOperationUncertainError,
@@ -330,6 +331,12 @@ class ElectronicLoadChannel(BaseChannel):
         self._digitize_function: Literal["voltage", "current"] | None = None
         self._digitize_interval_s: float | None = None
         self._digitize_offset_points: int | None = None
+        self._acquisition = AcquisitionTracker()
+
+    @property
+    def digitize_status(self) -> AcquisitionSnapshot:
+        """Conservative driver-observed state of this channel's latest capture."""
+        return self._acquisition.snapshot()
 
     def _require_verified_or_sim(self) -> None:
         if self.capabilities.module_type != "electronic_load":
@@ -577,13 +584,26 @@ class ElectronicLoadChannel(BaseChannel):
                 f"offset_points must be within {-points + 1}..2000000000 for {points} points, "
                 f"got {offset_points}"
             )
+        self._acquisition.require(
+            AcquisitionState.IDLE,
+            AcquisitionState.CONFIGURED,
+            AcquisitionState.COMPLETE,
+            AcquisitionState.FETCHED,
+            AcquisitionState.ABORTED,
+        )
         scpi_function = "VOLT" if function == "voltage" else "CURR"
-        self._write(f"SENS:FUNC:{scpi_function} ON,{self._chan}")
-        self._write(f"SENS:SWE:TINT {format_float(interval_s)},{self._chan}")
-        self._write(f"SENS:SWE:POIN {points},{self._chan}")
-        # Always write the offset, including zero, so a previous pre-trigger
-        # configuration cannot leak into a later post-trigger acquisition.
-        self._write(f"SENS:SWE:OFFS:POIN {offset_points},{self._chan}")
+        try:
+            self._write(f"SENS:FUNC:{scpi_function} ON,{self._chan}")
+            self._write(f"SENS:SWE:TINT {format_float(interval_s)},{self._chan}")
+            self._write(f"SENS:SWE:POIN {points},{self._chan}")
+            # Always write zero too: don't inherit a prior pre-trigger offset.
+            self._write(f"SENS:SWE:OFFS:POIN {offset_points},{self._chan}")
+        except Exception:
+            # The instrument could have accepted a partial configuration.
+            # Full SCPI transaction validation and rollback are PR05.
+            self._acquisition.unknown()
+            raise
+        self._acquisition.configure()
         self._digitize_function = function
         self._digitize_interval_s = interval_s
         self._digitize_offset_points = offset_points
@@ -621,28 +641,45 @@ class ElectronicLoadChannel(BaseChannel):
         scpi_source = self._TRIGGER_SOURCE_TO_SCPI[source]
         if source in {"voltage", "current", "transient"}:
             scpi_source = f"{scpi_source}{src_chan}"
-        self._write(f"TRIG:ACQ:SOUR {scpi_source},{self._chan}")
-        if source in {"voltage", "current"}:
-            level_function = "VOLT" if source == "voltage" else "CURR"
-            src_chanlist = format_channel_list(src_chan)
-            if level is not None:
-                self._write(f"TRIG:ACQ:{level_function} {format_float(level)},{src_chanlist}")
-            if slope is not None:
-                scpi_slope = "POS" if slope == "pos" else "NEG"
-                self._write(f"TRIG:ACQ:{level_function}:SLOP {scpi_slope},{src_chanlist}")
+        self._acquisition.require(
+            AcquisitionState.CONFIGURED, AcquisitionState.COMPLETE, AcquisitionState.FETCHED
+        )
+        try:
+            self._write(f"TRIG:ACQ:SOUR {scpi_source},{self._chan}")
+            if source in {"voltage", "current"}:
+                level_function = "VOLT" if source == "voltage" else "CURR"
+                src_chanlist = format_channel_list(src_chan)
+                if level is not None:
+                    self._write(f"TRIG:ACQ:{level_function} {format_float(level)},{src_chanlist}")
+                if slope is not None:
+                    scpi_slope = "POS" if slope == "pos" else "NEG"
+                    self._write(f"TRIG:ACQ:{level_function}:SLOP {scpi_slope},{src_chanlist}")
+        except Exception:
+            self._acquisition.unknown()
+            raise
+        self._acquisition.configure()
 
     def arm_digitize(self) -> None:
         """Enable the trigger system to receive the trigger configured by ``configure_digitize_trigger``."""
         self._require_digitizing()
-        self._write(f"INIT:ACQ {self._chan}")
+        self._acquisition.require(
+            AcquisitionState.CONFIGURED, AcquisitionState.COMPLETE, AcquisitionState.FETCHED
+        )
+        try:
+            self._write(f"INIT:ACQ {self._chan}")
+        except Exception:
+            self._acquisition.unknown()
+            raise
+        self._acquisition.arm()
 
     def wait_digitize_armed(self, timeout_s: float = 5.0) -> None:
         """Block until the instrument reports ready to receive the trigger (operation status bit WTG_meas)."""
         self._require_digitizing()
+        self._acquisition.require(AcquisitionState.ARMED, AcquisitionState.WAITING)
 
         def predicate() -> bool:
             mask = int(self._query(f"STAT:OPER:COND? {self._chan}").strip())
-            return bool(mask & 8)  # WTG_meas
+            return self._acquisition.observe(mask) is AcquisitionState.WAITING
 
         with translated(operation="wait_digitize_armed"):
             poll_until(
@@ -655,7 +692,13 @@ class ElectronicLoadChannel(BaseChannel):
     def trigger_digitize(self) -> None:
         """Force an immediate trigger, regardless of the configured trigger source."""
         self._require_digitizing()
-        self._write(f"TRIG:ACQ {self._chan}")
+        self._acquisition.require(AcquisitionState.WAITING)
+        try:
+            self._write(f"TRIG:ACQ {self._chan}")
+        except Exception:
+            self._acquisition.unknown()
+            raise
+        self._acquisition.triggered()
 
     def wait_digitize_complete(
         self,
@@ -670,6 +713,12 @@ class ElectronicLoadChannel(BaseChannel):
         raised — the buffer's contents at that point are not meaningful.
         """
         self._require_digitizing()
+        self._acquisition.require(
+            AcquisitionState.ARMED,
+            AcquisitionState.WAITING,
+            AcquisitionState.ACQUIRING,
+            AcquisitionState.COMPLETE,
+        )
 
         def predicate() -> bool:
             if abort_requested is not None and abort_requested():
@@ -678,7 +727,7 @@ class ElectronicLoadChannel(BaseChannel):
                     f"channel {self.channel} digitizing aborted by operator request"
                 )
             mask = int(self._query(f"STAT:OPER:COND? {self._chan}").strip())
-            return not bool(mask & 32)  # MEAS_active
+            return self._acquisition.observe(mask) is AcquisitionState.COMPLETE
 
         with translated(operation="wait_digitize_complete"):
             poll_until(
@@ -691,7 +740,12 @@ class ElectronicLoadChannel(BaseChannel):
     def abort_digitize(self) -> None:
         """Cancel the acquisition and return the trigger system to the idle state."""
         self._require_digitizing()
-        self._write(f"ABOR:ACQ {self._chan}")
+        try:
+            self._write(f"ABOR:ACQ {self._chan}")
+        except Exception:
+            self._acquisition.unknown()
+            raise
+        self._acquisition.aborted()
 
     def fetch_digitized_array(self, function: Literal["voltage", "current"] | None = None) -> ArrayMeasurement:
         """Retrieve the full acquisition buffer. Blocks if the acquisition has not completed yet.
@@ -707,11 +761,18 @@ class ElectronicLoadChannel(BaseChannel):
             raise DriverArgumentValueError(
                 "fetch_digitized_array requires configure_digitize to run first, or an explicit function"
             )
+        self._acquisition.require(AcquisitionState.COMPLETE, AcquisitionState.FETCHED)
         scpi_function = "VOLT" if resolved == "voltage" else "CURR"
-        raw = self._query(f"FETC:ARR:{scpi_function}? {self._chan}")
+        try:
+            raw = self._query(f"FETC:ARR:{scpi_function}? {self._chan}")
+            values = tuple(parse_csv_floats(raw))
+        except Exception:
+            self._acquisition.unknown()
+            raise
+        self._acquisition.fetched()
         return ArrayMeasurement(
             channel=self.channel,
-            values=tuple(parse_csv_floats(raw)),
+            values=values,
             unit="V" if resolved == "voltage" else "A",
             format="ascii",
             interval_s=self._digitize_interval_s,
