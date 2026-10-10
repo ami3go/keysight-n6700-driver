@@ -982,8 +982,21 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
     def arm_digitize(self, channel: int, alias: str | None = None) -> None:
         self.load(channel, alias=alias).arm_digitize()
 
-    def wait_digitize_armed(self, channel: int, timeout_s: float = 5.0, alias: str | None = None) -> None:
-        self.load(channel, alias=alias).wait_digitize_armed(timeout_s=timeout_s)
+    def wait_digitize_armed(
+        self,
+        channel: int,
+        timeout_s: float = 5.0,
+        alias: str | None = None,
+        *,
+        pretrigger_guard_s: float = 0.005,
+        abort_requested: Callable[[], bool] | None = None,
+    ) -> None:
+        """Wait for WTG_meas and a bounded, sample-accurate pretrigger fill."""
+        self.load(channel, alias=alias).wait_digitize_armed(
+            timeout_s=timeout_s,
+            pretrigger_guard_s=pretrigger_guard_s,
+            abort_requested=abort_requested,
+        )
 
     def trigger_digitize(self, channel: int, alias: str | None = None) -> None:
         self.load(channel, alias=alias).trigger_digitize()
