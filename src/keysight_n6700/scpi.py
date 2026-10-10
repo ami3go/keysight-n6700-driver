@@ -56,7 +56,6 @@ def format_channel_list(channels: int | Sequence[int] | range) -> str:
 
 def parse_channel_list(text: str) -> list[int]:
     import re
-import math
 
     m = re.search(r"\(@([^)]*)\)", text)
     if not m:
