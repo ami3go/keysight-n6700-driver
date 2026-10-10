@@ -3,6 +3,10 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.6.8 — 2026-10-10
+
+PR06 capability and model truthfulness (F09/F10/F14): recognize only N6791A and N6792A as electronic loads with declared digitizing and array support; distinguish vendor-declared capability from hardware qualification. Register all eight acquisition methods with accurate mutation/risk and precondition metadata. Runtime driver metadata uses canonical package version. Generated capability/AI contract/conformance artifacts updated, CI tests added.
+
 ## v0.6.7 — 2026-10-10
 
 PR05 digitizer integrity (F06–F08): explicit ASCII array transport negotiation/restoration, readbacks of enabled voltage/current functions and global 512K sample allocation, detection of rejected SCPI configuration, and strict exactly-N finite waveform parsing. Disable unrequested measurement function; reject wrong-function fetch. Adds fault-injection/unit tests. Binary transfer and large-array efficiency are tracked for PR07; no real-hardware claims.
