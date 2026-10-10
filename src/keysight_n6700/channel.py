@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 from collections.abc import Callable
 from time import monotonic, sleep
@@ -21,7 +22,13 @@ from .exceptions import (
     DriverUnsupportedOperationError,
 )
 from .module_capabilities import ChannelCapabilities
-from .scpi import format_bool, format_channel_list, format_float, parse_digitize_ascii
+from .scpi import (
+    format_bool,
+    format_channel_list,
+    format_float,
+    parse_digitize_ascii,
+    parse_digitize_real32,
+)
 from .types import (
     ArrayMeasurement,
     ChannelStatusSnapshot,
@@ -49,6 +56,8 @@ class _DriverProtocol(Protocol):
     def _begin_digitize(self, channel: int) -> None: ...
 
     def _end_digitize(self, channel: int) -> None: ...
+
+    def _query_binary_scpi(self, command: str, *, max_bytes: int) -> bytes: ...
 
 
 class BaseChannel:
@@ -1030,7 +1039,12 @@ class ElectronicLoadChannel(BaseChannel):
         self._acquisition.aborted()
         self._driver._end_digitize(self.channel)
 
-    def fetch_digitized_array(self, function: Literal["voltage", "current"] | None = None) -> ArrayMeasurement:
+    def fetch_digitized_array(
+        self,
+        function: Literal["voltage", "current"] | None = None,
+        *,
+        transfer_format: Literal["auto", "ascii", "real32"] = "auto",
+    ) -> ArrayMeasurement:
         """Retrieve the full acquisition buffer. Blocks if the acquisition has not completed yet.
 
         ``function`` defaults to whatever ``configure_digitize`` last
@@ -1053,11 +1067,41 @@ class ElectronicLoadChannel(BaseChannel):
         timing = self._digitize_timing
         if timing is None:
             raise DriverPreconditionError("cannot fetch digitizer without verified timing")
+        if transfer_format not in {"auto", "ascii", "real32"}:
+            raise DriverArgumentValueError(f"unknown waveform transfer format {transfer_format!r}")
+        real32 = transfer_format == "real32" or (
+            transfer_format == "auto" and timing.points >= 4096
+        )
+        payload_hash: str | None = None
+        data_format: Literal["ascii", "real"] = "ascii"
         try:
             if not self._query("FORM?").strip().upper().startswith("ASC"):
                 raise DriverOperationUncertainError("digitizer transfer format changed unexpectedly")
-            raw = self._query(f"FETC:ARR:{scpi_function}? {self._chan}")
-            values = parse_digitize_ascii(raw, expected_points=timing.points)
+            if real32:
+                previous_border = self._query("FORM:BORD?").strip().upper()
+                if previous_border not in {"SWAP", "NORM"}:
+                    raise DriverMalformedResponseError(
+                        f"unsupported instrument byte order {previous_border!r}"
+                    )
+                self._write("FORM:BORD SWAP")
+                self._write("FORM REAL")
+                try:
+                    if not self._query("FORM?").strip().upper().startswith("REAL"):
+                        raise DriverOperationUncertainError("instrument rejected REAL32 array format")
+                    raw_bytes = self._driver._query_binary_scpi(
+                        f"FETC:ARR:{scpi_function}? {self._chan}",
+                        max_bytes=4 * timing.points,
+                    )
+                finally:
+                    # Always restore ASCII before ordinary text queries.
+                    self._write("FORM ASC")
+                    self._write(f"FORM:BORD {previous_border}")
+                values = parse_digitize_real32(raw_bytes, expected_points=timing.points)
+                payload_hash = hashlib.sha256(raw_bytes).hexdigest()
+                data_format = "real"
+            else:
+                raw = self._query(f"FETC:ARR:{scpi_function}? {self._chan}")
+                values = parse_digitize_ascii(raw, expected_points=timing.points)
             self._restore_digitize_format()
         except Exception:
             self._acquisition.unknown()
@@ -1068,7 +1112,8 @@ class ElectronicLoadChannel(BaseChannel):
             channel=self.channel,
             values=values,
             unit="V" if resolved == "voltage" else "A",
-            format="ascii",
+            format=data_format,
             interval_s=self._digitize_interval_s,
             offset_points=self._digitize_offset_points,
+            raw_sha256=payload_hash,
         )

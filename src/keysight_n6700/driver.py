@@ -13,6 +13,7 @@ default ``alias=None``, meaning "the currently active session."
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -131,6 +132,9 @@ class _AliasFacade:
 
     def _end_digitize(self, channel: int) -> None:
         self._driver._end_digitize(channel, alias=self._alias)
+
+    def _query_binary_scpi(self, command: str, *, max_bytes: int) -> bytes:
+        return self._driver._query_binary_scpi(command, max_bytes=max_bytes, alias=self._alias)
 
 
 def _connection_info_dict(info: ConnectionInfo) -> dict[str, Any]:
@@ -488,6 +492,32 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         )
         self._audit("query_scpi", (), {"command": command}, (command,), (response,), ())
         return response
+
+    def _query_binary_scpi(
+        self,
+        command: str,
+        *,
+        max_bytes: int,
+        alias: str | None = None,
+    ) -> bytes:
+        """Bounded binary query using pinned scpi-driver-core's block parser."""
+        if max_bytes < 1 or max_bytes > 4 * 512 * 1024:
+            raise DriverArgumentValueError("binary digitizer response exceeds 2 MiB cap")
+
+        def action(session: ScpiSession) -> bytes:
+            with self._digitize_leases.command(self._resolve_alias(alias), command):
+                return session.client.query_binary_block(
+                    command, maximum_size=max_bytes, consume_terminator=True
+                )
+
+        payload = self._execute_operation(
+            "_query_binary_scpi", action, alias=alias, required_states=_CONNECTED_STATES
+        )
+        self._audit(
+            "query_binary_scpi", (), {"bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest()},
+            (command,), (), (),
+        )
+        return payload
 
     # -- identity / IEEE-488.2 -------------------------------------------------
 
@@ -1107,9 +1137,13 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         channel: int,
         function: Literal["voltage", "current"] | None = None,
         alias: str | None = None,
+        *,
+        transfer_format: Literal["auto", "ascii", "real32"] = "auto",
     ) -> ArrayMeasurement:
-        """Retrieve the full buffered-acquisition array from a channel configured by ``configure_digitize``."""
-        return self.load(channel, alias=alias).fetch_digitized_array(function)
+        """Retrieve validated buffered samples, using REAL32 for large captures by default."""
+        return self.load(channel, alias=alias).fetch_digitized_array(
+            function, transfer_format=transfer_format
+        )
 
     # -- protection / status --------------------------------------------------
 
@@ -1196,6 +1230,14 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
     ) -> None:
         if self.audit_log_path is None:
             return
+        # Never duplicate an entire waveform into control-plane JSONL.
+        # The protocol JsonlTraceSink also truncates RX payloads at 4096
+        # bytes by default, including the IEEE binary-block read path.
+        responses = tuple(
+            value if len(value) <= 4096 else
+            f"<omitted {len(value)} characters sha256={hashlib.sha256(value.encode('utf-8')).hexdigest()}>"
+            for value in responses
+        )
         record = AuditRecord(
             timestamp_iso=datetime.now(timezone.utc).isoformat(),
             timestamp_unix=time.time(),

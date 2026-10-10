@@ -3,6 +3,10 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.6.9 — 2026-10-10
+
+PR07 F11: bounded IEEE-488.2 REAL32 digitizer transfer through scpi-driver-core, explicit FORM:BORD SWAP little endian and restore, exact finite float32 validation, SHA-256 evidence hash and optional auto/ASCII/REAL32 transfers (automatic REAL32 for captures of >=4096 samples). Bound transport to requested 4*N bytes and redact large plain-text waveform responses from control audit; pinned core protocol tracing already caps individual event payloads at 4096 bytes. New negative tests and version metadata. Real hardware performance/trace behavior remains to be qualified.
+
 ## v0.6.8 — 2026-10-10
 
 PR06 capability and model truthfulness (F09/F10/F14): recognize only N6791A and N6792A as electronic loads with declared digitizing and array support; distinguish vendor-declared capability from hardware qualification. Register all eight acquisition methods with accurate mutation/risk and precondition metadata. Runtime driver metadata uses canonical package version. Generated capability/AI contract/conformance artifacts updated, CI tests added.

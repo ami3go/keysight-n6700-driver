@@ -82,6 +82,25 @@ def parse_csv_floats(response: str) -> list[float]:
 
 
 
+
+def parse_digitize_real32(payload: bytes, *, expected_points: int) -> tuple[float, ...]:
+    """Decode exactly N little-endian IEEE-754 REAL32 finite samples.
+
+    The binary block header/trailer is validated by scpi-driver-core before
+    this helper is called. N6705C FORM:BORD SWAP means little-endian.
+    """
+    if not 1 <= expected_points <= 512 * 1024:
+        raise DriverMalformedResponseError("invalid expected REAL32 sample count")
+    if len(payload) != expected_points * 4:
+        raise DriverMalformedResponseError(
+            f"REAL32 waveform bytes {len(payload)}; expected {expected_points * 4}"
+        )
+    values = tuple(sample[0] for sample in struct.iter_unpack("<f", payload))
+    if any(not math.isfinite(x) for x in values):
+        raise DriverMalformedResponseError("non-finite REAL32 waveform sample")
+    return values
+
+
 def parse_digitize_ascii(response: str, *, expected_points: int) -> tuple[float, ...]:
     """Parse one complete digitizer buffer without dropping missing samples.
 
