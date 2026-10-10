@@ -55,6 +55,7 @@ def format_channel_list(channels: int | Sequence[int] | range) -> str:
 
 def parse_channel_list(text: str) -> list[int]:
     import re
+import math
 
     m = re.search(r"\(@([^)]*)\)", text)
     if not m:
@@ -78,6 +79,31 @@ def parse_csv_floats(response: str) -> list[float]:
     if not response:
         return []
     return [float(item) for item in response.split(",") if item.strip()]
+
+
+
+def parse_digitize_ascii(response: str, *, expected_points: int) -> tuple[float, ...]:
+    """Parse one complete digitizer buffer without dropping missing samples.
+
+    A point-count mismatch or any blank/non-finite token invalidates the
+    whole acquisition; the caller must not publish partial waveform data.
+    """
+    from .exceptions import DriverMalformedResponseError
+
+    if not 1 <= expected_points <= 512 * 1024:
+        raise DriverMalformedResponseError("invalid configured waveform length")
+    tokens = response.strip().split(",")
+    if len(tokens) != expected_points or any(not token.strip() for token in tokens):
+        raise DriverMalformedResponseError(
+            f"digitizer waveform has {len(tokens)} tokens; expected {expected_points}"
+        )
+    try:
+        values = tuple(float(token.strip()) for token in tokens)
+    except ValueError as exc:
+        raise DriverMalformedResponseError("non-numeric digitizer sample") from exc
+    if any(not math.isfinite(value) for value in values):
+        raise DriverMalformedResponseError("non-finite digitizer sample")
+    return values
 
 
 def parse_csv_strings(response: str) -> list[str]:
