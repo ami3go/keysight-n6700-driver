@@ -12,6 +12,7 @@ from ._translate import translated
 from .acquisition import AcquisitionSnapshot, AcquisitionState, AcquisitionTracker
 from .exceptions import (
     DriverArgumentValueError,
+    DriverError,
     DriverOperationUncertainError,
     DriverUnsupportedOperationError,
 )
@@ -672,25 +673,67 @@ class ElectronicLoadChannel(BaseChannel):
             raise
         self._acquisition.arm()
 
+    @staticmethod
+    def _validate_digitize_timeout(timeout_s: float) -> None:
+        if (
+            isinstance(timeout_s, bool)
+            or not isinstance(timeout_s, (int, float))
+            or not math.isfinite(timeout_s)
+            or timeout_s <= 0
+        ):
+            raise DriverArgumentValueError(
+                f"digitize timeout must be a positive finite number of seconds, got {timeout_s!r}"
+            )
+
+    def _cleanup_failed_digitize(self, primary: BaseException) -> None:
+        """Preserve the original failure and attach bounded cleanup evidence.
+
+        A failure to communicate with the instrument remains UNKNOWN; it is
+        never misreported as a successful abort. Per-command transport timeouts
+        remain governed by the connected session's configured I/O timeout.
+        """
+        if self._acquisition.state is AcquisitionState.ABORTED:
+            outcome = "already_aborted"
+        else:
+            try:
+                self.abort_digitize(timeout_s=2.0)
+            except Exception as cleanup_error:
+                self._acquisition.unknown()
+                outcome = f"abort_failed: {type(cleanup_error).__name__}: {cleanup_error}"
+            else:
+                outcome = "aborted_and_idle_verified"
+        if isinstance(primary, DriverError):
+            primary.details["acquisition_cleanup"] = outcome
+            primary.details["acquisition_generation"] = self._acquisition.generation
+        # Python 3.11+ adds exception notes; keep exception class and cause
+        # unchanged for Python 3.10 compatibility.
+        if hasattr(primary, "add_note"):
+            primary.add_note(f"digitizing cleanup: {outcome}")
+
     def wait_digitize_armed(self, timeout_s: float = 5.0) -> None:
-        """Block until the instrument reports ready to receive the trigger (operation status bit WTG_meas)."""
+        """Wait for WTG_meas; abort/verify idle if readiness cannot be confirmed."""
         self._require_digitizing()
+        self._validate_digitize_timeout(timeout_s)
         self._acquisition.require(AcquisitionState.ARMED, AcquisitionState.WAITING)
 
         def predicate() -> bool:
             mask = int(self._query(f"STAT:OPER:COND? {self._chan}").strip())
             return self._acquisition.observe(mask) is AcquisitionState.WAITING
 
-        with translated(operation="wait_digitize_armed"):
-            poll_until(
-                predicate,
-                timeout_s=timeout_s,
-                interval_s=0.05,
-                description=f"channel {self.channel} armed for digitizing",
-            )
+        try:
+            with translated(operation="wait_digitize_armed"):
+                poll_until(
+                    predicate,
+                    timeout_s=timeout_s,
+                    interval_s=0.05,
+                    description=f"channel {self.channel} armed for digitizing",
+                )
+        except BaseException as primary:
+            self._cleanup_failed_digitize(primary)
+            raise
 
     def trigger_digitize(self) -> None:
-        """Force an immediate trigger, regardless of the configured trigger source."""
+        """Force an immediate trigger after waiting status was observed."""
         self._require_digitizing()
         self._acquisition.require(AcquisitionState.WAITING)
         try:
@@ -706,13 +749,15 @@ class ElectronicLoadChannel(BaseChannel):
         *,
         abort_requested: Callable[[], bool] | None = None,
     ) -> None:
-        """Block until the acquisition completes (operation status bit MEAS_active clears).
+        """Wait for proven completion; abort if canceled, timed out, or failed.
 
-        If ``abort_requested`` starts returning true before that, the
-        acquisition is aborted and ``DriverOperationUncertainError`` is
-        raised — the buffer's contents at that point are not meaningful.
+        The current-generation status must have been observed waiting or
+        active before cleared status can prove completion. A missing trigger
+        cannot be mistaken for a successful waveform. Timeout/transport fault
+        cleanup is best-effort, and may be UNKNOWN if communication is lost.
         """
         self._require_digitizing()
+        self._validate_digitize_timeout(timeout_s)
         self._acquisition.require(
             AcquisitionState.ARMED,
             AcquisitionState.WAITING,
@@ -729,20 +774,41 @@ class ElectronicLoadChannel(BaseChannel):
             mask = int(self._query(f"STAT:OPER:COND? {self._chan}").strip())
             return self._acquisition.observe(mask) is AcquisitionState.COMPLETE
 
-        with translated(operation="wait_digitize_complete"):
-            poll_until(
-                predicate,
-                timeout_s=timeout_s,
-                interval_s=0.05,
-                description=f"channel {self.channel} digitizing complete",
-            )
+        try:
+            with translated(operation="wait_digitize_complete"):
+                poll_until(
+                    predicate,
+                    timeout_s=timeout_s,
+                    interval_s=0.05,
+                    description=f"channel {self.channel} digitizing complete",
+                )
+        except BaseException as primary:
+            self._cleanup_failed_digitize(primary)
+            raise
 
-    def abort_digitize(self) -> None:
-        """Cancel the acquisition and return the trigger system to the idle state."""
+    def abort_digitize(self, *, timeout_s: float = 2.0) -> None:
+        """Cancel a capture and confirm that WTG_meas/MEAS_active are clear.
+
+        If the device is unreachable or does not acknowledge idle status,
+        the acquisition remains UNKNOWN rather than being labeled aborted.
+        """
         self._require_digitizing()
+        self._validate_digitize_timeout(timeout_s)
         try:
             self._write(f"ABOR:ACQ {self._chan}")
-        except Exception:
+
+            def idle() -> bool:
+                mask = int(self._query(f"STAT:OPER:COND? {self._chan}").strip())
+                return not bool(mask & (8 | 32))
+
+            with translated(operation="abort_digitize"):
+                poll_until(
+                    idle,
+                    timeout_s=timeout_s,
+                    interval_s=0.05,
+                    description=f"channel {self.channel} acquisition idle after abort",
+                )
+        except BaseException:
             self._acquisition.unknown()
             raise
         self._acquisition.aborted()
