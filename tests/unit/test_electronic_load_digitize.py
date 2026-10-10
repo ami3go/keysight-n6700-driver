@@ -20,6 +20,7 @@ import pytest
 
 from keysight_n6700 import (
     DriverArgumentValueError,
+    DriverConnectionError,
     DriverOperationUncertainError,
     DriverPreconditionError,
     DriverTimeoutError,
@@ -138,9 +139,10 @@ def test_status_does_not_report_completed_capture_before_trigger(driver) -> None
         load.fetch_digitized_array()
     load.wait_digitize_armed(timeout_s=1.0)
     assert load.digitize_status.state is AcquisitionState.WAITING
-    with pytest.raises(DriverTimeoutError):
+    with pytest.raises(DriverTimeoutError) as excinfo:
         load.wait_digitize_complete(timeout_s=0.1)
-    assert load.digitize_status.state is AcquisitionState.WAITING
+    assert excinfo.value.details["acquisition_cleanup"] == "aborted_and_idle_verified"
+    assert load.digitize_status.state is AcquisitionState.ABORTED
     with pytest.raises(DriverPreconditionError):
         load.fetch_digitized_array()
     load.abort_digitize()
@@ -230,3 +232,68 @@ def test_wait_without_arming_is_rejected(driver) -> None:
         load.wait_digitize_complete(timeout_s=0.1)
     with pytest.raises(DriverPreconditionError):
         load.wait_digitize_armed(timeout_s=0.1)
+
+
+def test_wait_armed_timeout_aborts_and_verifies_idle(driver, monkeypatch) -> None:
+    load = _real_load_channel(driver)
+    load.configure_digitize("voltage", points=10, interval_s=10.24e-6)
+    load.arm_digitize()
+    monkeypatch.setattr(load, "_query", lambda _: "0")
+
+    with pytest.raises(DriverTimeoutError) as excinfo:
+        load.wait_digitize_armed(timeout_s=0.06)
+    assert excinfo.value.details["acquisition_cleanup"] == "aborted_and_idle_verified"
+    assert load.digitize_status.state is AcquisitionState.ABORTED
+
+
+def test_wait_complete_transport_failure_preserves_primary_error(driver, monkeypatch) -> None:
+    load = _real_load_channel(driver)
+    load.configure_digitize("voltage", points=10, interval_s=10.24e-6)
+    load.arm_digitize()
+    load.wait_digitize_armed(timeout_s=1.0)
+
+    def unavailable(_: str) -> str:
+        raise DriverConnectionError("transport disconnected")
+
+    monkeypatch.setattr(load, "_query", unavailable)
+    with pytest.raises(DriverConnectionError, match="transport disconnected") as excinfo:
+        load.wait_digitize_complete(timeout_s=0.1)
+    assert excinfo.value.details["acquisition_cleanup"].startswith("abort_failed")
+    assert load.digitize_status.state is AcquisitionState.UNKNOWN
+    with pytest.raises(DriverPreconditionError):
+        load.fetch_digitized_array()
+
+
+def test_abort_not_acknowledged_does_not_claim_success(driver, monkeypatch) -> None:
+    load = _real_load_channel(driver)
+    load.configure_digitize("voltage", points=10, interval_s=10.24e-6)
+    load.arm_digitize()
+    load.wait_digitize_armed(timeout_s=1.0)
+    monkeypatch.setattr(load, "_query", lambda _: "40")
+
+    with pytest.raises(DriverTimeoutError):
+        load.abort_digitize(timeout_s=0.06)
+    assert load.digitize_status.state is AcquisitionState.UNKNOWN
+
+
+@pytest.mark.parametrize("invalid", [0.0, -1.0, float("nan"), float("inf"), True])
+def test_invalid_timeouts_fail_before_abort(driver, invalid) -> None:
+    load = _real_load_channel(driver)
+    load.configure_digitize("voltage", points=10, interval_s=10.24e-6)
+    load.arm_digitize()
+    with pytest.raises(DriverArgumentValueError):
+        load.wait_digitize_armed(timeout_s=invalid)
+    assert load.digitize_status.state is AcquisitionState.ARMED
+    load.abort_digitize()
+
+
+def test_operator_cancel_reports_verified_abort_in_original_exception(driver) -> None:
+    load = _real_load_channel(driver)
+    load.configure_digitize("voltage", points=10, interval_s=10.24e-6)
+    load.arm_digitize()
+    load.wait_digitize_armed(timeout_s=1.0)
+
+    with pytest.raises(DriverOperationUncertainError) as excinfo:
+        load.wait_digitize_complete(timeout_s=1.0, abort_requested=lambda: True)
+    assert excinfo.value.details["acquisition_cleanup"] == "already_aborted"
+    assert load.digitize_status.state is AcquisitionState.ABORTED
