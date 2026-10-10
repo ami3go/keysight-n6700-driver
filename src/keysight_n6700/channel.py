@@ -610,7 +610,7 @@ class ElectronicLoadChannel(BaseChannel):
             self._write(f"SENS:SWE:POIN {points},{self._chan}")
             # Always write zero too: don't inherit a prior pre-trigger offset.
             self._write(f"SENS:SWE:OFFS:POIN {offset_points},{self._chan}")
-            effective = float(self._query(f"SENS:SWE:TINT? {self._chan}").strip())
+            effective = self._read_digitize_interval()
             actual_points = self._read_digitize_integral("SENS:SWE:POIN?")
             actual_offset = self._read_digitize_integral("SENS:SWE:OFFS:POIN?")
             if not math.isfinite(effective) or effective <= 0:
@@ -639,6 +639,16 @@ class ElectronicLoadChannel(BaseChannel):
         self._digitize_interval_s = timing.actual_interval_s
         self._digitize_offset_points = timing.offset_points
         self._digitize_timing = timing
+
+    def _read_digitize_interval(self) -> float:
+        """Reject failed/unparseable effective timebases as protocol errors."""
+        raw = self._query(f"SENS:SWE:TINT? {self._chan}").strip()
+        try:
+            return float(raw)
+        except ValueError as exc:
+            raise DriverMalformedResponseError(
+                f"invalid instrument digitizing interval readback {raw!r}"
+            ) from exc
 
     def _read_digitize_integral(self, command: str) -> int:
         """Read an exact integer from NR3/numeric SCPI format; reject truncation."""
