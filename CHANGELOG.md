@@ -3,6 +3,10 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.6.1 — 2026-10-10
+
+Planning-only documentation release. Added the detailed [N679xA electronic-load scope remediation plan](docs/N679XA_SCOPE_REMEDIATION_PLAN.md), with all 14 findings, code sketches, acceptance criteria, hardware qualification and ordered review/PR gates. **No scope runtime defect is fixed by this release**, and production qualification remains NO-GO. Synced package/manifest/AI-contract version to 0.6.1; the pre-existing runtime metadata version mismatch remains tracked as F14 for the implementation sequence. See [history/v0.6.1.md](history/v0.6.1.md).
+
 ## v0.6.0 — 2026-10-09
 
 Added digitized/buffered measurement (`SENS:SWEep` + `TRIGger:ACQuire` +
