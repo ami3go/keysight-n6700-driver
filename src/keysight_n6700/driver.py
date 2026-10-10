@@ -57,7 +57,6 @@ from .exceptions import (
 from .module_capabilities import ChannelCapabilities, classify_module
 from .scpi import SUPPORTED_MANUFACTURERS, format_channel_list, parse_error
 from .simulator import build_simulated_transport
-from .version import __version__
 from .types import (
     ArrayMeasurement,
     AuditRecord,
@@ -73,6 +72,7 @@ from .types import (
     ShutdownChannelResult,
     ShutdownResult,
 )
+from .version import __version__
 
 _CONNECTED_STATES = frozenset(
     {SessionState.CONNECTED, SessionState.CONFIGURED, SessionState.BUSY, SessionState.WAITING}
