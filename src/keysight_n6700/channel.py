@@ -21,7 +21,7 @@ from .exceptions import (
     DriverUnsupportedOperationError,
 )
 from .module_capabilities import ChannelCapabilities
-from .scpi import format_bool, format_channel_list, format_float, parse_csv_floats
+from .scpi import format_bool, format_channel_list, format_float, parse_digitize_ascii
 from .types import (
     ArrayMeasurement,
     ChannelStatusSnapshot,
@@ -341,6 +341,7 @@ class ElectronicLoadChannel(BaseChannel):
         self._digitize_interval_s: float | None = None
         self._digitize_offset_points: int | None = None
         self._digitize_timing: DigitizeTiming | None = None
+        self._digitize_previous_format: str | None = None
         self._acquisition = AcquisitionTracker()
 
     @property
@@ -610,6 +611,17 @@ class ElectronicLoadChannel(BaseChannel):
         scpi_function = "VOLT" if function == "voltage" else "CURR"
         self._digitize_timing = None
         try:
+            previous_format = self._query("FORM?").strip().upper()
+            if not (previous_format.startswith("ASC") or previous_format.startswith("REAL")):
+                raise DriverMalformedResponseError(
+                    f"unsupported instrument response format {previous_format!r}"
+                )
+            self._digitize_previous_format = previous_format
+            self._write("FORM ASC")
+            if not self._query("FORM?").strip().upper().startswith("ASC"):
+                raise DriverOperationUncertainError("instrument did not accept ASCII array format")
+            other = "CURR" if function == "voltage" else "VOLT"
+            self._write(f"SENS:FUNC:{other} OFF,{self._chan}")
             self._write(f"SENS:FUNC:{scpi_function} ON,{self._chan}")
             self._write(f"SENS:SWE:TINT {format_float(interval_s)},{self._chan}")
             self._write(f"SENS:SWE:POIN {points},{self._chan}")
@@ -634,6 +646,8 @@ class ElectronicLoadChannel(BaseChannel):
                 points=actual_points,
                 offset_points=actual_offset,
             )
+            self._verify_digitize_shared_memory()
+            self._driver.check_errors()
         except Exception:
             # A readback/protocol failure can leave partially modified hardware.
             # Full SCPI error-queue verification/rollback remains PR05.
@@ -667,6 +681,70 @@ class ElectronicLoadChannel(BaseChannel):
         if not math.isfinite(value) or not value.is_integer():
             raise DriverMalformedResponseError(f"non-integral {command} response {raw!r}")
         return int(value)
+
+    def _verify_digitize_shared_memory(self) -> None:
+        """Read back the mainframe's shared digitizer point/parameter budget."""
+        try:
+            count = int(self._query("SYST:CHAN:COUN?").strip())
+        except (ValueError, OverflowError) as exc:
+            raise DriverMalformedResponseError("invalid instrument channel count") from exc
+        if not 1 <= count <= 4:
+            raise DriverMalformedResponseError("unexpected digitizer mainframe channel count")
+        total = 0
+        active = 0
+        for channel in range(1, count + 1):
+            selectors = format_channel_list(channel)
+            enabled = 0
+            for kind in ("VOLT", "CURR"):
+                reply = self._query(f"SENS:FUNC:{kind}? {selectors}").strip().upper()
+                if reply not in {"0", "1", "ON", "OFF"}:
+                    raise DriverMalformedResponseError(
+                        f"invalid {kind} enable readback for channel {channel}"
+                    )
+                enabled += int(reply in {"1", "ON"})
+            if enabled:
+                samples = self._query(f"SENS:SWE:POIN? {selectors}").strip()
+                try:
+                    count_samples = int(samples)
+                except ValueError as exc:
+                    raise DriverMalformedResponseError("invalid sweep points readback") from exc
+                if count_samples < 1:
+                    raise DriverMalformedResponseError("invalid sweep points <= 0")
+                active += enabled
+                total += enabled * count_samples
+        if total > 512 * 1024:
+            raise DriverArgumentValueError(
+                f"digitizer requests {total} shared points; mainframe limit is 524288"
+            )
+        resolution = self._query("SENS:SWE:TINT:RES?").strip().upper()
+        if resolution not in {"RES20", "RES40"}:
+            raise DriverMalformedResponseError("invalid sweep resolution readback")
+        if (resolution == "RES20" and active > 4) or active > 8:
+            raise DriverArgumentValueError(
+                f"{active} active measurement parameters exceed {resolution} limits"
+            )
+        if self._digitize_timing is None:
+            # Called before committing metadata; verify actual interval directly.
+            actual = self._read_digitize_interval()
+        else:
+            actual = self._digitize_timing.actual_interval_s
+        minimum = 40.96e-6 if active > 4 else 20.48e-6 if active > 2 else 10.24e-6
+        if actual < minimum * (1 - 1e-7):
+            raise DriverOperationUncertainError(
+                f"instrument effective interval {actual:.9g} below {minimum:.9g} "
+                f"required for {active} parameters"
+            )
+
+    def _restore_digitize_format(self) -> None:
+        previous = self._digitize_previous_format
+        if previous is not None and not previous.startswith("ASC"):
+            self._write(f"FORM {previous}")
+            confirmed = self._query("FORM?").strip().upper()
+            if not confirmed.startswith(previous):
+                raise DriverOperationUncertainError(
+                    f"could not restore array response format {previous!r}"
+                )
+        self._digitize_previous_format = None
 
     def configure_digitize_trigger(
         self,
@@ -941,6 +1019,11 @@ class ElectronicLoadChannel(BaseChannel):
         except BaseException:
             self._acquisition.unknown()
             raise
+        try:
+            self._restore_digitize_format()
+        except Exception:
+            self._acquisition.unknown()
+            raise
         self._acquisition.aborted()
         self._driver._end_digitize(self.channel)
 
@@ -959,10 +1042,20 @@ class ElectronicLoadChannel(BaseChannel):
                 "fetch_digitized_array requires configure_digitize to run first, or an explicit function"
             )
         self._acquisition.require(AcquisitionState.COMPLETE, AcquisitionState.FETCHED)
+        if resolved != self._digitize_function:
+            raise DriverArgumentValueError(
+                f"cannot fetch {resolved!r}: only {self._digitize_function!r} was configured"
+            )
         scpi_function = "VOLT" if resolved == "voltage" else "CURR"
+        timing = self._digitize_timing
+        if timing is None:
+            raise DriverPreconditionError("cannot fetch digitizer without verified timing")
         try:
+            if not self._query("FORM?").strip().upper().startswith("ASC"):
+                raise DriverOperationUncertainError("digitizer transfer format changed unexpectedly")
             raw = self._query(f"FETC:ARR:{scpi_function}? {self._chan}")
-            values = tuple(parse_csv_floats(raw))
+            values = parse_digitize_ascii(raw, expected_points=timing.points)
+            self._restore_digitize_format()
         except Exception:
             self._acquisition.unknown()
             raise
