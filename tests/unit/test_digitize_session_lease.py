@@ -37,10 +37,9 @@ def test_cross_thread_measurement_denied_emergency_off_allowed(driver: N6700) ->
     ch.configure_digitize("voltage", points=10, interval_s=20.48e-6)
 
     def contend() -> tuple[bool, bool]:
-        blocked = False
         with pytest.raises(DriverResourceBusyError):
             driver.query_scpi("MEAS:CURR? (@1)")
-            blocked = True
+        blocked = True
         driver.write_scpi("OUTP OFF,(@3)")
         return blocked, driver.query_scpi("STAT:OPER:COND? (@3)") == "0"
 
