@@ -74,7 +74,7 @@
   {
     "capability_id": "connection.session.status",
     "display_name": "Get Connection State",
-    "description": "Return connection/identity state as a plain dict (LPDS-002 §12).",
+    "description": "Return connection/identity state as a plain dict (LPDS-002 \u00a712).",
     "category": "connection",
     "standard": true,
     "risk_level": "none",
