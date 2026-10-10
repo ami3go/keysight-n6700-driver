@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.6.5 — 2026-10-10
+
+Documentation-only update: added a Keysight-sourced scope/digitizer availability
+table to the README, highlighting that N6705C includes digitizing without Option
+054, documenting N6700C/N6775A and N676xA/N678xA differences, and
+distinguishing the real N6700C/N6791A bench result from the vendor's published
+N6705C-only load compatibility statement. Clarified that the driver currently
+exposes digitizing only for electronic-load channels. No runtime changes.
+
 ## v0.6.4 — 2026-10-10
 
 PR03 of N679xA scope remediation (F01/F03): verifies effective sweep interval, sample count and offset with SCPI readbacks; waveform interval metadata now reflects instrument-quantized timing. `wait_digitize_armed` waits for WTG_meas **plus** negative-offset pretrigger fill and a configurable guard within one readiness timeout, with cooperative cancellation, status reconfirmation and PR02 abort/recovery on error. Simulated rounding and deterministic fake-clock tests cover relevant conditions. Real-hardware qualification remains pending; no additional source/load output controls were changed.
