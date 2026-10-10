@@ -51,7 +51,8 @@ def main() -> int:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(f"{result.status}: {result.reason}")
-    return 0 if result.status in {"PASS", "INCONCLUSIVE", "NOT_RESOLVED"} else 1
+    # A non-resolved or inconclusive timing result is NOT acceptance evidence.
+    return 0 if result.status == "PASS" else 1
 
 
 if __name__ == "__main__":
