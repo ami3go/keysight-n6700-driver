@@ -3,6 +3,10 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.6.12 — 2026-10-10
+
+Automated operator-gated, real-hardware N6791A/N6792A scope protocol HIL suite. Adds case matrix runner and CLI with exact identity checks, separate real Ethernet/VISA connection, BUS voltage/current acquisitions, pretrigger, ASCII/REAL32, abort and missing-trigger recovery, verified load-OFF safe states, per-waveform SHA256, incremental summary.json/JUnit artifacts, bounded runs, and simulator-only orchestration tests. Hardware runs remain explicitly operator-authorized; NO physical DSO/metrology acceptance is claimed.
+
 ## v0.6.11 — 2026-10-10
 
 Final scope software audit: version and capability consistency, human-reviewed qualification evidence checks, and repeated simulated capture regression. The driver is not yet physically qualified for unattended operation; reference DSO testing and extended hardware soak remain required.
