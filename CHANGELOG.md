@@ -3,6 +3,10 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.6.11 — 2026-10-10
+
+Final scope software audit: version and capability consistency, human-reviewed qualification evidence checks, and repeated simulated capture regression. The driver is not yet physically qualified for unattended operation; reference DSO testing and extended hardware soak remain required.
+
 ## v0.6.10 — 2026-10-10
 
 PR08 reproducible scope qualification tooling (F12/F13 implementation, HIL execution still pending): add guarded passive BUS-trigger capture CLI, signed-off profile requirement, structured CSV/JSON evidence with SHA256/IDN/OFF verification; add independent DSO comparison with shared physical time origin, k=2 sampling uncertainty, resolution-floor NOT_RESOLVED and PASS/FAIL/INCONCLUSIVE classifications, tests and qualification procedure. **No physical N6791A/N6792A or DSO connected or qualified by this release.**

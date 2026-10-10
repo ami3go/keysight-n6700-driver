@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "module_model": "N6791A",
+  "mainframe_idn": "REPLACE_WITH_REAL_IDN_AND_FIRMWARE",
+  "module_serial": "REPLACE_WITH_REAL_MODULE_SERIAL",
+  "output_off_verified": false,
+  "digitizer_sha256": null,
+  "dso_sha256": null,
+  "reference_dso_idn": null,
+  "common_trigger_verified": false,
+  "reference_comparison_status": "INCONCLUSIVE",
+  "minimum_repetitions_per_condition": 0,
+  "protected_bench_soak_hours": 0,
+  "unresolved_blockers": 0,
+  "unresolved_high": 1,
+  "independent_reviewer": null,
+  "review_record_id": null,
+  "evidence_notes": "Template only. Populate from signed and reviewed physical HIL runs. Capture CLI fields idn/raw_payload_sha256/output_off_confirmed and DSO comparator fields digitizer_sha256/reference_sha256 must be reconciled against original files; hashes should be independently recomputed.",
+  "hardware_qualified": false
+}
