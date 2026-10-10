@@ -438,14 +438,14 @@ capabilities:
     aliases: []
 - capability_id: acquisition.digitize.configure
   display_name: Configure Digitize
-  description: Select the measured quantity, sample interval, point count, and trigger offset for a buffered
-    acquisition.
+  description: Configure acquisition function and sweep settings.
   category: acquisition
   standard: true
-  risk_level: none
-  mutating: false
+  risk_level: low
+  mutating: true
   may_energize_or_sink_power: false
-  preconditions: []
+  preconditions:
+  - N679xA load module with digitizing.
   postconditions: []
   side_effects: []
   support:
@@ -455,15 +455,130 @@ capabilities:
     python_method: configure_digitize
     canonical_method: configure_digitize
     aliases: []
+- capability_id: acquisition.digitize.trigger.configure
+  display_name: Configure Digitize Trigger
+  description: Configure acquisition trigger source and threshold.
+  category: acquisition
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - N679xA load module with digitizing.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: configure_digitize_trigger
+    canonical_method: configure_digitize_trigger
+    aliases: []
+- capability_id: acquisition.digitize.arm
+  display_name: Arm Digitize
+  description: Arm the configured digitizer acquisition.
+  category: acquisition
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Digitizer configured with verified settings.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: arm_digitize
+    canonical_method: arm_digitize
+    aliases: []
+- capability_id: acquisition.digitize.wait_ready
+  display_name: Wait Digitize Armed
+  description: Wait for trigger readiness and pretrigger history.
+  category: acquisition
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Digitizer acquisition armed.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: wait_digitize_armed
+    canonical_method: wait_digitize_armed
+    aliases: []
+- capability_id: acquisition.digitize.trigger.now
+  display_name: Trigger Digitize
+  description: Issue a software acquisition trigger.
+  category: acquisition
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Digitizer waiting for a trigger.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: trigger_digitize
+    canonical_method: trigger_digitize
+    aliases: []
+- capability_id: acquisition.digitize.wait_complete
+  display_name: Wait Digitize Complete
+  description: Wait for acquisition completion or abort on failure.
+  category: acquisition
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Digitizer acquisition armed.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: wait_digitize_complete
+    canonical_method: wait_digitize_complete
+    aliases: []
+- capability_id: acquisition.digitize.abort
+  display_name: Abort Digitize
+  description: Abort digitizer acquisition and verify idle.
+  category: acquisition
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Digitizer session connected.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: abort_digitize
+    canonical_method: abort_digitize
+    aliases: []
 - capability_id: waveform.digitize.fetch
   display_name: Fetch Digitized Array
-  description: Retrieve the full buffered-acquisition array from a channel configured by ``configure_digitize``.
+  description: Read validated waveform array and release ownership.
   category: waveform
   standard: true
-  risk_level: none
-  mutating: false
+  risk_level: low
+  mutating: true
   may_energize_or_sink_power: false
-  preconditions: []
+  preconditions:
+  - Current acquisition completed.
   postconditions: []
   side_effects: []
   support:
