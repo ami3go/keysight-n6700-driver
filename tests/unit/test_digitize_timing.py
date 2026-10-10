@@ -5,12 +5,12 @@ from __future__ import annotations
 import pytest
 
 from keysight_n6700 import (
-    DriverMalformedResponseError,
     DriverOperationUncertainError,
     DriverTimeoutError,
 )
 from keysight_n6700.acquisition import AcquisitionState
 from keysight_n6700.channel import ElectronicLoadChannel
+from keysight_n6700.exceptions import DriverArgumentValueError, DriverMalformedResponseError
 from keysight_n6700.module_capabilities import classify_module
 
 
@@ -119,8 +119,6 @@ def test_invalid_pretrigger_guard_does_not_change_hardware_state(driver, guard) 
     load = _load(driver)
     load.configure_digitize("voltage", points=10, interval_s=10.24e-6, offset_points=-4)
     load.arm_digitize()
-    from keysight_n6700 import DriverArgumentValueError
-
     with pytest.raises(DriverArgumentValueError):
         load.wait_digitize_armed(timeout_s=1.0, pretrigger_guard_s=guard)
     assert load.digitize_status.state is AcquisitionState.ARMED
