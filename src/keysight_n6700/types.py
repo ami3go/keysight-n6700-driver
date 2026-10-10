@@ -125,6 +125,7 @@ class ArrayMeasurement:
     format: Literal["ascii", "real"]
     interval_s: float | None = None  # sample spacing; time axis is i * interval_s
     offset_points: int | None = None  # trigger-relative index of the first sample
+    raw_sha256: str | None = None  # sha256 of received binary sample bytes
 
 
 @dataclass(frozen=True)
