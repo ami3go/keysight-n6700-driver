@@ -8,6 +8,7 @@ multi-channel array replies — lives here.
 
 from __future__ import annotations
 
+import math
 import struct
 from collections.abc import Iterable, Sequence
 from typing import Literal
@@ -88,8 +89,6 @@ def parse_digitize_ascii(response: str, *, expected_points: int) -> tuple[float,
     A point-count mismatch or any blank/non-finite token invalidates the
     whole acquisition; the caller must not publish partial waveform data.
     """
-    from .exceptions import DriverMalformedResponseError
-
     if not 1 <= expected_points <= 512 * 1024:
         raise DriverMalformedResponseError("invalid configured waveform length")
     tokens = response.strip().split(",")
