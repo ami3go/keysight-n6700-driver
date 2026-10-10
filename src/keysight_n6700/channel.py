@@ -22,7 +22,13 @@ from .exceptions import (
     DriverUnsupportedOperationError,
 )
 from .module_capabilities import ChannelCapabilities
-from .scpi import format_bool, format_channel_list, format_float, parse_digitize_ascii, parse_digitize_real32
+from .scpi import (
+    format_bool,
+    format_channel_list,
+    format_float,
+    parse_digitize_ascii,
+    parse_digitize_real32,
+)
 from .types import (
     ArrayMeasurement,
     ChannelStatusSnapshot,
