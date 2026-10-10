@@ -98,24 +98,31 @@ def compare_triggered_events(
     floor = dut_dt * minimum_resolved_samples
     dut_edge = _edge_event(acquired)
     ref_edge = _edge_event(reference)
-    common = {
-        "expanded_uncertainty_s": expanded,
-        "limit_s": timing_limit_s,
-        "time_resolution_floor_s": floor,
-        "acquired_event_time_s": dut_edge,
-        "reference_event_time_s": ref_edge,
-    }
+    def result(
+        status: Literal["PASS", "FAIL", "INCONCLUSIVE", "NOT_RESOLVED"],
+        delta: float | None,
+        reason: str,
+    ) -> EventComparison:
+        return EventComparison(
+            status=status,
+            measured_delta_s=delta,
+            expanded_uncertainty_s=expanded,
+            limit_s=timing_limit_s,
+            time_resolution_floor_s=floor,
+            acquired_event_time_s=dut_edge,
+            reference_event_time_s=ref_edge,
+            reason=reason,
+        )
+
     if not common_trigger_verified:
-        return EventComparison("INCONCLUSIVE", None, reason="no verified common physical trigger", **common)
+        return result("INCONCLUSIVE", None, "no verified common physical trigger")
     if dut_edge is None or ref_edge is None:
-        return EventComparison("INCONCLUSIVE", None, reason="missing valid step crossing", **common)
+        return result("INCONCLUSIVE", None, "missing valid step crossing")
     delta = abs(dut_edge - ref_edge)
     if timing_limit_s < floor:
-        return EventComparison(
-            "NOT_RESOLVED", delta, reason="limit shorter than instrument resolution floor", **common
-        )
+        return result("NOT_RESOLVED", delta, "limit shorter than instrument resolution floor")
     if delta + expanded <= timing_limit_s:
-        return EventComparison("PASS", delta, reason="within guard-banded timing limit", **common)
+        return result("PASS", delta, "within guard-banded timing limit")
     if delta - expanded > timing_limit_s:
-        return EventComparison("FAIL", delta, reason="exceeds guard-banded timing limit", **common)
-    return EventComparison("INCONCLUSIVE", delta, reason="measurement overlaps uncertainty band", **common)
+        return result("FAIL", delta, "exceeds guard-banded timing limit")
+    return result("INCONCLUSIVE", delta, "measurement overlaps uncertainty band")
