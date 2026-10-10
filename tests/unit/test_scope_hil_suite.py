@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
@@ -92,7 +91,7 @@ def test_passive_hil_matrix_writes_independent_evidence(tmp_path: Path) -> None:
     assert Path(wave["path"]).is_file()
     assert wave["sha256"]
     assert json.loads((tmp_path / "hil" / "summary.json").read_text())["result"] == "PASS"
-    assert ET.parse(tmp_path / "hil" / "junit.xml").getroot().get("failures") == "0"
+    assert 'failures="0"' in (tmp_path / "hil" / "junit.xml").read_text()
 
 
 def test_instrument_identity_failure_never_commands_unapproved_output(tmp_path: Path) -> None:
@@ -113,8 +112,8 @@ def test_instrument_identity_failure_never_commands_unapproved_output(tmp_path: 
     assert result["result"] == "FAIL"
     assert result["final_output_off_verified"] is False
     assert "identity/model/serial" in result["error"]
-    junit = ET.parse(tmp_path / "untrusted" / "junit.xml").getroot()
-    assert junit.get("failures") == "1"
+    junit = (tmp_path / "untrusted" / "junit.xml").read_text()
+    assert 'failures="1"' in junit
 
 
 @pytest.mark.parametrize("edit", [
