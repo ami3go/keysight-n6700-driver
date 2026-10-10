@@ -20,13 +20,13 @@ class WaveformSeries:
             raise ValueError("waveforms need at least five paired samples")
         if any(not math.isfinite(x) for x in self.times_s + self.values):
             raise ValueError("non-finite waveform coordinate")
-        if any(a >= b for a, b in zip(self.times_s, self.times_s[1:])):
+        if any(a >= b for a, b in zip(self.times_s, self.times_s[1:], strict=False)):
             raise ValueError("sample times must increase strictly")
 
     @property
     def sample_period_s(self) -> float:
         self.validate()
-        diffs = [b - a for a, b in zip(self.times_s, self.times_s[1:])]
+        diffs = [b - a for a, b in zip(self.times_s, self.times_s[1:], strict=False)]
         return sorted(diffs)[len(diffs) // 2]
 
 
