@@ -41,9 +41,9 @@ from .version import __version__
 
 __all__ = [
     "N6700",
-    "ArrayMeasurement",
     "AcquisitionSnapshot",
     "AcquisitionState",
+    "ArrayMeasurement",
     "BaseChannel",
     "ChannelCapabilities",
     "DriverArgumentValueError",
