@@ -17,6 +17,7 @@ from .exceptions import (
     DriverMalformedResponseError,
     DriverTimeoutError,
     DriverOperationUncertainError,
+    DriverPreconditionError,
     DriverUnsupportedOperationError,
 )
 from .module_capabilities import ChannelCapabilities
@@ -812,6 +813,12 @@ class ElectronicLoadChannel(BaseChannel):
                 # Start after first WTG observation; avoid assuming readiness
                 # existed at INIT submission or completion.
                 barrier = monotonic() + fill_s + pretrigger_guard_s
+                if barrier > deadline:
+                    raise DriverTimeoutError(
+                        f"channel {self.channel} pretrigger fill requires "
+                        f"{fill_s + pretrigger_guard_s:.6g} s after WTG_meas, "
+                        f"but only {max(0.0, deadline - monotonic()):.6g} s remain"
+                    )
                 while True:
                     check_abort()
                     now = monotonic()
