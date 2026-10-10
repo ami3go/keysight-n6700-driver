@@ -36,6 +36,7 @@ from scpi_driver_core.transport.tcp import TcpTransport
 from scpi_driver_core.transport.visa import VisaTransport
 
 from ._translate import translated
+from .acquisition_lease import AcquisitionCoordinator
 from .base import (
     SUPPORT_STATE_PROJECTION,
     BaseInstrument,
@@ -124,6 +125,12 @@ class _AliasFacade:
     def check_errors(self) -> None:
         self._driver.check_errors(alias=self._alias)
 
+    def _begin_digitize(self, channel: int) -> None:
+        self._driver._begin_digitize(channel, alias=self._alias)
+
+    def _end_digitize(self, channel: int) -> None:
+        self._driver._end_digitize(channel, alias=self._alias)
+
 
 def _connection_info_dict(info: ConnectionInfo) -> dict[str, Any]:
     return {
@@ -152,6 +159,13 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         self._auto_shutdown_on_disconnect = True
         self._tracers: dict[str, tuple[Tracer, JsonlTraceSink | None]] = {}
         self._raw_scpi_guard: ConfirmationGuard | None = None
+        self._digitize_leases = AcquisitionCoordinator()
+
+    def _begin_digitize(self, channel: int, alias: str | None = None) -> None:
+        self._digitize_leases.begin(self._resolve_alias(alias), channel)
+
+    def _end_digitize(self, channel: int, alias: str | None = None) -> None:
+        self._digitize_leases.release(self._resolve_alias(alias), channel)
 
     @capability(
         "safety.raw_scpi.guard",
@@ -349,6 +363,8 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         if options:
             raise DriverArgumentValueError(f"unknown connect() options: {sorted(options)}")
 
+        if replace and alias in self._aliases:
+            self._digitize_leases.require_idle(alias, "session replacement")
         self._connect_session(
             alias=alias,
             resource=str(resource or ""),
@@ -381,6 +397,7 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         if alias is None and not self._aliases:
             return
         key = self._resolve_alias(alias)
+        self._digitize_leases.require_idle(key, "disconnect")
         self._disconnect_session(key, raise_on_error=True)
         self._discovery.pop(key, None)
 
@@ -398,6 +415,7 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
     def disconnect_all(self) -> None:
         """Safely disconnect every open session."""
         for alias in list(self._aliases):
+            self._digitize_leases.require_idle(alias, "disconnect_all")
             self._disconnect_session(alias, raise_on_error=False)
             self._discovery.pop(alias, None)
 
@@ -419,7 +437,8 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         def action(session: ScpiSession) -> None:
             if self._raw_scpi_guard is not None:
                 self._raw_scpi_guard.require_enabled()
-            session.client.write(command)
+            with self._digitize_leases.command(self._resolve_alias(alias), command):
+                session.client.write(command)
 
         self._execute_operation(
             "write_scpi", action, alias=alias, required_states=_CONNECTED_STATES
@@ -458,9 +477,10 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         def action(session: ScpiSession) -> str:
             if self._raw_scpi_guard is not None:
                 self._raw_scpi_guard.require_enabled()
-            return session.client.query(
-                command, replay_policy=replay_policy, retry_policy=retry_policy
-            )
+            with self._digitize_leases.command(self._resolve_alias(alias), command):
+                return session.client.query(
+                    command, replay_policy=replay_policy, retry_policy=retry_policy
+                )
 
         response = self._execute_operation(
             "query_scpi", action, alias=alias, required_states=_CONNECTED_STATES
@@ -642,6 +662,7 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
     def discover_modules(self, alias: str | None = None) -> dict[int, ChannelCapabilities]:
         """Discover installed modules and build the per-channel API for them."""
         key = self._resolve_alias(alias)
+        self._digitize_leases.require_idle(key, "discover_modules")
         discovery = self._discovery.setdefault(key, _AliasDiscovery())
         count = self.channel_count(alias=key)
         discovery.capabilities.clear()

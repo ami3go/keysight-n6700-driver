@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-DISPLAY_VERSION = "26.12"
-ARCHIVE_VERSION = "v26.12"
-PYTHON_VERSION = "0.6.5"
+DISPLAY_VERSION = "26.13"
+ARCHIVE_VERSION = "v26.13"
+PYTHON_VERSION = "0.6.6"
 RELEASE_KIND = "public"
 
 __version__ = PYTHON_VERSION

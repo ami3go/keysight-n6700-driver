@@ -46,6 +46,10 @@ class _DriverProtocol(Protocol):
 
     def check_errors(self) -> None: ...
 
+    def _begin_digitize(self, channel: int) -> None: ...
+
+    def _end_digitize(self, channel: int) -> None: ...
+
 
 class BaseChannel:
     """Safe common operations shared by all module types."""
@@ -602,6 +606,7 @@ class ElectronicLoadChannel(BaseChannel):
             AcquisitionState.FETCHED,
             AcquisitionState.ABORTED,
         )
+        self._driver._begin_digitize(self.channel)
         scpi_function = "VOLT" if function == "voltage" else "CURR"
         self._digitize_timing = None
         try:
@@ -633,6 +638,8 @@ class ElectronicLoadChannel(BaseChannel):
             # A readback/protocol failure can leave partially modified hardware.
             # Full SCPI error-queue verification/rollback remains PR05.
             self._acquisition.unknown()
+            # Retain lease: partially configured instrument must be explicitly
+            # aborted before another channel can start a capture.
             raise
         self._acquisition.configure()
         self._digitize_function = function
@@ -718,6 +725,7 @@ class ElectronicLoadChannel(BaseChannel):
         self._acquisition.require(
             AcquisitionState.CONFIGURED, AcquisitionState.COMPLETE, AcquisitionState.FETCHED
         )
+        self._driver._begin_digitize(self.channel)
         try:
             self._write(f"INIT:ACQ {self._chan}")
         except Exception:
@@ -934,6 +942,7 @@ class ElectronicLoadChannel(BaseChannel):
             self._acquisition.unknown()
             raise
         self._acquisition.aborted()
+        self._driver._end_digitize(self.channel)
 
     def fetch_digitized_array(self, function: Literal["voltage", "current"] | None = None) -> ArrayMeasurement:
         """Retrieve the full acquisition buffer. Blocks if the acquisition has not completed yet.
@@ -958,6 +967,7 @@ class ElectronicLoadChannel(BaseChannel):
             self._acquisition.unknown()
             raise
         self._acquisition.fetched()
+        self._driver._end_digitize(self.channel)
         return ArrayMeasurement(
             channel=self.channel,
             values=values,
