@@ -169,9 +169,9 @@ def _test_case(driver: Any, load: Any, case: HilCase, output: Path, repeat: int)
         elif case.scenario == "missing_trigger":
             try:
                 load.wait_digitize_complete(timeout_s=case.wait_timeout_s)
-            except DriverTimeoutError:
+            except DriverTimeoutError as exc:
                 if load.digitize_status.state is not AcquisitionState.ABORTED:
-                    raise AssertionError("missing trigger did not cleanly abort")
+                    raise AssertionError("missing trigger did not cleanly abort") from exc
             else:
                 raise AssertionError("untriggered acquisition unexpectedly completed")
         else:
