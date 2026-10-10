@@ -389,12 +389,14 @@ methods:
   aliases: []
   implementation_target: keysight_n6700.driver.N6700.fetch_digitized_array
   signature: 'fetch_digitized_array(self, channel: ''int'', function: "Literal[''voltage'', ''current'']
-    | None" = None, alias: ''str | None'' = None) -> ''ArrayMeasurement'''
+    | None" = None, alias: ''str | None'' = None, *, transfer_format: "Literal[''auto'', ''ascii'', ''real32'']"
+    = ''auto'') -> ''ArrayMeasurement'''
   required_arguments:
   - channel
   optional_arguments:
   - function
   - alias
+  - transfer_format
   device_facing: true
   execution_status: not_yet_run
 - method: find_driver_capabilities
