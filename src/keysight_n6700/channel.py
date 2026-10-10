@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import math
-from time import monotonic, sleep
 from collections.abc import Callable
+from time import monotonic, sleep
 from typing import ClassVar, Literal, Protocol
 
 from scpi_driver_core.execution.polling import poll_until
@@ -15,9 +15,9 @@ from .exceptions import (
     DriverArgumentValueError,
     DriverError,
     DriverMalformedResponseError,
-    DriverTimeoutError,
     DriverOperationUncertainError,
     DriverPreconditionError,
+    DriverTimeoutError,
     DriverUnsupportedOperationError,
 )
 from .module_capabilities import ChannelCapabilities
