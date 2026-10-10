@@ -697,17 +697,20 @@ class ElectronicLoadChannel(BaseChannel):
             enabled = 0
             for kind in ("VOLT", "CURR"):
                 reply = self._query(f"SENS:FUNC:{kind}? {selectors}").strip().upper()
-                if reply not in {"0", "1", "ON", "OFF"}:
+                if reply not in {"0", "1", "+0", "+1", "ON", "OFF"}:
                     raise DriverMalformedResponseError(
                         f"invalid {kind} enable readback for channel {channel}"
                     )
-                enabled += int(reply in {"1", "ON"})
+                enabled += int(reply in {"1", "+1", "ON"})
             if enabled:
                 samples = self._query(f"SENS:SWE:POIN? {selectors}").strip()
                 try:
-                    count_samples = int(samples)
+                    numeric = float(samples)
                 except ValueError as exc:
                     raise DriverMalformedResponseError("invalid sweep points readback") from exc
+                if not math.isfinite(numeric) or not numeric.is_integer():
+                    raise DriverMalformedResponseError("non-integral sweep points readback")
+                count_samples = int(numeric)
                 if count_samples < 1:
                     raise DriverMalformedResponseError("invalid sweep points <= 0")
                 active += enabled
