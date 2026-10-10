@@ -3,6 +3,10 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.6.6 — 2026-10-10
+
+PR04 acquisition transaction protection (F05): alias-scoped lease tracks acquisition owner from configuration through verified fetch/abort; raw SCPI rejects MEAS/RESET and unknown buffer-risking calls while acquisition is owned. Conflicting threads and channel rediscovery/disconnect are blocked, emergency OUTP OFF remains permitted. Adds negative concurrency/alias tests. **Does not protect against a separate external SCPI controller or guarantee atomic multiprocess exclusion.**
+
 ## v0.6.5 — 2026-10-10
 
 Documentation-only update: added a Keysight-sourced scope/digitizer availability
