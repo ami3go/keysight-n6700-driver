@@ -179,3 +179,42 @@ def test_quantization_depends_on_resolution(driver) -> None:
     timing = load.digitize_timing
     assert timing is not None
     assert timing.actual_interval_s == pytest.approx(81.92e-6)
+
+
+def test_pretrigger_trigger_disappears_during_fill_is_not_reported_ready(driver, monkeypatch) -> None:
+    _clock(monkeypatch)
+    load = _load(driver)
+    load.configure_digitize("voltage", points=1024, interval_s=20.48e-6, offset_points=-512)
+    load.arm_digitize()
+    query = load._query
+    status_reads = 0
+
+    def triggered_early(command: str) -> str:
+        nonlocal status_reads
+        if command.startswith("STAT:OPER:COND?"):
+            status_reads += 1
+            if status_reads == 2:
+                return "0"
+        return query(command)
+
+    monkeypatch.setattr(load, "_query", triggered_early)
+    with pytest.raises(DriverOperationUncertainError, match="no longer waiting") as exc:
+        load.wait_digitize_armed(timeout_s=1.0)
+    assert status_reads >= 2
+    assert exc.value.details["acquisition_cleanup"] == "aborted_and_idle_verified"
+    assert load.digitize_status.state is AcquisitionState.ABORTED
+
+
+def test_non_numeric_interval_readback_is_protocol_error(driver, monkeypatch) -> None:
+    load = _load(driver)
+    query = load._query
+
+    def invalid(command: str) -> str:
+        if command.startswith("SENS:SWE:TINT?"):
+            return "not-a-number"
+        return query(command)
+
+    monkeypatch.setattr(load, "_query", invalid)
+    with pytest.raises(DriverMalformedResponseError, match="interval readback"):
+        load.configure_digitize("voltage", points=10, interval_s=10.24e-6)
+    assert load.digitize_status.state is AcquisitionState.UNKNOWN
