@@ -13,7 +13,7 @@ import math
 import re
 import time
 import xml.etree.ElementTree as ET
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
@@ -228,15 +228,21 @@ def _test_case(driver: Any, load: Any, case: HilCase, output: Path, repeat: int)
     return result
 
 
-def _junit(path: Path, cases: list[dict[str, Any]]) -> None:
-    root = ET.Element("testsuite", name="N679xA_HIL", tests=str(len(cases)),
-                      failures=str(sum(case["status"] != "PASS" for case in cases)))
+def _junit(path: Path, cases: list[dict[str, Any]], gate_error: str | None) -> None:
+    failures = sum(case["status"] != "PASS" for case in cases) + int(gate_error is not None)
+    root = ET.Element("testsuite", name="N679xA_HIL",
+                      tests=str(len(cases) + int(gate_error is not None)),
+                      failures=str(failures))
     for case in cases:
         node = ET.SubElement(root, "testcase",
                              name=f"{case['name']}-{case['repetition']}",
                              classname="scope_hil", time=str(case["duration_s"]))
         if case["status"] != "PASS":
             ET.SubElement(node, "failure", message=str(case["reason"]))
+    if gate_error is not None:
+        gate = ET.SubElement(root, "testcase", name="preflight_and_safe_shutdown",
+                             classname="scope_hil", time="0")
+        ET.SubElement(gate, "failure", message=gate_error)
     temporary = path.with_name(path.name + ".tmp")
     ET.ElementTree(root).write(temporary, encoding="utf-8", xml_declaration=True)
     temporary.replace(path)
@@ -256,8 +262,13 @@ def run_hil_plan(driver: Any, plan: HilPlan, output: Path) -> dict[str, Any]:
     def save() -> None:
         report["completed_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         _atomic_json(output / "summary.json", report)
-        _junit(output / "junit.xml", report["cases"])
+        gate_error = report.get("error") or (
+            "final output OFF state unverified"
+            if report.get("final_output_off_verified") is False else None
+        )
+        _junit(output / "junit.xml", report["cases"], gate_error)
 
+    identity_verified = False
     try:
         identity = driver.get_identity()
         model = driver.channel_model(plan.channel)
@@ -265,6 +276,7 @@ def run_hil_plan(driver: Any, plan: HilPlan, output: Path) -> dict[str, Any]:
         report["instrument"] = {"idn": identity, "module": model, "serial": serial}
         if plan.expected_idn not in identity or model != plan.expected_model or serial != plan.expected_serial:
             raise RuntimeError("instrument identity/model/serial differs from approved bench profile")
+        identity_verified = True
         if not _safe_state(driver, plan.channel):
             raise RuntimeError("selected load input cannot be verified OFF")
         # Refuse to change or test anything while an unrelated output is ON.
@@ -289,11 +301,17 @@ def run_hil_plan(driver: Any, plan: HilPlan, output: Path) -> dict[str, Any]:
     except Exception as exc:
         report["error"] = f"{type(exc).__name__}: {exc}"
     finally:
-        try:
-            report["final_output_off_verified"] = _safe_state(driver, plan.channel)
-        except Exception as exc:
+        if identity_verified:
+            try:
+                report["final_output_off_verified"] = _safe_state(driver, plan.channel)
+            except Exception as exc:
+                report["final_output_off_verified"] = False
+                report["final_cleanup_error"] = f"{type(exc).__name__}: {exc}"
+        else:
+            # Crucial: never send an OFF command to an unidentified or
+            # unexpected instrument. Its output wiring may be unrelated.
             report["final_output_off_verified"] = False
-            report["final_cleanup_error"] = f"{type(exc).__name__}: {exc}"
+            report["final_cleanup_error"] = "identity mismatch; no output command issued"
         if not report["final_output_off_verified"]:
             report["result"] = "FAIL"
         save()
