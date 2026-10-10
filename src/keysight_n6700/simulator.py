@@ -311,11 +311,11 @@ class SimN6700Instrument:
         if upper == "FORM:BORD?":
             return self.array_border
         if upper.startswith("FORM:BORD "):
-            value = upper.split(None, 1)[1].split(",")[0]
-            if value not in {"SWAP", "NORM"}:
+            border_value = upper.split(None, 1)[1].split(",")[0]
+            if border_value not in {"SWAP", "NORM"}:
                 self._push_error(-222, "Invalid array byte order")
             else:
-                self.array_border = value
+                self.array_border = border_value
             return None
         if upper == "FORM?":
             return self.array_format
