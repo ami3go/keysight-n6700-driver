@@ -8,6 +8,7 @@ the separate ``keysight_n6700_robotframework_adapter`` package
 
 from .acquisition import AcquisitionSnapshot, AcquisitionState
 from .channel import BaseChannel, ElectronicLoadChannel, PowerSupplyChannel, SMUChannel
+from .acquisition import DigitizeTiming
 from .driver import N6700
 from .exceptions import (
     DriverArgumentValueError,
@@ -59,6 +60,7 @@ __all__ = [
     "DriverUnsafeOperationError",
     "DriverUnsupportedOperationError",
     "DriverValidationError",
+    "DigitizeTiming",
     "ElectronicLoadChannel",
     "InstrumentIdentity",
     "Measurement",
