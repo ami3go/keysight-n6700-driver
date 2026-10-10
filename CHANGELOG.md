@@ -3,6 +3,10 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.6.7 — 2026-10-10
+
+PR05 digitizer integrity (F06–F08): explicit ASCII array transport negotiation/restoration, readbacks of enabled voltage/current functions and global 512K sample allocation, detection of rejected SCPI configuration, and strict exactly-N finite waveform parsing. Disable unrequested measurement function; reject wrong-function fetch. Adds fault-injection/unit tests. Binary transfer and large-array efficiency are tracked for PR07; no real-hardware claims.
+
 ## v0.6.6 — 2026-10-10
 
 PR04 acquisition transaction protection (F05): alias-scoped lease tracks acquisition owner from configuration through verified fetch/abort; raw SCPI rejects MEAS/RESET and unknown buffer-risking calls while acquisition is owned. Conflicting threads and channel rediscovery/disconnect are blocked, emergency OUTP OFF remains permitted. Adds negative concurrency/alias tests. **Does not protect against a separate external SCPI controller or guarantee atomic multiprocess exclusion.**

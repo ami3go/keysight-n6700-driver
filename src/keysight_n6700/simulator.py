@@ -52,6 +52,8 @@ class _ChannelState:
     operation_status: int = 0
     sweep_points: int = 1
     sweep_interval_s: float = 20.48e-6
+    measure_voltage_enabled: bool = False
+    measure_current_enabled: bool = False
     sweep_offset_points: int = 0
     sweep_resolution: str = "RES20"
     acquisition_state: str = "idle"
@@ -74,6 +76,7 @@ class SimN6700Instrument:
         }
         self.errors: list[tuple[int, str]] = []
         self.remote_state = "local"
+        self.array_format = "ASC"
         self.idn = "KEYSIGHT TECHNOLOGIES,N6700B,SIM000001,B.00.00"
 
     def clear(self) -> None:
@@ -302,7 +305,30 @@ class SimN6700Instrument:
         # without pretending to simulate real transient waveforms. Order matters:
         # the colon-qualified sub-commands must be checked before their shorter
         # prefixes (TRIG:ACQ:VOLT:SLOP before TRIG:ACQ:VOLT before bare TRIG:ACQ).
+        if upper == "FORM?":
+            return self.array_format
+        if upper.startswith("FORM "):
+            fmt = upper.split(None, 1)[1].split(",")[0].strip()
+            if fmt not in {"ASC", "REAL"}:
+                self._push_error(-222, "Invalid measurement format")
+            else:
+                self.array_format = fmt
+            return None
+        if upper.startswith("SENS:FUNC:VOLT?"):
+            ch = self._channels_from_command(norm)[0]
+            return "1" if self.channels[ch].measure_voltage_enabled else "0"
+        if upper.startswith("SENS:FUNC:CURR?"):
+            ch = self._channels_from_command(norm)[0]
+            return "1" if self.channels[ch].measure_current_enabled else "0"
         if upper.startswith("SENS:FUNC:VOLT") or upper.startswith("SENS:FUNC:CURR"):
+            kind = "voltage" if upper.startswith("SENS:FUNC:VOLT") else "current"
+            enabled = upper.split(None, 1)[1].split(",")[0] in {"1", "ON"}
+            for ch in self._channels_from_command(norm):
+                st = self.channels[ch]
+                if kind == "voltage":
+                    st.measure_voltage_enabled = enabled
+                else:
+                    st.measure_current_enabled = enabled
             return None
         if upper.startswith("SENS:SWE:OFFS:POIN?"):
             return self._query_values(self._channels_from_command(norm), "sweep_offset_points")
