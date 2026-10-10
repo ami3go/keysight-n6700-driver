@@ -72,7 +72,8 @@ class AcquisitionCoordinator:
         allowed = (
             "SENS:FUNC:", "SENS:SWE:", "TRIG:ACQ:", "TRIG:ACQ ",
             "INIT:ACQ", "ABOR:ACQ", "FETC:ARR:", "STAT:OPER:COND?",
-            "SYST:ERR?", "CURR ", "VOLT ", "RES ", "POW ", "FUNC ",
+            "SYST:ERR?", "SYST:CHAN:COUN?", "FORM?", "FORM ",
+            "CURR ", "VOLT ", "RES ", "POW ", "FUNC ",
             "OUTP ", "OUTP:", "OUTPUT ",
         )
         return cmd.startswith(allowed)
