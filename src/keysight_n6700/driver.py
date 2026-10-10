@@ -72,6 +72,7 @@ from .types import (
     ShutdownChannelResult,
     ShutdownResult,
 )
+from .version import __version__
 
 _CONNECTED_STATES = frozenset(
     {SessionState.CONNECTED, SessionState.CONFIGURED, SessionState.BUSY, SessionState.WAITING}
@@ -80,7 +81,7 @@ _CONNECTED_STATES = frozenset(
 _DRIVER_METADATA = DriverMetadata(
     driver_name="keysight_n6700",
     display_name="Keysight/Agilent N6700 modular power system driver",
-    version="0.3.1",
+    version=__version__,
     package_name="keysight-n6700-driver",
     manufacturer="Keysight Technologies",
     supported_models=(
@@ -968,7 +969,10 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
     @capability(
         "acquisition.digitize.configure",
         category="acquisition",
-        risk_level="none",
+        risk_level="low",
+        mutating=True,
+        description="Configure acquisition function and sweep settings.",
+        preconditions=("N679xA load module with digitizing.",),
         canonical_method="configure_digitize",
     )
     def configure_digitize(
@@ -986,6 +990,15 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
             function, points=points, interval_s=interval_s, offset_points=offset_points
         )
 
+    @capability(
+        "acquisition.digitize.trigger.configure",
+        category="acquisition",
+        risk_level="low",
+        mutating=True,
+        description="Configure acquisition trigger source and threshold.",
+        preconditions=("N679xA load module with digitizing.",),
+        canonical_method="configure_digitize_trigger",
+    )
     def configure_digitize_trigger(
         self,
         channel: int,
@@ -1000,9 +1013,27 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
             source, level=level, slope=slope, source_channel=source_channel
         )
 
+    @capability(
+        "acquisition.digitize.arm",
+        category="acquisition",
+        risk_level="low",
+        mutating=True,
+        description="Arm the configured digitizer acquisition.",
+        preconditions=("Digitizer configured with verified settings.",),
+        canonical_method="arm_digitize",
+    )
     def arm_digitize(self, channel: int, alias: str | None = None) -> None:
         self.load(channel, alias=alias).arm_digitize()
 
+    @capability(
+        "acquisition.digitize.wait_ready",
+        category="acquisition",
+        risk_level="low",
+        mutating=True,
+        description="Wait for trigger readiness and pretrigger history.",
+        preconditions=("Digitizer acquisition armed.",),
+        canonical_method="wait_digitize_armed",
+    )
     def wait_digitize_armed(
         self,
         channel: int,
@@ -1019,9 +1050,27 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
             abort_requested=abort_requested,
         )
 
+    @capability(
+        "acquisition.digitize.trigger.now",
+        category="acquisition",
+        risk_level="low",
+        mutating=True,
+        description="Issue a software acquisition trigger.",
+        preconditions=("Digitizer waiting for a trigger.",),
+        canonical_method="trigger_digitize",
+    )
     def trigger_digitize(self, channel: int, alias: str | None = None) -> None:
         self.load(channel, alias=alias).trigger_digitize()
 
+    @capability(
+        "acquisition.digitize.wait_complete",
+        category="acquisition",
+        risk_level="low",
+        mutating=True,
+        description="Wait for acquisition completion or abort on failure.",
+        preconditions=("Digitizer acquisition armed.",),
+        canonical_method="wait_digitize_complete",
+    )
     def wait_digitize_complete(
         self,
         channel: int,
@@ -1032,13 +1081,25 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
     ) -> None:
         self.load(channel, alias=alias).wait_digitize_complete(timeout_s, abort_requested=abort_requested)
 
+    @capability(
+        "acquisition.digitize.abort",
+        category="acquisition",
+        risk_level="low",
+        mutating=True,
+        description="Abort digitizer acquisition and verify idle.",
+        preconditions=("Digitizer session connected.",),
+        canonical_method="abort_digitize",
+    )
     def abort_digitize(self, channel: int, alias: str | None = None) -> None:
         self.load(channel, alias=alias).abort_digitize()
 
     @capability(
         "waveform.digitize.fetch",
         category="waveform",
-        risk_level="none",
+        risk_level="low",
+        mutating=True,
+        description="Read validated waveform array and release ownership.",
+        preconditions=("Current acquisition completed.",),
         canonical_method="fetch_digitized_array",
     )
     def fetch_digitized_array(

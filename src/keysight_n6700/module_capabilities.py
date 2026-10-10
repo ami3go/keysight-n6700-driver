@@ -36,6 +36,7 @@ class ChannelCapabilities:
     # N6705C manual's "Digitizing Measurements" chapter. Not yet classified for the SMU/
     # power-supply families, which the manual says also support it — see known_risks.md.
     supports_digitizing: bool = False
+    digitize_qualification: Literal["none", "vendor_declared"] = "none"
     digitize_min_interval_s: float | None = None
 
 
@@ -54,7 +55,7 @@ SMU_PREFIXES = ("N678",)
 # but never replies to FUNC:MODE? — that finding was correct that FUNC:MODE is
 # not a valid command for this family, but the actual command is plain FUNC
 # (also true for the SMU; see review/known_risks.md for the matching SMU fix).
-LOAD_PREFIXES = ("N679",)
+LOAD_MODELS = frozenset({"N6791A", "N6792A"})
 
 
 def classify_module(model: str, options: list[str] | tuple[str, ...] | None = None) -> ChannelCapabilities:
@@ -72,7 +73,7 @@ def classify_module(model: str, options: list[str] | tuple[str, ...] | None = No
             supports_power_measurement=True,
             verified_real_load_commands=False,
         )
-    if model_clean.startswith(LOAD_PREFIXES):
+    if model_clean in LOAD_MODELS:
         return ChannelCapabilities(
             model=model_clean,
             module_type="electronic_load",
@@ -87,6 +88,8 @@ def classify_module(model: str, options: list[str] | tuple[str, ...] | None = No
             # "1 or 2 parameters (all models): 10.24 microseconds" per the manual's
             # sample-rate table; the 5.12 microsecond single-parameter rate is SMU-only.
             supports_digitizing=True,
+            supports_array_measurement=True,
+            digitize_qualification="vendor_declared",
             digitize_min_interval_s=10.24e-6,
         )
     if model_clean.startswith(SMU_PREFIXES):
