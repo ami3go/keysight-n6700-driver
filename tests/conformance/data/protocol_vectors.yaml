@@ -119,7 +119,7 @@ vectors:
     method: safe_shutdown
     arguments: {}
     preconditions: [connected, modules_discovered]
-    expected_outbound: { operation: write, command: "OUTP OFF,(@1)" }
+    expected_outbound: { operation: write, command: "OUTP OFF,(@1:4)" }
     expected_return: { type: dict, field_equals: { success: true } }
 
   - id: set-smu-mode

@@ -1,20 +1,4 @@
-"""A local BaseInstrument-shaped foundation, per LPDS-003.
-
-LPDS-003 describes a shared ``lpds-core`` package providing this layer
-(session registry, 9-state connection state machine, an operation-execution
-wrapper, extension hooks, diagnostics export) as a "should", while LPDS-005
-§8.4 states a driver "shall" build on one. No such shared package exists yet
-for this ecosystem — only the transport/SCPI-client layer
-(``scpi-driver-core``, which satisfies LPDS-004) does. Rather than block on a
-package that doesn't exist, or silently skip the requirement, this module
-implements the LPDS-003 contract locally, composing ``scpi-driver-core``'s
-``ScpiSession``/``SessionRegistry``/``ScpiClient`` underneath it. See
-``review/known_risks.md`` for the tradeoff this records.
-
-Nothing instrument-specific lives here: no SCPI command text, no channel
-model, no N6700 semantics. :class:`keysight_n6700.driver.N6700` is the only
-subclass.
-"""
+"""Local LPDS-003-style instrument/session foundation for the N6700 driver."""
 
 from __future__ import annotations
 
@@ -29,31 +13,33 @@ from typing import Any, TypeVar
 
 from scpi_driver_core.exceptions import ScpiDriverError
 from scpi_driver_core.scpi.client import ScpiClient
-from scpi_driver_core.session import ScpiSession, SessionRegistry
+from scpi_driver_core.session import ScpiSession, SessionRegistry, normalize_alias
 from scpi_driver_core.tracing.observer import Tracer
 from scpi_driver_core.transport.base import Transport
 
 from ._translate import translated
 from .exceptions import (
+    RECONNECT_REQUIRED,
     DriverConnectionError,
     DriverError,
+    DriverInternalError,
     DriverPreconditionError,
     DriverStateError,
 )
 
 __all__ = [
     "SUPPORT_STATE_PROJECTION",
+    "BaseInstrument",
     "ConnectionInfo",
     "DriverMetadata",
     "SessionState",
 ]
 
 _T = TypeVar("_T")
+_log = logging.getLogger(__name__)
 
 
 class SessionState(Enum):
-    """The canonical LPDS-003 §13.1 connection state machine."""
-
     DISCONNECTED = "disconnected"
     CONNECTING = "connecting"
     CONNECTED = "connected"
@@ -65,7 +51,6 @@ class SessionState(Enum):
     CLOSING = "closing"
 
 
-#: LPDS-002 §12's reduced public-facing projection of the 9-state machine.
 SUPPORT_STATE_PROJECTION: Mapping[SessionState, str] = {
     SessionState.DISCONNECTED: "disconnected",
     SessionState.CONNECTING: "connecting",
@@ -78,37 +63,51 @@ SUPPORT_STATE_PROJECTION: Mapping[SessionState, str] = {
     SessionState.CLOSING: "disconnected",
 }
 
-#: Legal transitions, LPDS-003 §13.3 (informative subset this driver drives).
 _LEGAL_TRANSITIONS: Mapping[SessionState, frozenset[SessionState]] = {
     SessionState.DISCONNECTED: frozenset({SessionState.CONNECTING}),
     SessionState.CONNECTING: frozenset(
-        {SessionState.CONNECTED, SessionState.ERROR, SessionState.DISCONNECTED}
+        {SessionState.CONNECTED, SessionState.ERROR, SessionState.DISCONNECTED, SessionState.CLOSING}
     ),
     SessionState.CONNECTED: frozenset(
         {
             SessionState.CONFIGURED,
             SessionState.BUSY,
             SessionState.WAITING,
+            SessionState.RECOVERING,
             SessionState.CLOSING,
             SessionState.ERROR,
         }
     ),
     SessionState.CONFIGURED: frozenset(
-        {SessionState.BUSY, SessionState.WAITING, SessionState.CLOSING, SessionState.ERROR}
+        {
+            SessionState.BUSY,
+            SessionState.WAITING,
+            SessionState.RECOVERING,
+            SessionState.CLOSING,
+            SessionState.ERROR,
+        }
     ),
     SessionState.BUSY: frozenset(
-        {SessionState.CONNECTED, SessionState.CONFIGURED, SessionState.ERROR, SessionState.RECOVERING}
+        {
+            SessionState.CONNECTED,
+            SessionState.CONFIGURED,
+            SessionState.ERROR,
+            SessionState.RECOVERING,
+            SessionState.CLOSING,
+        }
     ),
     SessionState.WAITING: frozenset(
-        {SessionState.CONNECTED, SessionState.CONFIGURED, SessionState.ERROR, SessionState.RECOVERING}
+        {
+            SessionState.CONNECTED,
+            SessionState.CONFIGURED,
+            SessionState.ERROR,
+            SessionState.RECOVERING,
+            SessionState.CLOSING,
+        }
     ),
     SessionState.RECOVERING: frozenset(
         {SessionState.CONNECTED, SessionState.ERROR, SessionState.CLOSING}
     ),
-    # A single failed operation reverts straight to the prior good state
-    # rather than forcing every caller through RECOVERING; RECOVERING is for
-    # a deliberate multi-step recovery hook, which this driver does not yet
-    # implement (see review/known_risks.md).
     SessionState.ERROR: frozenset(
         {SessionState.CONNECTED, SessionState.CONFIGURED, SessionState.RECOVERING, SessionState.CLOSING}
     ),
@@ -118,8 +117,6 @@ _LEGAL_TRANSITIONS: Mapping[SessionState, frozenset[SessionState]] = {
 
 @dataclass(frozen=True)
 class DriverMetadata:
-    """Immutable identity of this driver, LPDS-003 §11."""
-
     driver_name: str
     display_name: str
     version: str
@@ -131,8 +128,6 @@ class DriverMetadata:
 
 @dataclass
 class ConnectionInfo:
-    """What :meth:`BaseInstrument.get_connection_state` reports for one alias."""
-
     alias: str
     resource: str
     connected: bool
@@ -148,15 +143,13 @@ class _AliasEntry:
     session: ScpiSession
     resource: str
     state: SessionState = SessionState.DISCONNECTED
+    io_timeout_s: float | None = None
+    depth: int = 0
     lock: threading.RLock = field(default_factory=threading.RLock)
 
 
 class BaseInstrument:
-    """LPDS-003 connection lifecycle, state machine, and operation execution.
-
-    A concrete driver overrides the protected hooks below; it never touches
-    :class:`SessionRegistry` or :class:`SessionState` directly.
-    """
+    """Connection lifecycle, state machine, locking, and operation execution."""
 
     def __init__(self, metadata: DriverMetadata) -> None:
         self._metadata = metadata
@@ -165,13 +158,9 @@ class BaseInstrument:
         self._registry_lock = threading.RLock()
         super().__init__()
 
-    # -- metadata -----------------------------------------------------------
-
     @property
     def metadata(self) -> DriverMetadata:
         return self._metadata
-
-    # -- hooks a concrete driver overrides -----------------------------------
 
     def _build_transport(
         self, *, alias: str, resource: str, connection_type: str, **options: Any
@@ -179,32 +168,23 @@ class BaseInstrument:
         raise NotImplementedError
 
     def _get_tracer(self, alias: str) -> Tracer | None:
-        """Return the protocol tracer for ``alias``, if one was set up. None by default.
-
-        Called after :meth:`_build_transport`, so a driver that builds a
-        tracer there (typically wrapping the transport in
-        ``InstrumentedTransport``) can hand the same instance back here for
-        :class:`ScpiSession` to propagate trace context into.
-        """
         return None
 
     def _validate_identity(self, identity: Mapping[str, str]) -> None:
-        """Reject an unacceptable ``*IDN?`` reply. No-op by default."""
+        pass
 
     def _on_connected(self, alias: str, session: ScpiSession) -> None:
-        """Run right after a session reaches CONNECTED. No-op by default."""
+        pass
 
     def _apply_safe_state(self, alias: str, session: ScpiSession, *, reason: str) -> None:
-        """Best-effort safe-state before disconnect. No-op by default."""
+        pass
 
     def _on_disconnected(self, alias: str) -> None:
-        """Run after ``alias``'s session has closed. No-op by default.
+        pass
 
-        For a driver that opened per-alias resources in :meth:`_build_transport`
-        (a trace sink, for example), this is where to release them.
-        """
-
-    # -- session lifecycle ----------------------------------------------------
+    def _key(self, alias: str) -> str:
+        with translated(operation="alias"):
+            return normalize_alias(alias)
 
     def _set_state(self, alias: str, new_state: SessionState) -> None:
         entry = self._aliases[alias]
@@ -227,40 +207,52 @@ class BaseInstrument:
         timeout_s: float | None,
         **options: Any,
     ) -> ScpiSession:
+        key = self._key(alias)
         with self._registry_lock:
-            if alias in self._aliases and not replace:
+            if key in self._aliases and not replace:
                 raise DriverConnectionError(
-                    f"alias {alias!r} is already connected; pass replace=True to reconnect",
+                    f"alias {key!r} is already connected; pass replace=True to reconnect",
                     code="LPDS-CON-001",
                 )
-            if alias in self._aliases:
-                self._disconnect_session(alias, raise_on_error=False)
+            if key in self._aliases:
+                self._disconnect_session(key, raise_on_error=False)
 
             transport = self._build_transport(
-                alias=alias, resource=resource, connection_type=connection_type, **options
+                alias=key, resource=resource, connection_type=connection_type, **options
             )
-            client = ScpiClient(transport, timeout_s=timeout_s)
-            session = ScpiSession(
-                alias, client, communication_timeout_s=timeout_s, tracer=self._get_tracer(alias)
+            with translated(operation="connect"):
+                client = ScpiClient(transport, timeout_s=timeout_s)
+                session = ScpiSession(
+                    key,
+                    client,
+                    communication_timeout_s=timeout_s,
+                    tracer=self._get_tracer(key),
+                )
+            entry = _AliasEntry(
+                session=session,
+                resource=resource,
+                io_timeout_s=timeout_s,
             )
-            entry = _AliasEntry(session=session, resource=resource)
-            self._aliases[alias] = entry
-            self._set_state(alias, SessionState.CONNECTING)
+            self._aliases[key] = entry
+            self._set_state(key, SessionState.CONNECTING)
 
             try:
                 with translated(operation="connect"):
                     session.open(probe=probe, validate_identity=self._validate_from_core)
-            except DriverError:
-                self._set_state(alias, SessionState.ERROR)
-                self._set_state(alias, SessionState.CLOSING)
-                del self._aliases[alias]
-                self._on_disconnected(alias)
+                    self._registry.register(key, session, replace=True)
+                self._set_state(key, SessionState.CONNECTED)
+                self._on_connected(key, session)
+                return session
+            except BaseException:
+                with suppress(Exception):
+                    session.close()
+                with suppress(Exception):
+                    if key in self._registry:
+                        self._registry.remove(key)
+                self._aliases.pop(key, None)
+                with suppress(Exception):
+                    self._on_disconnected(key)
                 raise
-
-            self._registry.register(alias, session, replace=True)
-            self._set_state(alias, SessionState.CONNECTED)
-            self._on_connected(alias, session)
-            return session
 
     def _validate_from_core(self, identity: Any) -> None:
         self._validate_identity(
@@ -273,33 +265,51 @@ class BaseInstrument:
         )
 
     def _disconnect_session(self, alias: str, *, raise_on_error: bool) -> None:
-        entry = self._aliases.get(alias)
+        key = self._key(alias)
+        entry = self._aliases.get(key)
         if entry is None:
             if raise_on_error:
                 raise DriverPreconditionError(
-                    f"no session is connected as alias {alias!r}", code="LPDS-STA-002"
+                    f"no session is connected as alias {key!r}", code="LPDS-STA-002"
                 )
             return
-        with suppress(DriverStateError):
-            self._set_state(alias, SessionState.CLOSING)
-        try:
-            self._apply_safe_state(alias, entry.session, reason="disconnect")
-        except Exception:
-            logging.getLogger(__name__).warning(
-                "safe-state hook failed for alias %r during disconnect", alias, exc_info=True
+
+        failure: BaseException | None = None
+        with entry.lock:
+            if entry.session.is_connected:
+                try:
+                    self._apply_safe_state(key, entry.session, reason="disconnect")
+                except BaseException as exc:
+                    failure = exc
+                    _log.error("safe state NOT confirmed for alias %r: %s", key, exc)
+
+            with suppress(DriverStateError):
+                self._set_state(key, SessionState.CLOSING)
+            try:
+                with translated(operation="disconnect"):
+                    entry.session.close()
+            except BaseException as exc:
+                if failure is None:
+                    failure = exc
+                _log.error("transport close failed for alias %r: %s", key, exc)
+            finally:
+                self._aliases.pop(key, None)
+                with self._registry_lock, suppress(Exception):
+                    if key in self._registry:
+                        self._registry.remove(key)
+                with suppress(Exception):
+                    self._on_disconnected(key)
+
+        if failure is not None and raise_on_error:
+            if isinstance(failure, Exception):
+                raise failure
+            raise DriverInternalError(
+                f"disconnect failed with {type(failure).__name__}", code="LPDS-INT-003"
             )
-        try:
-            entry.session.close()
-        finally:
-            self._aliases.pop(alias, None)
-            with self._registry_lock:
-                if alias in self._registry:
-                    self._registry.remove(alias)
-            self._on_disconnected(alias)
 
     def _resolve_alias(self, alias: str | None) -> str:
         if alias is not None:
-            return alias
+            return self._key(alias)
         active = self._registry.active_alias
         if active is None:
             raise DriverPreconditionError(
@@ -320,8 +330,6 @@ class BaseInstrument:
     def _session(self, alias: str | None) -> ScpiSession:
         return self._entry(alias).session
 
-    # -- the operation-execution wrapper, LPDS-003 §17.1 -----------------------
-
     def _execute_operation(
         self,
         operation_name: str,
@@ -333,30 +341,70 @@ class BaseInstrument:
             {SessionState.CONNECTED, SessionState.CONFIGURED}
         ),
     ) -> _T:
-        entry = self._entry(alias)
+        del timeout_s
         key = self._resolve_alias(alias)
+        entry = self._entry(key)
         with entry.lock:
+            if entry.depth:
+                try:
+                    with translated(operation=operation_name):
+                        return action(entry.session)
+                except DriverError:
+                    raise
+                except Exception as exc:
+                    raise DriverInternalError(
+                        f"unexpected {type(exc).__name__}: {exc}",
+                        code="LPDS-INT-002",
+                        operation=operation_name,
+                    ) from exc
+
             if entry.state not in required_states:
                 raise DriverPreconditionError(
                     f"{operation_name} requires state in "
-                    f"{sorted(s.value for s in required_states)}, was {entry.state.value}",
+                    f"{sorted(state.value for state in required_states)}, was {entry.state.value}",
                     code="LPDS-STA-005",
                     operation=operation_name,
                 )
+
             previous = entry.state
             self._set_state(key, SessionState.BUSY)
+            entry.depth += 1
             try:
                 with translated(operation=operation_name):
                     return action(entry.session)
-            except DriverError:
-                self._set_state(key, SessionState.ERROR)
-                self._set_state(key, previous if previous != SessionState.BUSY else SessionState.CONNECTED)
+            except DriverError as exc:
+                if not entry.session.is_connected:
+                    exc.retryable = False
+                    exc.recovery_action = RECONNECT_REQUIRED
+                    exc.details.setdefault("transport_state", entry.session.transport.state.name)
+                    if entry.state is not SessionState.ERROR:
+                        self._set_state(key, SessionState.ERROR)
+                else:
+                    self._set_state(key, SessionState.ERROR)
+                    self._set_state(
+                        key,
+                        previous if previous is not SessionState.BUSY else SessionState.CONNECTED,
+                    )
                 raise
+            except Exception as exc:
+                self._set_state(key, SessionState.ERROR)
+                if entry.session.is_connected:
+                    self._set_state(
+                        key,
+                        previous if previous is not SessionState.BUSY else SessionState.CONNECTED,
+                    )
+                raise DriverInternalError(
+                    f"unexpected {type(exc).__name__}: {exc}",
+                    code="LPDS-INT-002",
+                    operation=operation_name,
+                ) from exc
             finally:
+                entry.depth -= 1
                 if entry.state is SessionState.BUSY:
-                    self._set_state(key, previous if previous != SessionState.BUSY else SessionState.CONNECTED)
-
-    # -- LPDS-002 mandatory universal methods, implemented once here ---------
+                    self._set_state(
+                        key,
+                        previous if previous is not SessionState.BUSY else SessionState.CONNECTED,
+                    )
 
     def is_connected(self, alias: str | None = None) -> bool:
         try:
@@ -366,48 +414,93 @@ class BaseInstrument:
         return entry.session.is_connected
 
     def _connection_info(self, alias: str | None = None, refresh: bool = False) -> ConnectionInfo:
-        """Typed connection info. A concrete driver's public ``get_connection_state``
-        (LPDS-002 §12) converts this to a plain dict; kept separate so this
-        base class is not pinned to that exact public return schema.
-        """
-        entry = self._entry(alias)
         key = self._resolve_alias(alias)
-        identity: Mapping[str, str] | None = None
-        communication_ok: bool | None = None
-        if refresh:
-            communication_ok = entry.session.check_communication()
-        if entry.session.is_connected:
-            try:
-                current = entry.session.get_identity(refresh=False)
-                identity = {
-                    "manufacturer": current.manufacturer,
-                    "model": current.model,
-                    "serial_number": current.serial_number or "",
-                    "firmware_version": current.firmware_version or "",
-                }
-            except ScpiDriverError:
-                identity = None
-        return ConnectionInfo(
-            alias=key,
-            resource=entry.resource,
-            connected=entry.session.is_connected,
-            communication_ok=communication_ok,
-            transport_kind=entry.session.transport.descriptor.kind if entry.session.is_connected else None,
-            identity=identity,
-            timeout_s=entry.session.communication_timeout_s,
-            state=entry.state,
-        )
+        entry = self._entry(key)
+        with entry.lock:
+            identity: Mapping[str, str] | None = None
+            communication_ok: bool | None = None
+            if refresh and entry.session.is_connected:
+                communication_ok = self._execute_operation(
+                    "check_communication",
+                    lambda session: session.check_communication(),
+                    alias=key,
+                    required_states=frozenset(
+                        {
+                            SessionState.CONNECTED,
+                            SessionState.CONFIGURED,
+                            SessionState.BUSY,
+                            SessionState.WAITING,
+                        }
+                    ),
+                )
+            if entry.session.is_connected:
+                try:
+                    current = entry.session.get_identity(refresh=False)
+                    identity = {
+                        "manufacturer": current.manufacturer,
+                        "model": current.model,
+                        "serial_number": current.serial_number or "",
+                        "firmware_version": current.firmware_version or "",
+                    }
+                except ScpiDriverError:
+                    identity = None
+            return ConnectionInfo(
+                alias=key,
+                resource=entry.resource,
+                connected=entry.session.is_connected,
+                communication_ok=communication_ok,
+                transport_kind=(
+                    entry.session.transport.descriptor.kind if entry.session.is_connected else None
+                ),
+                identity=identity,
+                timeout_s=entry.io_timeout_s,
+                state=entry.state,
+            )
 
     def check_communication(self, alias: str | None = None) -> bool:
-        return self._session(alias).check_communication()
+        return self._execute_operation(
+            "check_communication",
+            lambda session: session.check_communication(),
+            alias=alias,
+            required_states=frozenset(
+                {
+                    SessionState.CONNECTED,
+                    SessionState.CONFIGURED,
+                    SessionState.BUSY,
+                    SessionState.WAITING,
+                }
+            ),
+        )
 
     def set_communication_timeout(self, timeout_s: float, alias: str | None = None) -> float:
-        with translated(operation="set_communication_timeout"):
-            self._session(alias).set_communication_timeout(timeout_s)
+        key = self._resolve_alias(alias)
+        entry = self._entry(key)
+        with entry.lock, translated(operation="set_communication_timeout"):
+            entry.session.set_communication_timeout(timeout_s)
+            entry.io_timeout_s = timeout_s
         return timeout_s
 
     def get_communication_timeout(self, alias: str | None = None) -> float | None:
-        return self._session(alias).communication_timeout_s
+        return self._entry(alias).io_timeout_s
+
+    def _io_timeout(self, alias: str | None = None) -> float | None:
+        return self._entry(alias).io_timeout_s
+
+    def _reconnect_info(self, alias: str | None = None) -> ConnectionInfo:
+        key = self._resolve_alias(alias)
+        entry = self._entry(key)
+        with entry.lock:
+            self._set_state(key, SessionState.RECOVERING)
+            try:
+                with translated(operation="reconnect"):
+                    with suppress(Exception):
+                        entry.session.close()
+                    entry.session.open(probe=False, validate_identity=self._validate_from_core)
+                self._set_state(key, SessionState.CONNECTED)
+            except DriverError:
+                self._set_state(key, SessionState.ERROR)
+                raise
+        return self._connection_info(key)
 
     def get_driver_information(self) -> dict[str, Any]:
         return {
@@ -421,19 +514,12 @@ class BaseInstrument:
         }
 
     def list_connected_aliases(self) -> list[str]:
-        return sorted(self._aliases)
-
-    # -- diagnostics export, LPDS-003 §29.2 (software-verifiable subset) -----
+        with self._registry_lock:
+            return sorted(self._aliases)
 
     def export_diagnostics(self) -> dict[str, Any]:
-        """A JSON-serializable diagnostics snapshot. See LPDS-003 §29.2.
-
-        This intentionally ships the subset that needs no hardware and no
-        result-directory infrastructure: summary, driver metadata, and
-        per-session state. The full evidence-bundle layout LPDS-008 describes
-        for a *test run* (environment.json, events.jsonl, ...) is produced by
-        whatever harness runs the tests, not by the driver itself.
-        """
+        with self._registry_lock:
+            snapshot = dict(self._aliases)
         return {
             "schema": "keysight_n6700.diagnostics",
             "schema_version": "1.0",
@@ -446,6 +532,6 @@ class BaseInstrument:
                     "connected": entry.session.is_connected,
                     "generation": entry.session.generation,
                 }
-                for alias, entry in self._aliases.items()
+                for alias, entry in snapshot.items()
             },
         }

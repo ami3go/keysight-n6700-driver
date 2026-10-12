@@ -35,6 +35,7 @@ __all__ = [
     "DriverProtocolError",
     "DriverProtocolSyncError",
     "DriverRangeError",
+    "DriverReadError",
     "DriverResourceBusyError",
     "DriverResourceConflictError",
     "DriverResourceError",
@@ -54,7 +55,6 @@ __all__ = [
     "RecoveryAction",
 ]
 
-#: LPDS-007 §16.2 recovery classification vocabulary.
 RecoveryAction = str
 NONE_REQUIRED: RecoveryAction = "NONE_REQUIRED"
 RETRY_ALLOWED: RecoveryAction = "RETRY_ALLOWED"
@@ -68,17 +68,7 @@ NOT_RECOVERABLE: RecoveryAction = "NOT_RECOVERABLE"
 
 
 class DriverError(Exception):
-    """Root of the public exception hierarchy (LPDS-007 §5).
-
-    Args:
-        message: human-readable description of the failure.
-        code: an ``LPDS-<DOMAIN>-<NNN>`` or ``LPDS-N6700-<NNN>`` error code.
-        retryable: whether resending the same call, unmodified, could succeed.
-        severity: one of ``"low"``, ``"medium"``, ``"high"``, ``"critical"``.
-        details: structured context (arguments, channel, observed value, ...).
-        recovery_action: one of the LPDS-007 §16.2 recovery values.
-        operation: the public method name that raised this error, if known.
-    """
+    """Root of the public exception hierarchy (LPDS-007 §5)."""
 
     def __init__(
         self,
@@ -98,7 +88,7 @@ class DriverError(Exception):
         self.recovery_action = recovery_action
         self.operation = operation
         self.message = message
-        super().__init__(self._format())
+        super().__init__(message)
 
     def _format(self) -> str:
         operation = self.operation or "operation"
@@ -110,8 +100,9 @@ class DriverError(Exception):
             f"Retryable={'yes' if self.retryable else 'no'}. Recovery={recovery}."
         )
 
-
-# -- configuration / validation ------------------------------------------------
+    def __str__(self) -> str:
+        """Format from current attributes so recovery reclassification is visible."""
+        return self._format()
 
 
 class DriverConfigurationError(DriverError):
@@ -138,22 +129,16 @@ class DriverUnsupportedValueError(DriverValidationError):
     """An argument named a value this driver/module does not support."""
 
 
-# -- state ----------------------------------------------------------------
-
-
 class DriverStateError(DriverError):
     """An operation was attempted from a state that does not allow it."""
 
 
 class DriverPreconditionError(DriverStateError):
-    """A documented precondition (e.g. "must be connected") was not met."""
+    """A documented precondition was not met."""
 
 
 class DriverOperationUncertainError(DriverStateError):
     """A state-changing operation's outcome could not be confirmed."""
-
-
-# -- connection / transport -------------------------------------------------
 
 
 class DriverConnectionError(DriverError):
@@ -184,9 +169,6 @@ class DriverTimeoutError(DriverTransportError):
     """An operation exceeded its bounded timeout."""
 
 
-# -- protocol ---------------------------------------------------------------
-
-
 class DriverProtocolError(DriverError):
     """The instrument's response violated the expected protocol."""
 
@@ -209,9 +191,6 @@ class DriverChecksumError(DriverProtocolError):
 
 class DriverProtocolSyncError(DriverProtocolError):
     """The command/response stream lost synchronization."""
-
-
-# -- device -------------------------------------------------------------
 
 
 class DriverDeviceError(DriverError):
@@ -247,9 +226,6 @@ class DriverUnsupportedOperationError(DriverDeviceError):
     """The installed module, transport, or verified command set lacks this."""
 
 
-# -- resources ------------------------------------------------------------
-
-
 class DriverResourceError(DriverError):
     """A named resource (session, channel, alias) could not be used as asked."""
 
@@ -264,9 +240,6 @@ class DriverResourceBusyError(DriverResourceError):
 
 class DriverResourceConflictError(DriverResourceError):
     """Two requested resource assignments conflict."""
-
-
-# -- safety -----------------------------------------------------------------
 
 
 class DriverSafetyError(DriverError):
@@ -285,11 +258,8 @@ class DriverLimitViolationError(DriverSafetyError):
     """A safety limit (OVP/OCP/protection) tripped or would be exceeded."""
 
 
-# -- other ------------------------------------------------------------------
-
-
 class DriverDependencyError(DriverError):
-    """A required optional dependency (e.g. PyVISA) is not installed."""
+    """A required optional dependency is not installed."""
 
 
 class DriverInternalError(DriverError):
