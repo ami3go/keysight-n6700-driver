@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import struct
 from dataclasses import dataclass
 
+from scpi_driver_core.scpi.binary_block import encode_definite_length_block
 from scpi_driver_core.simulation.scripted import ScriptedScpiTransport
 from scpi_driver_core.transport.models import TransportDescriptor
 
@@ -45,6 +47,15 @@ class _ChannelState:
     protection_active: bool = False
     questionable_status: int = 0
     operation_status: int = 0
+    sweep_points: int = 1
+    sweep_interval_s: float = 20.48e-6
+    measure_voltage_enabled: bool = False
+    measure_current_enabled: bool = False
+    sweep_offset_points: int = 0
+    sweep_resolution: str = "RES20"
+    acquisition_state: str = "idle"
+    acquisition_generation: int = 0
+    completed_generation: int | None = None
 
     @property
     def is_smu(self) -> bool:
@@ -93,6 +104,8 @@ class SimN6700Instrument:
         self.remote_state = "LOC"
         self.watchdog_enabled = False
         self.watchdog_delay_s = 60.0
+        self.array_format = "ASC"
+        self.array_border = "NORM"
         self.idn = "KEYSIGHT TECHNOLOGIES,N6700B,SIM000001,B.00.00"
 
     def clear(self) -> None:
@@ -225,6 +238,9 @@ class SimN6700Instrument:
                 state.questionable_status = 0
                 state.smu_mode = "VOLT"
                 state.smu_off_mode = "HIGHZ"
+                state.operation_status &= ~(8 | 32)
+                state.acquisition_state = "idle"
+                state.completed_generation = None
             return None
         if upper == "*OPC?":
             return "1"
@@ -357,7 +373,7 @@ class SimN6700Instrument:
             state = self.channels[channel]
             if state.is_smu:
                 return state.smu_mode
-            if state.is_real_load:
+            if state.is_real_load or state.is_sim_load:
                 return state.load_mode
             self._push_error(-113, f"Undefined header: {command}")
             return ""
@@ -367,7 +383,7 @@ class SimN6700Instrument:
                 state = self.channels[channel]
                 if state.is_smu and argument in {"VOLT", "VOLTAGE", "CURR", "CURRENT"}:
                     state.smu_mode = "CURR" if argument.startswith("CURR") else "VOLT"
-                elif state.is_real_load:
+                elif state.is_real_load or state.is_sim_load:
                     if argument.startswith("CURR"):
                         state.load_mode = "CURR"
                     elif argument.startswith("VOLT"):
@@ -534,7 +550,7 @@ class SimN6700Instrument:
             state = self.channels[channel]
             if state.is_smu:
                 return str(state.current_limit)
-            if state.is_real_load:
+            if state.is_real_load or state.is_sim_load:
                 return str(state.load_current_limit)
             self._push_error(-113, f"Undefined header: {command}")
             return ""
@@ -552,7 +568,7 @@ class SimN6700Instrument:
                         self._push_error(-222, f"Data out of range: {value}")
                     else:
                         state.current_limit = value
-                elif state.is_real_load:
+                elif state.is_real_load or state.is_sim_load:
                     if value < 0.0:
                         self._push_error(-222, f"Data out of range: {value}")
                     else:
@@ -621,8 +637,145 @@ class SimN6700Instrument:
                 for channel in self._channels_from_command(norm)
             )
 
+        # Digitized/buffered measurement (SENS:SWEep + TRIG:ACQuire + FETC:ARRay):
+        # kept to "accept the configuration, replay a flat buffer on fetch" —
+        # enough to exercise the driver's configure/arm/poll/fetch sequence
+        # without pretending to simulate real transient waveforms. Order matters:
+        # the colon-qualified sub-commands must be checked before their shorter
+        # prefixes (TRIG:ACQ:VOLT:SLOP before TRIG:ACQ:VOLT before bare TRIG:ACQ).
+        if upper == "FORM:BORD?":
+            return self.array_border
+        if upper.startswith("FORM:BORD "):
+            border_value = upper.split(None, 1)[1].split(",")[0]
+            if border_value not in {"SWAP", "NORM"}:
+                self._push_error(-222, "Invalid array byte order")
+            else:
+                self.array_border = border_value
+            return None
+        if upper == "FORM?":
+            return self.array_format
+        if upper.startswith("FORM "):
+            fmt = upper.split(None, 1)[1].split(",")[0].strip()
+            if fmt not in {"ASC", "REAL"}:
+                self._push_error(-222, "Invalid measurement format")
+            else:
+                self.array_format = fmt
+            return None
+        if upper.startswith("SENS:FUNC:VOLT?"):
+            ch = self._channels_from_command(norm)[0]
+            return "1" if self.channels[ch].measure_voltage_enabled else "0"
+        if upper.startswith("SENS:FUNC:CURR?"):
+            ch = self._channels_from_command(norm)[0]
+            return "1" if self.channels[ch].measure_current_enabled else "0"
+        if upper.startswith("SENS:FUNC:VOLT") or upper.startswith("SENS:FUNC:CURR"):
+            kind = "voltage" if upper.startswith("SENS:FUNC:VOLT") else "current"
+            enabled = upper.split(None, 1)[1].split(",")[0] in {"1", "ON"}
+            for ch in self._channels_from_command(norm):
+                st = self.channels[ch]
+                if kind == "voltage":
+                    st.measure_voltage_enabled = enabled
+                else:
+                    st.measure_current_enabled = enabled
+            return None
+        if upper.startswith("SENS:SWE:OFFS:POIN?"):
+            return self._query_values(self._channels_from_command(norm), "sweep_offset_points")
+        if upper.startswith("SENS:SWE:OFFS:POIN"):
+            value = int(float(norm.split(None, 1)[1].split(",")[0]))
+            for ch in self._channels_from_command(norm):
+                self.channels[ch].sweep_offset_points = value
+            return None
+        if upper.startswith("SENS:SWE:TINT:RES?"):
+            return self.channels[self._channels_from_command(norm)[0]].sweep_resolution
+        if upper.startswith("SENS:SWE:TINT:RES"):
+            mode = norm.split(None, 1)[1].split(",")[0].upper()
+            if mode not in {"RES20", "RES40"}:
+                self._push_error(-222, f"Invalid time interval resolution: {mode}")
+            else:
+                for ch in self._channels_from_command(norm):
+                    self.channels[ch].sweep_resolution = mode
+            return None
+        if upper.startswith("SENS:SWE:TINT?"):
+            return self._query_values(self._channels_from_command(norm), "sweep_interval_s")
+        if upper.startswith("SENS:SWE:TINT"):
+            requested = float(norm.split(None, 1)[1].split(",")[0])
+            for ch in self._channels_from_command(norm):
+                st = self.channels[ch]
+                # Approximate the manual's interval quantization, not the
+                # analog response or multi-channel memory scheduling.
+                step = (
+                    10.24e-6
+                    if requested <= 20.48e-6
+                    else 40.96e-6 if st.sweep_resolution == "RES40" else 20.48e-6
+                )
+                st.sweep_interval_s = max(step, int(requested / step + 0.5) * step)
+            return None
+        if upper.startswith("SENS:SWE:POIN?"):
+            return self._query_values(self._channels_from_command(norm), "sweep_points")
+        if upper.startswith("SENS:SWE:POIN"):
+            value = int(float(norm.split(None, 1)[1].split(",")[0]))
+            for ch in self._channels_from_command(norm):
+                self.channels[ch].sweep_points = value
+            return None
+        if upper.startswith("TRIG:ACQ:SOUR"):
+            return None
+        if upper.startswith("TRIG:ACQ:VOLT:SLOP") or upper.startswith("TRIG:ACQ:CURR:SLOP"):
+            return None
+        if upper.startswith("TRIG:ACQ:VOLT") or upper.startswith("TRIG:ACQ:CURR"):
+            return None
+        if upper.startswith("INIT:ACQ"):
+            for ch in self._channels_from_command(norm):
+                st = self.channels[ch]
+                st.acquisition_generation += 1
+                st.completed_generation = None
+                st.acquisition_state = "waiting"
+                st.operation_status |= 8 | 32  # WTG_meas and MEAS_active
+            return None
+        if upper.startswith("TRIG:ACQ"):
+            for ch in self._channels_from_command(norm):
+                st = self.channels[ch]
+                if st.acquisition_state != "waiting":
+                    self._push_error(-230, "Acquisition is not armed")
+                    continue
+                st.acquisition_state = "complete"
+                st.completed_generation = st.acquisition_generation
+                st.operation_status &= ~(8 | 32)
+            return None
+        if upper.startswith("ABOR:ACQ"):
+            for ch in self._channels_from_command(norm):
+                st = self.channels[ch]
+                st.acquisition_state = "aborted"
+                st.completed_generation = None
+                st.operation_status &= ~(8 | 32)
+            return None
+        if upper.startswith("FETC:ARR:VOLT?") or upper.startswith("FETCH:ARRAY:VOLTAGE?"):
+            st = self.channels[self._channels_from_command(norm)[0]]
+            if st.acquisition_state != "complete" or st.completed_generation != st.acquisition_generation:
+                self._push_error(-230, "No completed acquisition buffer")
+                return ""
+            if self.array_format == "REAL":
+                fmt = "<" if self.array_border == "SWAP" else ">"
+                payload = struct.pack(f"{fmt}{st.sweep_points}f", *([st.voltage] * st.sweep_points))
+                return encode_definite_length_block(payload) + b"\n"
+            return ",".join([str(st.voltage)] * st.sweep_points)
+        if upper.startswith("FETC:ARR:CURR?") or upper.startswith("FETCH:ARRAY:CURRENT?"):
+            st = self.channels[self._channels_from_command(norm)[0]]
+            if st.acquisition_state != "complete" or st.completed_generation != st.acquisition_generation:
+                self._push_error(-230, "No completed acquisition buffer")
+                return ""
+            if self.array_format == "REAL":
+                fmt = "<" if self.array_border == "SWAP" else ">"
+                payload = struct.pack(f"{fmt}{st.sweep_points}f", *([st.current_limit] * st.sweep_points))
+                return encode_definite_length_block(payload) + b"\n"
+            return ",".join([str(st.current_limit)] * st.sweep_points)
+
         if header.startswith("MEAS:") or header.startswith("FETC:") or header.startswith("FETCH:"):
             channels = self._channels_from_command(norm)
+            if header.startswith("MEAS:"):
+                for channel in channels:
+                    state = self.channels[channel]
+                    state.acquisition_state = "idle"
+                    state.completed_generation = None
+                    state.operation_status &= ~(8 | 32)
             measurement_values: list[str] = []
             for channel in channels:
                 state = self.channels[channel]
@@ -664,7 +817,7 @@ class SimN6700Instrument:
             return ",".join(measurement_values)
 
         self._push_error(-113, f"Undefined header: {command}")
-        return None
+        return "" if norm.rstrip().endswith("?") else None
 
 
 _DISABLE_BUILTIN_ERROR_QUEUE = "\x00__n6700_simulator_disabled_error_query__\x00"

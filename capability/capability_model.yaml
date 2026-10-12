@@ -4,7 +4,7 @@ generated_by: scripts/generate_capability_model.py
 capabilities:
 - capability_id: safety.raw_scpi.guard
   display_name: Set Raw SCPI Guard
-  description: Require a confirmation phrase before write_scpi()/query_scpi() will run.
+  description: Require a confirmation phrase before public raw SCPI access.
   category: safety
   standard: true
   risk_level: low
@@ -22,7 +22,7 @@ capabilities:
     aliases: []
 - capability_id: connection.session.open
   display_name: Connect
-  description: Open a session to an N6700 mainframe over VISA, USB, Ethernet, or the simulator.
+  description: Open a session to an N6700 mainframe.
   category: connection
   standard: true
   risk_level: low
@@ -42,7 +42,7 @@ capabilities:
     aliases: []
 - capability_id: connection.session.close
   display_name: Disconnect
-  description: Safely disconnect one session (or every session if none was ever selected).
+  description: ''
   category: connection
   standard: true
   risk_level: low
@@ -62,7 +62,7 @@ capabilities:
     aliases: []
 - capability_id: connection.session.status
   display_name: Get Connection State
-  description: "Return connection/identity state as a plain dict (LPDS-002 \xA712)."
+  description: ''
   category: connection
   standard: true
   risk_level: none
@@ -80,7 +80,7 @@ capabilities:
     aliases: []
 - capability_id: identity.driver.read
   display_name: Get Identity
-  description: 'LPDS-002 mandatory: return ``*IDN?`` as one string.'
+  description: ''
   category: identity
   standard: true
   risk_level: none
@@ -98,7 +98,7 @@ capabilities:
     aliases: []
 - capability_id: system.reset.execute
   display_name: Reset Device
-  description: 'LPDS-002 mandatory-when-applicable: ``*RST`` and wait for completion.'
+  description: ''
   category: system
   standard: true
   risk_level: high
@@ -106,7 +106,7 @@ capabilities:
   may_energize_or_sink_power: true
   preconditions: []
   postconditions:
-  - Instrument reset; all prior assumptions about configuration must be re-established.
+  - Instrument reset; configuration assumptions must be re-established.
   side_effects: []
   support:
     state: supported
@@ -117,7 +117,7 @@ capabilities:
     aliases: []
 - capability_id: system.error.read
   display_name: Get Device Error
-  description: 'LPDS-002: return one entry from the SCPI error queue.'
+  description: ''
   category: system
   standard: true
   risk_level: none
@@ -153,7 +153,7 @@ capabilities:
     aliases: []
 - capability_id: channel.selection.list
   display_name: List Channels
-  description: 'LPDS-002: return every installed channel number.'
+  description: ''
   category: channel
   standard: true
   risk_level: none
@@ -171,7 +171,7 @@ capabilities:
     aliases: []
 - capability_id: channel.module.discover
   display_name: Discover Modules
-  description: Discover installed modules and build the per-channel API for them.
+  description: ''
   category: channel
   standard: true
   risk_level: none
@@ -189,7 +189,7 @@ capabilities:
     aliases: []
 - capability_id: source.voltage.set
   display_name: Set Dc Voltage
-  description: 'LPDS-002: program the voltage setpoint on ``channel``.'
+  description: ''
   category: source
   standard: true
   risk_level: medium
@@ -207,7 +207,7 @@ capabilities:
     aliases: []
 - capability_id: source.current.set
   display_name: Set Dc Current
-  description: 'LPDS-002: program the current limit on ``channel``.'
+  description: ''
   category: source
   standard: true
   risk_level: medium
@@ -225,7 +225,7 @@ capabilities:
     aliases: []
 - capability_id: source.output.enable
   display_name: Enable Output
-  description: 'LPDS-002: enable one power-supply/SMU output.'
+  description: ''
   category: source
   standard: true
   risk_level: high
@@ -243,7 +243,7 @@ capabilities:
     aliases: []
 - capability_id: source.output.disable
   display_name: Disable Output
-  description: 'LPDS-002: disable one power-supply/SMU output. Idempotent.'
+  description: ''
   category: source
   standard: true
   risk_level: low
@@ -261,7 +261,7 @@ capabilities:
     aliases: []
 - capability_id: measure.voltage.dc
   display_name: Measure Dc Voltage
-  description: 'LPDS-002: measure channel voltage in volts.'
+  description: ''
   category: measure
   standard: true
   risk_level: none
@@ -279,7 +279,7 @@ capabilities:
     aliases: []
 - capability_id: measure.current.dc
   display_name: Measure Dc Current
-  description: 'LPDS-002: measure channel current in amperes.'
+  description: ''
   category: measure
   standard: true
   risk_level: none
@@ -297,7 +297,7 @@ capabilities:
     aliases: []
 - capability_id: measure.power.dc
   display_name: Measure Dc Power
-  description: 'LPDS-002: measure (or compute) channel power in watts.'
+  description: ''
   category: measure
   standard: true
   risk_level: none
@@ -315,7 +315,7 @@ capabilities:
     aliases: []
 - capability_id: measure.voltage.wait_in_range
   display_name: Wait For Voltage In Range
-  description: Poll ``measure_dc_voltage`` until it falls within ``[minimum, maximum]``.
+  description: ''
   category: measure
   standard: true
   risk_level: none
@@ -333,7 +333,7 @@ capabilities:
     aliases: []
 - capability_id: measure.current.wait_in_range
   display_name: Wait For Current In Range
-  description: Poll ``measure_dc_current`` until it falls within ``[minimum, maximum]``.
+  description: ''
   category: measure
   standard: true
   risk_level: none
@@ -349,9 +349,161 @@ capabilities:
     python_method: wait_for_current_in_range
     canonical_method: wait_for_current_in_range
     aliases: []
+- capability_id: acquisition.digitize.configure
+  display_name: Configure Digitize
+  description: Configure acquisition function and sweep settings.
+  category: acquisition
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - N679xA load module with digitizing.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: configure_digitize
+    canonical_method: configure_digitize
+    aliases: []
+- capability_id: acquisition.digitize.trigger.configure
+  display_name: Configure Digitize Trigger
+  description: Configure acquisition trigger source and threshold.
+  category: acquisition
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - N679xA load module with digitizing.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: configure_digitize_trigger
+    canonical_method: configure_digitize_trigger
+    aliases: []
+- capability_id: acquisition.digitize.arm
+  display_name: Arm Digitize
+  description: Arm the configured digitizer acquisition.
+  category: acquisition
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Digitizer configured with verified settings.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: arm_digitize
+    canonical_method: arm_digitize
+    aliases: []
+- capability_id: acquisition.digitize.wait_ready
+  display_name: Wait Digitize Armed
+  description: Wait for trigger readiness and pretrigger history.
+  category: acquisition
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Digitizer acquisition armed.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: wait_digitize_armed
+    canonical_method: wait_digitize_armed
+    aliases: []
+- capability_id: acquisition.digitize.trigger.now
+  display_name: Trigger Digitize
+  description: Issue a software acquisition trigger.
+  category: acquisition
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Digitizer waiting for a trigger.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: trigger_digitize
+    canonical_method: trigger_digitize
+    aliases: []
+- capability_id: acquisition.digitize.wait_complete
+  display_name: Wait Digitize Complete
+  description: Wait for acquisition completion or abort on failure.
+  category: acquisition
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Digitizer acquisition armed.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: wait_digitize_complete
+    canonical_method: wait_digitize_complete
+    aliases: []
+- capability_id: acquisition.digitize.abort
+  display_name: Abort Digitize
+  description: Abort digitizer acquisition and verify idle.
+  category: acquisition
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Digitizer session connected.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: abort_digitize
+    canonical_method: abort_digitize
+    aliases: []
+- capability_id: waveform.digitize.fetch
+  display_name: Fetch Digitized Array
+  description: Read validated waveform array and release ownership.
+  category: waveform
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Current acquisition completed.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: fetch_digitized_array
+    canonical_method: fetch_digitized_array
+    aliases: []
 - capability_id: safety.output.disable_all
   display_name: Safe Shutdown
-  description: 'LPDS-002 mandatory-when-applicable: best-effort shutdown of every channel.'
+  description: ''
   category: safety
   standard: true
   risk_level: low
@@ -359,7 +511,7 @@ capabilities:
   may_energize_or_sink_power: false
   preconditions: []
   postconditions:
-  - Every controllable output/load input has been commanded off, best-effort.
+  - Every channel has been commanded off and verified by readback.
   side_effects: []
   support:
     state: supported
@@ -367,4 +519,22 @@ capabilities:
   binding:
     python_method: safe_shutdown
     canonical_method: safe_shutdown
+    aliases: []
+- capability_id: safety.watchdog.enable
+  display_name: Enable Io Watchdog
+  description: Enable the N6700 hardware I/O watchdog.
+  category: safety
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: enable_io_watchdog
+    canonical_method: enable_io_watchdog
     aliases: []

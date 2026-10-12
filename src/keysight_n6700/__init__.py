@@ -6,6 +6,7 @@ the separate ``keysight_n6700_robotframework_adapter`` package
 (``adapters/robotframework/``); nothing here imports it.
 """
 
+from .acquisition import AcquisitionSnapshot, AcquisitionState, DigitizeTiming
 from .channel import BaseChannel, ElectronicLoadChannel, PowerSupplyChannel, SMUChannel
 from .driver import N6700
 from .exceptions import (
@@ -47,9 +48,12 @@ from .version import __version__
 
 __all__ = [
     "N6700",
+    "AcquisitionSnapshot",
+    "AcquisitionState",
     "ArrayMeasurement",
     "BaseChannel",
     "ChannelCapabilities",
+    "DigitizeTiming",
     "DriverArgumentTypeError",
     "DriverArgumentValueError",
     "DriverCommandRejectedError",

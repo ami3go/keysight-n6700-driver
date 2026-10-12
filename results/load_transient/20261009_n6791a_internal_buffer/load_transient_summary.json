@@ -1,0 +1,256 @@
+{
+  "driver_version": "0.6.0",
+  "final_error_queue": [],
+  "final_load_on": false,
+  "final_source_on": false,
+  "instrument_identity": "Keysight Technologies,N6700C,MY56320259,E.02.09.3271",
+  "interval_s": 2.048e-05,
+  "load_model": "N6791A",
+  "offset_points": -512,
+  "points": 1024,
+  "rows": [
+    {
+      "after": {
+        "iin_a": 1.140818,
+        "iout_a": 2.499924,
+        "pout_w": 8.193283,
+        "protections": {
+          "load_protection": false,
+          "source_protection": false
+        },
+        "vin_v": 7.997733,
+        "vout_v": 3.277512
+      },
+      "before": {
+        "iin_a": 0.220897,
+        "iout_a": 0.4998069,
+        "pout_w": 1.646404,
+        "protections": {
+          "load_protection": false,
+          "source_protection": false
+        },
+        "vin_v": 7.991529,
+        "vout_v": 3.294118
+      },
+      "direction": "up",
+      "load_final_a": 2.5,
+      "load_initial_a": 0.5,
+      "metrics": {
+        "event_index": 511,
+        "event_time_s": -2.048e-05,
+        "max_deviation_pct": 2.497925741547393,
+        "max_deviation_v": 0.08188899999999988,
+        "maximum_v": 3.280327,
+        "minimum_v": 3.196391,
+        "post_step_v": 3.27828,
+        "pre_step_v": 3.293976,
+        "recovery_time_s": 4.096e-05
+      },
+      "vin_v": 8.0,
+      "waveform": "load_transient_8V_up.csv"
+    },
+    {
+      "after": {
+        "iin_a": 0.221171,
+        "iout_a": 0.4997997,
+        "pout_w": 1.646357,
+        "protections": {
+          "load_protection": false,
+          "source_protection": false
+        },
+        "vin_v": 7.98814,
+        "vout_v": 3.294016
+      },
+      "before": {
+        "iin_a": 1.141267,
+        "iout_a": 2.499923,
+        "pout_w": 8.193435,
+        "protections": {
+          "load_protection": false,
+          "source_protection": false
+        },
+        "vin_v": 7.992763,
+        "vout_v": 3.277461
+      },
+      "direction": "down",
+      "load_final_a": 0.5,
+      "load_initial_a": 2.5,
+      "metrics": {
+        "event_index": 512,
+        "event_time_s": 0.0,
+        "max_deviation_pct": 3.35682248740092,
+        "max_deviation_v": 0.11055000000000037,
+        "maximum_v": 3.403843,
+        "minimum_v": 3.291246,
+        "post_step_v": 3.293293,
+        "pre_step_v": 3.277598,
+        "recovery_time_s": 2.048e-05
+      },
+      "vin_v": 8.0,
+      "waveform": "load_transient_8V_down.csv"
+    },
+    {
+      "after": {
+        "iin_a": 0.6787909,
+        "iout_a": 2.499925,
+        "pout_w": 8.193224,
+        "protections": {
+          "load_protection": false,
+          "source_protection": false
+        },
+        "vin_v": 13.48623,
+        "vout_v": 3.277336
+      },
+      "before": {
+        "iin_a": 0.1361585,
+        "iout_a": 0.4998033,
+        "pout_w": 1.6466,
+        "protections": {
+          "load_protection": false,
+          "source_protection": false
+        },
+        "vin_v": 13.48763,
+        "vout_v": 3.294474
+      },
+      "direction": "up",
+      "load_final_a": 2.5,
+      "load_initial_a": 0.5,
+      "metrics": {
+        "event_index": 512,
+        "event_time_s": 0.0,
+        "max_deviation_pct": 3.1432031431116316,
+        "max_deviation_v": 0.103043,
+        "maximum_v": 3.280327,
+        "minimum_v": 3.175237,
+        "post_step_v": 3.27828,
+        "pre_step_v": 3.294658,
+        "recovery_time_s": 2.048e-05
+      },
+      "vin_v": 13.5,
+      "waveform": "load_transient_13.5V_up.csv"
+    },
+    {
+      "after": {
+        "iin_a": 0.1365684,
+        "iout_a": 0.4998046,
+        "pout_w": 1.646573,
+        "protections": {
+          "load_protection": false,
+          "source_protection": false
+        },
+        "vin_v": 13.48973,
+        "vout_v": 3.294359
+      },
+      "before": {
+        "iin_a": 0.6795334,
+        "iout_a": 2.499922,
+        "pout_w": 8.192743,
+        "protections": {
+          "load_protection": false,
+          "source_protection": false
+        },
+        "vin_v": 13.49099,
+        "vout_v": 3.277093
+      },
+      "direction": "down",
+      "load_final_a": 0.5,
+      "load_initial_a": 2.5,
+      "metrics": {
+        "event_index": 512,
+        "event_time_s": 0.0,
+        "max_deviation_pct": 3.3560960978465006,
+        "max_deviation_v": 0.11054900000000023,
+        "maximum_v": 3.404525,
+        "minimum_v": 3.291246,
+        "post_step_v": 3.293976,
+        "pre_step_v": 3.276915,
+        "recovery_time_s": 2.048e-05
+      },
+      "vin_v": 13.5,
+      "waveform": "load_transient_13.5V_down.csv"
+    },
+    {
+      "after": {
+        "iin_a": 0.5119093,
+        "iout_a": 2.499924,
+        "pout_w": 8.192373,
+        "protections": {
+          "load_protection": false,
+          "source_protection": false
+        },
+        "vin_v": 17.99133,
+        "vout_v": 3.277183
+      },
+      "before": {
+        "iin_a": 0.1035126,
+        "iout_a": 0.4998024,
+        "pout_w": 1.647058,
+        "protections": {
+          "load_protection": false,
+          "source_protection": false
+        },
+        "vin_v": 17.97464,
+        "vout_v": 3.295232
+      },
+      "direction": "up",
+      "load_final_a": 2.5,
+      "load_initial_a": 0.5,
+      "metrics": {
+        "event_index": 512,
+        "event_time_s": 0.0,
+        "max_deviation_pct": 2.935045206632748,
+        "max_deviation_v": 0.09621900000000005,
+        "maximum_v": 3.28101,
+        "minimum_v": 3.182061,
+        "post_step_v": 3.27828,
+        "pre_step_v": 3.29534,
+        "recovery_time_s": 2.048e-05
+      },
+      "vin_v": 18.0,
+      "waveform": "load_transient_18V_up.csv"
+    },
+    {
+      "after": {
+        "iin_a": 0.1049769,
+        "iout_a": 0.4998062,
+        "pout_w": 1.646911,
+        "protections": {
+          "load_protection": false,
+          "source_protection": false
+        },
+        "vin_v": 17.99314,
+        "vout_v": 3.294979
+      },
+      "before": {
+        "iin_a": 0.5118313,
+        "iout_a": 2.499927,
+        "pout_w": 8.19252,
+        "protections": {
+          "load_protection": false,
+          "source_protection": false
+        },
+        "vin_v": 17.9919,
+        "vout_v": 3.277207
+      },
+      "direction": "down",
+      "load_final_a": 0.5,
+      "load_initial_a": 2.5,
+      "metrics": {
+        "event_index": 512,
+        "event_time_s": 0.0,
+        "max_deviation_pct": 3.334701204191753,
+        "max_deviation_v": 0.10986699999999994,
+        "maximum_v": 3.404525,
+        "minimum_v": 3.291928,
+        "post_step_v": 3.294658,
+        "pre_step_v": 3.276915,
+        "recovery_time_s": 2.048e-05
+      },
+      "vin_v": 18.0,
+      "waveform": "load_transient_18V_down.csv"
+    }
+  ],
+  "source_model": "N6775A",
+  "trigger_level_a": 1.5,
+  "trigger_source": "load current"
+}

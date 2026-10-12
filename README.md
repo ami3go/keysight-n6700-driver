@@ -98,6 +98,41 @@ device logic.
 - [`review/known_risks.md`](review/known_risks.md) — honest scope decisions
   and deferred work for this first release.
 
+## Digitized measurements (scope mode)
+
+Keysight N6700-family instruments can acquire buffered voltage/current
+waveforms over SCPI. **Hardware availability depends on the mainframe, installed
+power/load module, and module options**. In particular, **the N6705C DC Power
+Analyzer includes output-list and digitized measurement capabilities without
+requiring Option 054**, even for N677xA modules.
+
+| Mainframe and module | Digitized waveform acquisition | Option 054 requirement |
+| --- | --- | --- |
+| N6700C + N6775A (without 054) | Not available | Required for digitizing |
+| N6700C + N6775A-054 | Available | Installed |
+| N6700C + N676xA precision power module | Available | Not required |
+| N6700C + N678xA SMU | Available | Not required |
+| N6705C + N6775A | Available | Not required |
+| N6705C + N6791A electronic load | Available | Not required |
+| N6700C + N6791A electronic load | **Observed working on this project's real bench** (see note below) | No Option 054 needed for the load |
+
+**Compatibility qualification:** Keysight's March 2026 specifications guide
+lists N6791A/N6792A load-module mainframe compatibility as **N6705C only**.
+The repository nevertheless records successful N6791A triggered waveform
+captures installed in an N6700C; this is test evidence, **not a general
+manufacturer-supported N6700C/N679xA compatibility claim**. See
+[`results/load_transient/20261009_n6791a_internal_buffer/`](results/load_transient/20261009_n6791a_internal_buffer/README.md).
+
+**Current driver limitation:** `configure_digitize()` and
+`fetch_digitized_array()` currently route through the electronic-load channel
+API. Hardware support for digitizing on N6775A (with 054 on N6700C) and
+N676xA/N678xA **does not yet mean these channels support that driver API**.
+The installed option can be checked without changing instrument state by
+sending `SYST:CHAN:OPT? (@1)` (channel 1).
+
+Source: [Keysight N6700 Series Specifications Guide, March 2026](https://www.keysight.com/cd/en/assets/9018-04533/technical-specifications/9018-04533.pdf),
+pages 8, 13–14 (module feature tables, N679xA compatibility, Option 054).
+
 ## Real-hardware verification
 
 Beyond the simulator, this driver has been run against a real N6700C

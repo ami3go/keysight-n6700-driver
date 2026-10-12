@@ -1,0 +1,10 @@
+{
+  "approved": false,
+  "operator": "Bench operator",
+  "bench_review_id": "REPLACE_WITH_APPROVED_BENCH_REVIEW",
+  "channel": 2,
+  "expected_module": "N6791A",
+  "max_voltage_v": 20.0,
+  "max_current_a": 2.5,
+  "notes": "EXAMPLE ONLY. Confirm physical fixture, DUT limits, isolation and mainframe before setting approved to true."
+}

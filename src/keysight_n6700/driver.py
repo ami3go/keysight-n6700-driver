@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field, fields, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -29,6 +30,7 @@ from scpi_driver_core.transport.tcp import TcpTransport
 from scpi_driver_core.transport.visa import VisaTransport
 
 from ._translate import translated
+from .acquisition_lease import AcquisitionCoordinator
 from .base import (
     SUPPORT_STATE_PROJECTION,
     BaseInstrument,
@@ -62,6 +64,7 @@ from .scpi import (
 )
 from .simulator import build_simulated_transport
 from .types import (
+    ArrayMeasurement,
     AuditRecord,
     InstrumentIdentity,
     Measurement,
@@ -146,6 +149,15 @@ class _AliasFacade:
     def set_channel_enabled(self, channels: list[int], enabled: bool) -> None:
         self._driver.set_channel_enabled(channels, enabled, alias=self._alias)
 
+    def _begin_digitize(self, channel: int) -> None:
+        self._driver._begin_digitize(channel, alias=self._alias)
+
+    def _end_digitize(self, channel: int) -> None:
+        self._driver._end_digitize(channel, alias=self._alias)
+
+    def _query_binary_scpi(self, command: str, *, max_bytes: int) -> bytes:
+        return self._driver._query_binary_scpi(command, max_bytes=max_bytes, alias=self._alias)
+
 
 def _connection_info_dict(info: ConnectionInfo) -> dict[str, Any]:
     return {
@@ -173,6 +185,7 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         self._tracers: dict[str, tuple[Tracer, JsonlTraceSink | None]] = {}
         self._raw_scpi_guard: ConfirmationGuard | None = None
         self._last_shutdown: dict[str, ShutdownResult] = {}
+        self._digitize_leases = AcquisitionCoordinator()
         self._apply_configuration()
 
     def _apply_configuration(self) -> None:
@@ -193,6 +206,12 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         path = logging_settings.get("audit_log_path")
         if path and self.audit_log_path is None:
             self.audit_log_path = Path(path)
+
+    def _begin_digitize(self, channel: int, alias: str | None = None) -> None:
+        self._digitize_leases.begin(self._resolve_alias(alias), channel)
+
+    def _end_digitize(self, channel: int, alias: str | None = None) -> None:
+        self._digitize_leases.release(self._resolve_alias(alias), channel)
 
     @capability(
         "safety.raw_scpi.guard",
@@ -265,6 +284,7 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         trace = options.pop("protocol_trace", None)
         redactor: Redactor | None = options.pop("protocol_trace_redactor", None)
         sim_models = options.pop("sim_models", None)
+        port = options.pop("port", 5025)
 
         transport: Transport
         if connection_type in {"sim", "simulation", "simulated"}:
@@ -276,7 +296,6 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         elif connection_type in {"ethernet", "socket", "tcp", "tcpip"}:
             if not resource:
                 raise DriverArgumentValueError("resource must contain an Ethernet host or IP address")
-            port = options.pop("port", 5025)
             if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
                 raise DriverArgumentValueError(f"invalid TCP port {port!r}", code="LPDS-ARG-005")
             transport = TcpTransport(resource, port)
@@ -401,6 +420,8 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
             raise DriverArgumentValueError(f"unknown connect() options: {sorted(options)}")
         effective_timeout = timeout_s if timeout_s is not None else self._default_timeout_s
 
+        if replace_existing and alias in self._aliases:
+            self._digitize_leases.require_idle(alias, "session replacement")
         self._connect_session(
             alias=key,
             resource=str(resource or ""),
@@ -439,6 +460,7 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         if alias is None and not self._aliases:
             return
         key = self._resolve_alias(alias)
+        self._digitize_leases.require_idle(key, "disconnect")
         try:
             self._disconnect_session(key, raise_on_error=True)
         finally:
@@ -455,8 +477,10 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         return self._registry.active_alias
 
     def disconnect_all(self) -> None:
+        """Safely disconnect every open session."""
         failures: list[tuple[str, BaseException]] = []
         for alias in list(self.list_connected_aliases()):
+            self._digitize_leases.require_idle(alias, "disconnect_all")
             try:
                 self._disconnect_session(alias, raise_on_error=True)
             except BaseException as exc:
@@ -523,8 +547,21 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
                 self._raw_scpi_guard.require_enabled()
 
     def write_scpi(self, command: str, alias: str | None = None) -> None:
+        """Write a raw SCPI command. Prefer typed methods for normal use.
+
+        Rejected with ``DriverUnsafeOperationError`` if :meth:`set_raw_scpi_guard`
+        was called and the guard has not been unlocked with
+        :meth:`enable_raw_scpi`.
+        """
         self._require_raw_allowed("write_scpi")
-        self._write(command, alias=alias, operation="write_scpi")
+
+        def action(session: ScpiSession) -> None:
+            with self._digitize_leases.command(self._resolve_alias(alias), command):
+                session.client.write(command)
+
+        self._execute_operation(
+            "write_scpi", action, alias=alias, required_states=_CONNECTED_STATES
+        )
         self._audit("write_scpi", (), {"command": command}, (command,), (), ())
 
     def query_scpi(
@@ -535,13 +572,36 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         retry_attempts: int = 1,
         retry_delay_s: float = 0.0,
     ) -> str:
+        """Send a raw SCPI query and return its response string.
+
+        Rejected with ``DriverUnsafeOperationError`` under the same guard as
+        :meth:`write_scpi`.
+
+        Args:
+            retry_attempts: total attempts, including the first. Values above
+                1 assert that resending ``command`` has no side effect
+                (``ReplayPolicy.SAFE``) and retry a transport failure, per
+                ``scpi_driver_core.execution.retry.RetryPolicy``. Defaults to
+                1: no retry, since most SCPI queries are not safe to assume
+                idempotent without the caller's explicit say.
+            retry_delay_s: pause before the second attempt.
+        """
         self._require_raw_allowed("query_scpi")
-        response = self._query(
-            command,
-            alias=alias,
-            operation="query_scpi",
-            retry_attempts=retry_attempts,
-            retry_delay_s=retry_delay_s,
+        retry_policy = (
+            RetryPolicy(attempts=retry_attempts, initial_delay_s=retry_delay_s)
+            if retry_attempts > 1
+            else None
+        )
+        replay_policy = ReplayPolicy.SAFE if retry_policy is not None else ReplayPolicy.NEVER
+
+        def action(session: ScpiSession) -> str:
+            with self._digitize_leases.command(self._resolve_alias(alias), command):
+                return session.client.query(
+                    command, replay_policy=replay_policy, retry_policy=retry_policy
+                )
+
+        response = self._execute_operation(
+            "query_scpi", action, alias=alias, required_states=_CONNECTED_STATES
         )
         self._audit("query_scpi", (), {"command": command}, (command,), (response,), ())
         return response
@@ -554,14 +614,14 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         operation: str = "write",
     ) -> None:
         """Write and drain the SCPI error queue under the same client lock."""
-        if not self._strict_error_checking:
-            self._write(command, alias=alias, operation=operation)
-            return
         key = self._resolve_alias(alias)
+        if not self._strict_error_checking:
+            self._write(command, alias=key, operation=operation)
+            return
         timeout = self._io_timeout(key)
 
         def action(session: ScpiSession) -> None:
-            with session.client.operation_lock():
+            with self._digitize_leases.command(key, command), session.client.operation_lock():
                 session.client.write(command, timeout_s=timeout)
                 errors = ScpiErrorQueue(client=session.client).drain(timeout_s=timeout)
             if errors:
@@ -573,6 +633,34 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
                 )
 
         self._execute_operation(operation, action, alias=key, required_states=_CONNECTED_STATES)
+
+    def _query_binary_scpi(
+        self,
+        command: str,
+        *,
+        max_bytes: int,
+        alias: str | None = None,
+    ) -> bytes:
+        """Bounded binary query using pinned scpi-driver-core's block parser."""
+        if max_bytes < 1 or max_bytes > 4 * 512 * 1024:
+            raise DriverArgumentValueError("binary digitizer response exceeds 2 MiB cap")
+
+        def action(session: ScpiSession) -> bytes:
+            with self._digitize_leases.command(self._resolve_alias(alias), command):
+                return session.client.query_binary_block(
+                    command, maximum_size=max_bytes, consume_terminator=True
+                )
+
+        payload = self._execute_operation(
+            "_query_binary_scpi", action, alias=alias, required_states=_CONNECTED_STATES
+        )
+        self._audit(
+            "query_binary_scpi", (), {"bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest()},
+            (command,), (), (),
+        )
+        return payload
+
+    # -- identity / IEEE-488.2 -------------------------------------------------
 
     @capability("identity.driver.read", category="identity", risk_level="none")
     def get_identity(self, alias: str | None = None, refresh: bool = True) -> str:
@@ -794,6 +882,7 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
     @capability("channel.module.discover", category="channel", risk_level="none")
     def discover_modules(self, alias: str | None = None) -> dict[int, ChannelCapabilities]:
         key = self._resolve_alias(alias)
+        self._digitize_leases.require_idle(key, "discover_modules")
         entry = self._entry(key)
         with entry.lock:
             discovery = self._discovery.setdefault(key, _AliasDiscovery())
@@ -1247,6 +1336,159 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
     ) -> None:
         self.load(channel, alias=alias).configure_cp(power, input_on=input_on, verify=verify)
 
+    # -- digitized/buffered measurement ---------------------------------------
+
+    @capability(
+        "acquisition.digitize.configure",
+        category="acquisition",
+        risk_level="low",
+        mutating=True,
+        description="Configure acquisition function and sweep settings.",
+        preconditions=("N679xA load module with digitizing.",),
+        canonical_method="configure_digitize",
+    )
+    def configure_digitize(
+        self,
+        channel: int,
+        function: Literal["voltage", "current"],
+        *,
+        points: int,
+        interval_s: float,
+        offset_points: int = 0,
+        alias: str | None = None,
+    ) -> None:
+        """Select the measured quantity, sample interval, point count, and trigger offset for a buffered acquisition."""
+        self.load(channel, alias=alias).configure_digitize(
+            function, points=points, interval_s=interval_s, offset_points=offset_points
+        )
+
+    @capability(
+        "acquisition.digitize.trigger.configure",
+        category="acquisition",
+        risk_level="low",
+        mutating=True,
+        description="Configure acquisition trigger source and threshold.",
+        preconditions=("N679xA load module with digitizing.",),
+        canonical_method="configure_digitize_trigger",
+    )
+    def configure_digitize_trigger(
+        self,
+        channel: int,
+        source: Literal["bus", "voltage", "current", "external", "transient"],
+        *,
+        level: float | None = None,
+        slope: Literal["pos", "neg"] | None = None,
+        source_channel: int | None = None,
+        alias: str | None = None,
+    ) -> None:
+        self.load(channel, alias=alias).configure_digitize_trigger(
+            source, level=level, slope=slope, source_channel=source_channel
+        )
+
+    @capability(
+        "acquisition.digitize.arm",
+        category="acquisition",
+        risk_level="low",
+        mutating=True,
+        description="Arm the configured digitizer acquisition.",
+        preconditions=("Digitizer configured with verified settings.",),
+        canonical_method="arm_digitize",
+    )
+    def arm_digitize(self, channel: int, alias: str | None = None) -> None:
+        self.load(channel, alias=alias).arm_digitize()
+
+    @capability(
+        "acquisition.digitize.wait_ready",
+        category="acquisition",
+        risk_level="low",
+        mutating=True,
+        description="Wait for trigger readiness and pretrigger history.",
+        preconditions=("Digitizer acquisition armed.",),
+        canonical_method="wait_digitize_armed",
+    )
+    def wait_digitize_armed(
+        self,
+        channel: int,
+        timeout_s: float = 5.0,
+        alias: str | None = None,
+        *,
+        pretrigger_guard_s: float = 0.005,
+        abort_requested: Callable[[], bool] | None = None,
+    ) -> None:
+        """Wait for WTG_meas and a bounded, sample-accurate pretrigger fill."""
+        self.load(channel, alias=alias).wait_digitize_armed(
+            timeout_s=timeout_s,
+            pretrigger_guard_s=pretrigger_guard_s,
+            abort_requested=abort_requested,
+        )
+
+    @capability(
+        "acquisition.digitize.trigger.now",
+        category="acquisition",
+        risk_level="low",
+        mutating=True,
+        description="Issue a software acquisition trigger.",
+        preconditions=("Digitizer waiting for a trigger.",),
+        canonical_method="trigger_digitize",
+    )
+    def trigger_digitize(self, channel: int, alias: str | None = None) -> None:
+        self.load(channel, alias=alias).trigger_digitize()
+
+    @capability(
+        "acquisition.digitize.wait_complete",
+        category="acquisition",
+        risk_level="low",
+        mutating=True,
+        description="Wait for acquisition completion or abort on failure.",
+        preconditions=("Digitizer acquisition armed.",),
+        canonical_method="wait_digitize_complete",
+    )
+    def wait_digitize_complete(
+        self,
+        channel: int,
+        timeout_s: float,
+        *,
+        abort_requested: Callable[[], bool] | None = None,
+        alias: str | None = None,
+    ) -> None:
+        self.load(channel, alias=alias).wait_digitize_complete(timeout_s, abort_requested=abort_requested)
+
+    @capability(
+        "acquisition.digitize.abort",
+        category="acquisition",
+        risk_level="low",
+        mutating=True,
+        description="Abort digitizer acquisition and verify idle.",
+        preconditions=("Digitizer session connected.",),
+        canonical_method="abort_digitize",
+    )
+    def abort_digitize(self, channel: int, alias: str | None = None) -> None:
+        self.load(channel, alias=alias).abort_digitize()
+
+    @capability(
+        "waveform.digitize.fetch",
+        category="waveform",
+        risk_level="low",
+        mutating=True,
+        description="Read validated waveform array and release ownership.",
+        preconditions=("Current acquisition completed.",),
+        canonical_method="fetch_digitized_array",
+    )
+    def fetch_digitized_array(
+        self,
+        channel: int,
+        function: Literal["voltage", "current"] | None = None,
+        alias: str | None = None,
+        *,
+        transfer_format: Literal["auto", "ascii", "real32"] = "auto",
+    ) -> ArrayMeasurement:
+        """Retrieve validated buffered samples, using REAL32 for large captures by default."""
+        return self.load(channel, alias=alias).fetch_digitized_array(
+            function, transfer_format=transfer_format
+        )
+
+    # -- protection / status --------------------------------------------------
+
     def clear_protection(
         self,
         channel: int,
@@ -1367,6 +1609,14 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
     ) -> None:
         if self.audit_log_path is None:
             return
+        # Never duplicate an entire waveform into control-plane JSONL.
+        # The protocol JsonlTraceSink also truncates RX payloads at 4096
+        # bytes by default, including the IEEE binary-block read path.
+        responses = tuple(
+            value if len(value) <= 4096 else
+            f"<omitted {len(value)} characters sha256={hashlib.sha256(value.encode('utf-8')).hexdigest()}>"
+            for value in responses
+        )
         record = AuditRecord(
             timestamp_iso=datetime.now(timezone.utc).isoformat(),
             timestamp_unix=time.time(),
@@ -1378,7 +1628,10 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
             errors=errors,
             duration_s=duration_s,
         )
-        payload = asdict(record)
+        payload = {f.name: getattr(record, f.name) for f in fields(record)}
+        payload["requested_values"] = dict(payload["requested_values"])
+        if payload["final_output_states"] is not None:
+            payload["final_output_states"] = dict(payload["final_output_states"])
         try:
             self.audit_log_path.parent.mkdir(parents=True, exist_ok=True)
             with self.audit_log_path.open("a", encoding="utf-8") as handle:

@@ -360,3 +360,59 @@ exclusions:
     scope: v0.1.0
     review_date: "2026-09-13"
     covered_by: tests/unit/test_driver_connection.py
+  - method: configure_digitize
+    reason: "Requires supports_digitizing (real N679xA classification); the conformance fixture's channel 3 is SIM_LOAD per the default simulated channel map (see the comment atop protocol_vectors.yaml), which configure_digitize's _require_digitizing refuses by design — unlike set_load_mode, there is no SIM:LOAD:* path for this feature to fall back to. Reaching the real-command branch needs a channel built with classify_module('N6791A') directly, bypassing discovery, which test_electronic_load_digitize.py does the same way test_electronic_load_channel.py already does for the other real-load commands."
+    risk: low
+    approval: maintainer
+    scope: v0.6.0
+    review_date: "2026-10-09"
+    covered_by: tests/unit/test_electronic_load_digitize.py
+  - method: configure_digitize_trigger
+    reason: "Same real-load-only gating as configure_digitize; same reason."
+    risk: low
+    approval: maintainer
+    scope: v0.6.0
+    review_date: "2026-10-09"
+    covered_by: tests/unit/test_electronic_load_digitize.py
+  - method: arm_digitize
+    reason: "Same real-load-only gating as configure_digitize; same reason."
+    risk: low
+    approval: maintainer
+    scope: v0.6.0
+    review_date: "2026-10-09"
+    covered_by: tests/unit/test_electronic_load_digitize.py
+  - method: wait_digitize_armed
+    reason: "Same real-load-only gating as configure_digitize; also polls, like the already-excluded wait_for_voltage_in_range."
+    risk: low
+    approval: maintainer
+    scope: v0.6.0
+    review_date: "2026-10-09"
+    covered_by: tests/unit/test_electronic_load_digitize.py
+  - method: trigger_digitize
+    reason: "Same real-load-only gating as configure_digitize; same reason."
+    risk: low
+    approval: maintainer
+    scope: v0.6.0
+    review_date: "2026-10-09"
+    covered_by: tests/unit/test_electronic_load_digitize.py
+  - method: wait_digitize_complete
+    reason: "Same real-load-only gating as configure_digitize; also polls, like the already-excluded wait_for_voltage_in_range. The abort_requested callback path is covered by tests/unit."
+    risk: low
+    approval: maintainer
+    scope: v0.6.0
+    review_date: "2026-10-09"
+    covered_by: tests/unit/test_electronic_load_digitize.py
+  - method: abort_digitize
+    reason: "Same real-load-only gating as configure_digitize; same reason."
+    risk: low
+    approval: maintainer
+    scope: v0.6.0
+    review_date: "2026-10-09"
+    covered_by: tests/unit/test_electronic_load_digitize.py
+  - method: fetch_digitized_array
+    reason: "Same real-load-only gating as configure_digitize; same reason."
+    risk: medium
+    approval: maintainer
+    scope: v0.6.0
+    review_date: "2026-10-09"
+    covered_by: tests/unit/test_electronic_load_digitize.py

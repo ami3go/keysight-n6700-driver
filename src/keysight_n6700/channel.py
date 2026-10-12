@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
+from collections.abc import Callable
+from time import monotonic, sleep
 from typing import ClassVar, Literal, Protocol
 
 from scpi_driver_core.exceptions import ResponseParseError
@@ -10,16 +13,30 @@ from scpi_driver_core.execution.polling import poll_until
 from scpi_driver_core.scpi.parsers import parse_bool, parse_float, parse_int
 
 from ._translate import translated
+from .acquisition import AcquisitionSnapshot, AcquisitionState, AcquisitionTracker, DigitizeTiming
 from .exceptions import (
+    DriverArgumentValueError,
+    DriverError,
     DriverMalformedResponseError,
     DriverOperationUncertainError,
+    DriverPreconditionError,
+    DriverTimeoutError,
     DriverUnsafeOperationError,
     DriverUnsupportedOperationError,
     DriverUnsupportedValueError,
 )
 from .module_capabilities import ChannelCapabilities
-from .scpi import format_bool, format_channel_list, format_numeric_param, require_number
+from .scpi import (
+    format_bool,
+    format_channel_list,
+    format_float,
+    format_numeric_param,
+    parse_digitize_ascii,
+    parse_digitize_real32,
+    require_number,
+)
 from .types import (
+    ArrayMeasurement,
     ChannelStatusSnapshot,
     Measurement,
     PowerMeasurement,
@@ -51,6 +68,12 @@ class _DriverProtocol(Protocol):
     def check_errors(self) -> None: ...
 
     def set_channel_enabled(self, channels: list[int], enabled: bool) -> None: ...
+
+    def _begin_digitize(self, channel: int) -> None: ...
+
+    def _end_digitize(self, channel: int) -> None: ...
+
+    def _query_binary_scpi(self, command: str, *, max_bytes: int) -> bytes: ...
 
 
 class BaseChannel:
@@ -492,6 +515,32 @@ class ElectronicLoadChannel(BaseChannel):
         "RES": "cr",
         "POW": "cp",
     }
+    _TRIGGER_SOURCE_TO_SCPI: ClassVar[dict[str, str]] = {
+        "bus": "BUS",
+        "voltage": "VOLT",
+        "current": "CURR",
+        "external": "EXT",
+        "transient": "TRAN",
+    }
+
+    def __init__(self, driver: _DriverProtocol, channel: int, capabilities: ChannelCapabilities) -> None:
+        super().__init__(driver, channel, capabilities)
+        self._digitize_function: Literal["voltage", "current"] | None = None
+        self._digitize_interval_s: float | None = None
+        self._digitize_offset_points: int | None = None
+        self._digitize_timing: DigitizeTiming | None = None
+        self._digitize_previous_format: str | None = None
+        self._acquisition = AcquisitionTracker()
+
+    @property
+    def digitize_status(self) -> AcquisitionSnapshot:
+        """Conservative driver-observed state of this channel's latest capture."""
+        return self._acquisition.snapshot()
+
+    @property
+    def digitize_timing(self) -> DigitizeTiming | None:
+        """Last instrument-verified sweep configuration, or None."""
+        return self._digitize_timing
 
     def _require_verified_or_sim(self) -> None:
         if self.capabilities.module_type != "electronic_load":
@@ -663,3 +712,575 @@ class ElectronicLoadChannel(BaseChannel):
         self.set_load_mode("cp")
         self.set_load_power(power)
         self._enable_after_verified_configuration(input_on, verify)
+
+    # -- Digitized/buffered measurement (SENS:SWEep + TRIG:ACQuire + FETC:ARRay) --
+    #
+    # Per the N6705C manual's "Digitizing Measurements" chapter (see
+    # Keysight_documents/N6791A_manual.pdf.md): the same remote-only command
+    # surface the N679xA "Load Model Differences" table marks available
+    # ("SCPI command array readback", "SCPI command programmable sample
+    # rate"). Unlike the plain load setpoints above, there is no simulated-
+    # waveform twin for this — SIM_LOAD raises, the same precedent
+    # set_load_current_limit uses for real-hardware-only behavior the
+    # simulator cannot meaningfully model.
+
+    def _require_digitizing(self) -> None:
+        self._require_verified_or_sim()
+        if self._is_sim:
+            raise DriverUnsupportedOperationError("digitized measurement is not modeled by the simulator")
+        if not self.capabilities.supports_digitizing:
+            raise DriverUnsupportedOperationError(
+                f"{self.capabilities.model} does not support digitized measurement"
+            )
+
+    def configure_digitize(
+        self,
+        function: Literal["voltage", "current"],
+        *,
+        points: int,
+        interval_s: float,
+        offset_points: int = 0,
+    ) -> None:
+        """Select the measured quantity, sample interval, point count, and trigger offset.
+
+        ``offset_points`` moves the acquisition window relative to the
+        trigger: negative values capture pre-trigger samples, positive values
+        delay the first sample after the trigger by ``offset_points *
+        interval_s``.
+        """
+        self._require_digitizing()
+        if function not in {"voltage", "current"}:
+            raise DriverArgumentValueError(
+                f"function must be 'voltage' or 'current', got {function!r}"
+            )
+        if isinstance(points, bool) or not isinstance(points, int):
+            raise DriverArgumentValueError(f"points must be an integer, got {points!r}")
+        if isinstance(offset_points, bool) or not isinstance(offset_points, int):
+            raise DriverArgumentValueError(
+                f"offset_points must be an integer, got {offset_points!r}"
+            )
+        if not math.isfinite(interval_s):
+            raise DriverArgumentValueError(f"interval_s must be finite, got {interval_s!r}")
+        min_interval = self.capabilities.digitize_min_interval_s
+        if min_interval is not None and interval_s < min_interval:
+            raise DriverArgumentValueError(
+                f"interval_s {interval_s:.12g} is below the {min_interval:.12g} s "
+                f"minimum for {self.capabilities.model}"
+            )
+        if points < 1:
+            raise DriverArgumentValueError(f"points must be >= 1, got {points}")
+        if points > 512 * 1024:
+            raise DriverArgumentValueError(f"points must be <= 524288, got {points}")
+        if offset_points < -(points - 1) or offset_points > 2_000_000_000:
+            raise DriverArgumentValueError(
+                f"offset_points must be within {-points + 1}..2000000000 for {points} points, "
+                f"got {offset_points}"
+            )
+        self._acquisition.require(
+            AcquisitionState.IDLE,
+            AcquisitionState.CONFIGURED,
+            AcquisitionState.COMPLETE,
+            AcquisitionState.FETCHED,
+            AcquisitionState.ABORTED,
+        )
+        self._driver._begin_digitize(self.channel)
+        scpi_function = "VOLT" if function == "voltage" else "CURR"
+        self._digitize_timing = None
+        try:
+            previous_format = self._query("FORM?").strip().upper()
+            if not (previous_format.startswith("ASC") or previous_format.startswith("REAL")):
+                raise DriverMalformedResponseError(
+                    f"unsupported instrument response format {previous_format!r}"
+                )
+            self._digitize_previous_format = previous_format
+            self._write("FORM ASC")
+            if not self._query("FORM?").strip().upper().startswith("ASC"):
+                raise DriverOperationUncertainError("instrument did not accept ASCII array format")
+            other = "CURR" if function == "voltage" else "VOLT"
+            self._write(f"SENS:FUNC:{other} OFF,{self._chan}")
+            self._write(f"SENS:FUNC:{scpi_function} ON,{self._chan}")
+            self._write(f"SENS:SWE:TINT {format_float(interval_s)},{self._chan}")
+            self._write(f"SENS:SWE:POIN {points},{self._chan}")
+            # Always write zero too: don't inherit a prior pre-trigger offset.
+            self._write(f"SENS:SWE:OFFS:POIN {offset_points},{self._chan}")
+            effective = self._read_digitize_interval()
+            actual_points = self._read_digitize_integral("SENS:SWE:POIN?")
+            actual_offset = self._read_digitize_integral("SENS:SWE:OFFS:POIN?")
+            if not math.isfinite(effective) or effective <= 0:
+                raise DriverMalformedResponseError(
+                    f"invalid instrument-reported digitizing interval {effective!r}"
+                )
+            if actual_points != points or actual_offset != offset_points:
+                raise DriverOperationUncertainError(
+                    f"channel {self.channel} digitizing readback mismatch: "
+                    f"requested points/offset={points}/{offset_points}, "
+                    f"reported={actual_points}/{actual_offset}"
+                )
+            timing = DigitizeTiming(
+                requested_interval_s=interval_s,
+                actual_interval_s=effective,
+                points=actual_points,
+                offset_points=actual_offset,
+            )
+            self._verify_digitize_shared_memory()
+            self._driver.check_errors()
+        except Exception:
+            # A readback/protocol failure can leave partially modified hardware.
+            # Full SCPI error-queue verification/rollback remains PR05.
+            self._acquisition.unknown()
+            # Retain lease: partially configured instrument must be explicitly
+            # aborted before another channel can start a capture.
+            raise
+        self._acquisition.configure()
+        self._digitize_function = function
+        self._digitize_interval_s = timing.actual_interval_s
+        self._digitize_offset_points = timing.offset_points
+        self._digitize_timing = timing
+
+    def _read_digitize_interval(self) -> float:
+        """Reject failed/unparseable effective timebases as protocol errors."""
+        raw = self._query(f"SENS:SWE:TINT? {self._chan}").strip()
+        try:
+            return float(raw)
+        except ValueError as exc:
+            raise DriverMalformedResponseError(
+                f"invalid instrument digitizing interval readback {raw!r}"
+            ) from exc
+
+    def _read_digitize_integral(self, command: str) -> int:
+        """Read an exact integer from NR3/numeric SCPI format; reject truncation."""
+        raw = self._query(f"{command} {self._chan}").strip()
+        try:
+            value = float(raw)
+        except ValueError as exc:
+            raise DriverMalformedResponseError(f"invalid {command} response {raw!r}") from exc
+        if not math.isfinite(value) or not value.is_integer():
+            raise DriverMalformedResponseError(f"non-integral {command} response {raw!r}")
+        return int(value)
+
+    def _verify_digitize_shared_memory(self) -> None:
+        """Read back the mainframe's shared digitizer point/parameter budget."""
+        try:
+            count = int(self._query("SYST:CHAN:COUN?").strip())
+        except (ValueError, OverflowError) as exc:
+            raise DriverMalformedResponseError("invalid instrument channel count") from exc
+        if not 1 <= count <= 4:
+            raise DriverMalformedResponseError("unexpected digitizer mainframe channel count")
+        total = 0
+        active = 0
+        for channel in range(1, count + 1):
+            selectors = format_channel_list(channel)
+            enabled = 0
+            for kind in ("VOLT", "CURR"):
+                reply = self._query(f"SENS:FUNC:{kind}? {selectors}").strip().upper()
+                if reply not in {"0", "1", "+0", "+1", "ON", "OFF"}:
+                    raise DriverMalformedResponseError(
+                        f"invalid {kind} enable readback for channel {channel}"
+                    )
+                enabled += int(reply in {"1", "+1", "ON"})
+            if enabled:
+                samples = self._query(f"SENS:SWE:POIN? {selectors}").strip()
+                try:
+                    numeric = float(samples)
+                except ValueError as exc:
+                    raise DriverMalformedResponseError("invalid sweep points readback") from exc
+                if not math.isfinite(numeric) or not numeric.is_integer():
+                    raise DriverMalformedResponseError("non-integral sweep points readback")
+                count_samples = int(numeric)
+                if count_samples < 1:
+                    raise DriverMalformedResponseError("invalid sweep points <= 0")
+                active += enabled
+                total += enabled * count_samples
+        if total > 512 * 1024:
+            raise DriverArgumentValueError(
+                f"digitizer requests {total} shared points; mainframe limit is 524288"
+            )
+        resolution = self._query("SENS:SWE:TINT:RES?").strip().upper()
+        if resolution not in {"RES20", "RES40"}:
+            raise DriverMalformedResponseError("invalid sweep resolution readback")
+        if (resolution == "RES20" and active > 4) or active > 8:
+            raise DriverArgumentValueError(
+                f"{active} active measurement parameters exceed {resolution} limits"
+            )
+        if self._digitize_timing is None:
+            # Called before committing metadata; verify actual interval directly.
+            actual = self._read_digitize_interval()
+        else:
+            actual = self._digitize_timing.actual_interval_s
+        minimum = 40.96e-6 if active > 4 else 20.48e-6 if active > 2 else 10.24e-6
+        if actual < minimum * (1 - 1e-7):
+            raise DriverOperationUncertainError(
+                f"instrument effective interval {actual:.9g} below {minimum:.9g} "
+                f"required for {active} parameters"
+            )
+
+    def _restore_digitize_format(self) -> None:
+        previous = self._digitize_previous_format
+        if previous is not None and not previous.startswith("ASC"):
+            self._write(f"FORM {previous}")
+            confirmed = self._query("FORM?").strip().upper()
+            if not confirmed.startswith(previous):
+                raise DriverOperationUncertainError(
+                    f"could not restore array response format {previous!r}"
+                )
+        self._digitize_previous_format = None
+
+    def configure_digitize_trigger(
+        self,
+        source: Literal["bus", "voltage", "current", "external", "transient"],
+        *,
+        level: float | None = None,
+        slope: Literal["pos", "neg"] | None = None,
+        source_channel: int | None = None,
+    ) -> None:
+        """Select what arms the acquisition.
+
+        ``source_channel`` defaults to this channel, i.e. self-triggering —
+        the common case of arming on this load's own measured voltage or
+        current crossing ``level`` — but ``voltage``/``current``/``transient``
+        can reference any other channel's level or transient system instead,
+        per the manual's "Select another output's level as the trigger"
+        example.
+        """
+        self._require_digitizing()
+        if source not in self._TRIGGER_SOURCE_TO_SCPI:
+            raise DriverArgumentValueError(f"unsupported digitize trigger source: {source!r}")
+        if slope is not None and slope not in {"pos", "neg"}:
+            raise DriverArgumentValueError(f"slope must be 'pos' or 'neg', got {slope!r}")
+        if level is not None and not math.isfinite(level):
+            raise DriverArgumentValueError(f"trigger level must be finite, got {level!r}")
+        if source in {"voltage", "current"} and (level is None or slope is None):
+            raise DriverArgumentValueError(
+                f"{source} trigger requires both level and slope to avoid stale instrument settings"
+            )
+        src_chan = source_channel if source_channel is not None else self.channel
+        format_channel_list(src_chan)  # validate even when no level/slope command follows
+        scpi_source = self._TRIGGER_SOURCE_TO_SCPI[source]
+        if source in {"voltage", "current", "transient"}:
+            scpi_source = f"{scpi_source}{src_chan}"
+        self._acquisition.require(
+            AcquisitionState.CONFIGURED, AcquisitionState.COMPLETE, AcquisitionState.FETCHED
+        )
+        try:
+            self._write(f"TRIG:ACQ:SOUR {scpi_source},{self._chan}")
+            if source in {"voltage", "current"}:
+                level_function = "VOLT" if source == "voltage" else "CURR"
+                src_chanlist = format_channel_list(src_chan)
+                if level is not None:
+                    self._write(f"TRIG:ACQ:{level_function} {format_float(level)},{src_chanlist}")
+                if slope is not None:
+                    scpi_slope = "POS" if slope == "pos" else "NEG"
+                    self._write(f"TRIG:ACQ:{level_function}:SLOP {scpi_slope},{src_chanlist}")
+        except Exception:
+            self._acquisition.unknown()
+            raise
+        self._acquisition.configure()
+
+    def arm_digitize(self) -> None:
+        """Enable the trigger system to receive the trigger configured by ``configure_digitize_trigger``."""
+        self._require_digitizing()
+        self._acquisition.require(
+            AcquisitionState.CONFIGURED, AcquisitionState.COMPLETE, AcquisitionState.FETCHED
+        )
+        self._driver._begin_digitize(self.channel)
+        try:
+            self._write(f"INIT:ACQ {self._chan}")
+        except Exception:
+            self._acquisition.unknown()
+            raise
+        self._acquisition.arm()
+
+    @staticmethod
+    def _validate_digitize_timeout(timeout_s: float) -> None:
+        if (
+            isinstance(timeout_s, bool)
+            or not isinstance(timeout_s, (int, float))
+            or not math.isfinite(timeout_s)
+            or timeout_s <= 0
+        ):
+            raise DriverArgumentValueError(
+                f"digitize timeout must be a positive finite number of seconds, got {timeout_s!r}"
+            )
+
+    def _cleanup_failed_digitize(self, primary: BaseException) -> None:
+        """Preserve the original failure and attach bounded cleanup evidence.
+
+        A failure to communicate with the instrument remains UNKNOWN; it is
+        never misreported as a successful abort. Per-command transport timeouts
+        remain governed by the connected session's configured I/O timeout.
+        """
+        if self._acquisition.state is AcquisitionState.ABORTED:
+            outcome = "already_aborted"
+        else:
+            try:
+                self.abort_digitize(timeout_s=2.0)
+            except Exception as cleanup_error:
+                self._acquisition.unknown()
+                outcome = f"abort_failed: {type(cleanup_error).__name__}: {cleanup_error}"
+            else:
+                outcome = "aborted_and_idle_verified"
+        if isinstance(primary, DriverError):
+            primary.details["acquisition_cleanup"] = outcome
+            primary.details["acquisition_generation"] = self._acquisition.generation
+        # Python 3.11+ adds exception notes; keep exception class and cause
+        # unchanged for Python 3.10 compatibility.
+        if hasattr(primary, "add_note"):
+            primary.add_note(f"digitizing cleanup: {outcome}")
+
+    def wait_digitize_armed(
+        self,
+        timeout_s: float = 5.0,
+        *,
+        pretrigger_guard_s: float = 0.005,
+        abort_requested: Callable[[], bool] | None = None,
+    ) -> None:
+        """Wait for WTG_meas AND pre-trigger history before reporting readiness.
+
+        The Keysight N6705C User's Guide (p. 213) warns that a trigger
+        occurring before pre-trigger samples fill is ignored. The conservative
+        fill clock starts only after WTG_meas is first *observed*, not when
+        INIT was sent, because INIT-to-ready latency is firmware-dependent.
+
+        The guard is a configurable engineering margin, not a qualified
+        guarantee for spontaneous external events. For negative offsets, total
+        timeout includes WTG polling plus pre-trigger fill and guard.
+        """
+        self._require_digitizing()
+        self._validate_digitize_timeout(timeout_s)
+        if (
+            isinstance(pretrigger_guard_s, bool)
+            or not isinstance(pretrigger_guard_s, (int, float))
+            or not math.isfinite(pretrigger_guard_s)
+            or pretrigger_guard_s < 0
+        ):
+            raise DriverArgumentValueError(
+                f"pretrigger_guard_s must be a nonnegative finite number, got {pretrigger_guard_s!r}"
+            )
+        self._acquisition.require(AcquisitionState.ARMED, AcquisitionState.WAITING)
+        timing = self._digitize_timing
+        if timing is None:
+            raise DriverPreconditionError("digitizing timing not verified; reconfigure sweep")
+        deadline = monotonic() + timeout_s
+
+        def check_abort() -> None:
+            if abort_requested is not None and abort_requested():
+                raise DriverOperationUncertainError(
+                    f"channel {self.channel} pretrigger fill canceled by operator"
+                )
+
+        def predicate() -> bool:
+            check_abort()
+            mask = int(self._query(f"STAT:OPER:COND? {self._chan}").strip())
+            return self._acquisition.observe(mask) is AcquisitionState.WAITING
+
+        try:
+            with translated(operation="wait_digitize_armed"):
+                poll_until(
+                    predicate,
+                    timeout_s=timeout_s,
+                    interval_s=0.05,
+                    description=f"channel {self.channel} armed for digitizing",
+                )
+
+            # No negative offset: there is no pre-trigger buffer to fill.
+            fill_s = timing.pretrigger_fill_s
+            if fill_s > 0:
+                # Start after first WTG observation; avoid assuming readiness
+                # existed at INIT submission or completion.
+                barrier = monotonic() + fill_s + pretrigger_guard_s
+                if barrier > deadline:
+                    raise DriverTimeoutError(
+                        f"channel {self.channel} pretrigger fill requires "
+                        f"{fill_s + pretrigger_guard_s:.6g} s after WTG_meas, "
+                        f"but only {max(0.0, deadline - monotonic()):.6g} s remain"
+                    )
+                while True:
+                    check_abort()
+                    now = monotonic()
+                    if now >= barrier:
+                        break
+                    if now >= deadline:
+                        raise DriverTimeoutError(
+                            f"channel {self.channel} pretrigger buffer did not fill "
+                            f"within {timeout_s} s (requires {fill_s + pretrigger_guard_s:.6g} s "
+                            "after WTG_meas observation)"
+                        )
+                    sleep(min(0.01, barrier - now, deadline - now))
+                # The level/external trigger may already have fired; this
+                # API must not report that an event can still be generated.
+                check_abort()
+                mask = int(self._query(f"STAT:OPER:COND? {self._chan}").strip())
+                if self._acquisition.observe(mask) is not AcquisitionState.WAITING:
+                    raise DriverOperationUncertainError(
+                        f"channel {self.channel} is no longer waiting for trigger "
+                        "after pretrigger buffer fill"
+                    )
+        except BaseException as primary:
+            self._cleanup_failed_digitize(primary)
+            raise
+
+    def trigger_digitize(self) -> None:
+        """Force an immediate trigger after waiting status was observed."""
+        self._require_digitizing()
+        self._acquisition.require(AcquisitionState.WAITING)
+        try:
+            self._write(f"TRIG:ACQ {self._chan}")
+        except Exception:
+            self._acquisition.unknown()
+            raise
+        self._acquisition.triggered()
+
+    def wait_digitize_complete(
+        self,
+        timeout_s: float,
+        *,
+        abort_requested: Callable[[], bool] | None = None,
+    ) -> None:
+        """Wait for proven completion; abort if canceled, timed out, or failed.
+
+        The current-generation status must have been observed waiting or
+        active before cleared status can prove completion. A missing trigger
+        cannot be mistaken for a successful waveform. Timeout/transport fault
+        cleanup is best-effort, and may be UNKNOWN if communication is lost.
+        """
+        self._require_digitizing()
+        self._validate_digitize_timeout(timeout_s)
+        self._acquisition.require(
+            AcquisitionState.ARMED,
+            AcquisitionState.WAITING,
+            AcquisitionState.ACQUIRING,
+            AcquisitionState.COMPLETE,
+        )
+
+        def predicate() -> bool:
+            if abort_requested is not None and abort_requested():
+                self.abort_digitize()
+                raise DriverOperationUncertainError(
+                    f"channel {self.channel} digitizing aborted by operator request"
+                )
+            mask = int(self._query(f"STAT:OPER:COND? {self._chan}").strip())
+            return self._acquisition.observe(mask) is AcquisitionState.COMPLETE
+
+        try:
+            with translated(operation="wait_digitize_complete"):
+                poll_until(
+                    predicate,
+                    timeout_s=timeout_s,
+                    interval_s=0.05,
+                    description=f"channel {self.channel} digitizing complete",
+                )
+        except BaseException as primary:
+            self._cleanup_failed_digitize(primary)
+            raise
+
+    def abort_digitize(self, *, timeout_s: float = 2.0) -> None:
+        """Cancel a capture and confirm that WTG_meas/MEAS_active are clear.
+
+        If the device is unreachable or does not acknowledge idle status,
+        the acquisition remains UNKNOWN rather than being labeled aborted.
+        """
+        self._require_digitizing()
+        self._validate_digitize_timeout(timeout_s)
+        try:
+            self._write(f"ABOR:ACQ {self._chan}")
+
+            def idle() -> bool:
+                mask = int(self._query(f"STAT:OPER:COND? {self._chan}").strip())
+                return not bool(mask & (8 | 32))
+
+            with translated(operation="abort_digitize"):
+                poll_until(
+                    idle,
+                    timeout_s=timeout_s,
+                    interval_s=0.05,
+                    description=f"channel {self.channel} acquisition idle after abort",
+                )
+        except BaseException:
+            self._acquisition.unknown()
+            raise
+        try:
+            self._restore_digitize_format()
+        except Exception:
+            self._acquisition.unknown()
+            raise
+        self._acquisition.aborted()
+        self._driver._end_digitize(self.channel)
+
+    def fetch_digitized_array(
+        self,
+        function: Literal["voltage", "current"] | None = None,
+        *,
+        transfer_format: Literal["auto", "ascii", "real32"] = "auto",
+    ) -> ArrayMeasurement:
+        """Retrieve the full acquisition buffer. Blocks if the acquisition has not completed yet.
+
+        ``function`` defaults to whatever ``configure_digitize`` last
+        selected. Fetch immediately after the acquisition completes: any
+        subsequent ``MEASure`` command starts a new acquisition and overwrites
+        this triggered buffer on real N6700 firmware.
+        """
+        self._require_digitizing()
+        resolved = function or self._digitize_function
+        if resolved is None:
+            raise DriverArgumentValueError(
+                "fetch_digitized_array requires configure_digitize to run first, or an explicit function"
+            )
+        self._acquisition.require(AcquisitionState.COMPLETE, AcquisitionState.FETCHED)
+        if resolved != self._digitize_function:
+            raise DriverArgumentValueError(
+                f"cannot fetch {resolved!r}: only {self._digitize_function!r} was configured"
+            )
+        scpi_function = "VOLT" if resolved == "voltage" else "CURR"
+        timing = self._digitize_timing
+        if timing is None:
+            raise DriverPreconditionError("cannot fetch digitizer without verified timing")
+        if transfer_format not in {"auto", "ascii", "real32"}:
+            raise DriverArgumentValueError(f"unknown waveform transfer format {transfer_format!r}")
+        real32 = transfer_format == "real32" or (
+            transfer_format == "auto" and timing.points >= 4096
+        )
+        payload_hash: str | None = None
+        data_format: Literal["ascii", "real"] = "ascii"
+        try:
+            if not self._query("FORM?").strip().upper().startswith("ASC"):
+                raise DriverOperationUncertainError("digitizer transfer format changed unexpectedly")
+            if real32:
+                previous_border = self._query("FORM:BORD?").strip().upper()
+                if previous_border not in {"SWAP", "NORM"}:
+                    raise DriverMalformedResponseError(
+                        f"unsupported instrument byte order {previous_border!r}"
+                    )
+                self._write("FORM:BORD SWAP")
+                self._write("FORM REAL")
+                try:
+                    if not self._query("FORM?").strip().upper().startswith("REAL"):
+                        raise DriverOperationUncertainError("instrument rejected REAL32 array format")
+                    raw_bytes = self._driver._query_binary_scpi(
+                        f"FETC:ARR:{scpi_function}? {self._chan}",
+                        max_bytes=4 * timing.points,
+                    )
+                finally:
+                    # Always restore ASCII before ordinary text queries.
+                    self._write("FORM ASC")
+                    self._write(f"FORM:BORD {previous_border}")
+                values = parse_digitize_real32(raw_bytes, expected_points=timing.points)
+                payload_hash = hashlib.sha256(raw_bytes).hexdigest()
+                data_format = "real"
+            else:
+                raw = self._query(f"FETC:ARR:{scpi_function}? {self._chan}")
+                values = parse_digitize_ascii(raw, expected_points=timing.points)
+            self._restore_digitize_format()
+        except Exception:
+            self._acquisition.unknown()
+            raise
+        self._acquisition.fetched()
+        self._driver._end_digitize(self.channel)
+        return ArrayMeasurement(
+            channel=self.channel,
+            values=values,
+            unit="V" if resolved == "voltage" else "A",
+            format=data_format,
+            interval_s=self._digitize_interval_s,
+            offset_points=self._digitize_offset_points,
+            raw_sha256=payload_hash,
+        )

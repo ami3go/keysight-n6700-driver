@@ -24,10 +24,12 @@ def test_configuration_error_is_translated() -> None:
     assert translated.operation == "connect"
 
 
-def test_transport_timeout_is_translated_as_retryable() -> None:
+def test_transport_timeout_is_translated_as_not_retryable() -> None:
+    """A transport-level timeout means we don't know if the instrument saw the
+    command, so it must not be blindly retried; reconnect first."""
     translated = translate_core_error(CoreTransportTimeoutError("timed out"))
     assert isinstance(translated, DriverTimeoutError)
-    assert translated.retryable is True
+    assert translated.retryable is False
 
 
 def test_not_connected_is_translated_as_connection_error() -> None:

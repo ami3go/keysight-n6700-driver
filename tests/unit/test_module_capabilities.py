@@ -15,6 +15,8 @@ probe hung rather than erroring.
 
 from __future__ import annotations
 
+import pytest
+
 from keysight_n6700.module_capabilities import classify_module
 
 
@@ -27,6 +29,16 @@ def test_n6791a_classifies_as_electronic_load() -> None:
     assert caps.supports_load_cr is True
     assert caps.supports_load_cp is True
     assert caps.supports_smu_priority_mode is False
+
+
+def test_n6791a_supports_digitizing() -> None:
+    """Per the N6705C manual's "Load Model Differences" table (SCPI command array
+    readback / programmable sample rate, both marked available for N6791A/N6792A)
+    and its sample-rate table ("1 or 2 parameters (all models): 10.24 microseconds").
+    """
+    caps = classify_module("N6791A")
+    assert caps.supports_digitizing is True
+    assert caps.digitize_min_interval_s == pytest.approx(10.24e-6)
 
 
 def test_n679x_family_is_recognized_case_insensitively() -> None:
