@@ -3,6 +3,24 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.6.13 — 2026-10-12
+
+Fixed a real-hardware hang found while running a live DUT load-transient
+scope capture against a mainframe with a non-digitizing power-supply channel
+(N6775A) alongside a digitizing load channel (N6791A). `configure_digitize`'s
+shared-512K-point-budget check queried `SENS:SWE:POIN?` on every channel
+reporting an enabled `SENS:FUNC:VOLT?/CURR?` flag; a plain power-supply
+channel answers that flag but never replies at all to `SENS:SWE:POIN?` --
+no SCPI error, a silent socket-level hang, the same failure mode already
+known for `FUNC:MODE?` on N679xA (see `review/known_risks.md`). The budget
+loop now only queries channels discovery has classified as digitizing-
+capable. Adds `scripts/run_load_transient_test.py`, a guarded real-hardware
+harness that energizes a source channel and a load channel together, steps
+the load current through a trigger level, and captures the resulting
+voltage transient via the load's digitizer -- used to find and confirm this
+fix on a real N6700C (channel 1 N6775A, channel 2 N6791A, external DUT power
+supply between them). Captured edge landed at sample 511 of an expected 512.
+
 ## v0.6.12 — 2026-10-10
 
 Automated operator-gated, real-hardware N6791A/N6792A scope protocol HIL suite. Adds case matrix runner and CLI with exact identity checks, separate real Ethernet/VISA connection, BUS voltage/current acquisitions, pretrigger, ASCII/REAL32, abort and missing-trigger recovery, verified load-OFF safe states, per-waveform SHA256, incremental summary.json/JUnit artifacts, bounded runs, and simulator-only orchestration tests. Hardware runs remain explicitly operator-authorized; NO physical DSO/metrology acceptance is claimed.

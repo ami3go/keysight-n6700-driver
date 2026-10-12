@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0",
+  "time_utc": "2026-10-12T08:24:57.823652+00:00",
+  "host": "192.168.0.6",
+  "source_channel": 1,
+  "load_channel": 2,
+  "state": "CAPTURED",
+  "idn": "Keysight Technologies,N6700C,MY56320259,E.02.09.3271",
+  "source_model": "N6775A",
+  "load_model": "N6791A",
+  "pre_existing_errors": [],
+  "before": {
+    "source_v": 14.48689,
+    "source_a": -0.001777876,
+    "load_v": 3.308227,
+    "load_a": 0.02393577
+  },
+  "after": {
+    "source_v": 14.49103,
+    "source_a": 0.6300931,
+    "load_v": 3.277916,
+    "load_a": 2.499935
+  },
+  "edge_estimate": {
+    "expected_index": 512,
+    "detected_index": 511,
+    "detected_offset_samples": -1,
+    "baseline_v": 3.326304502785206,
+    "settled_v": 3.2784187979996204
+  },
+  "waveform_csv": "results/load_transient/20261012T082457Z_dut_scope_test/load_transient_waveform.csv",
+  "sample_interval_s": 2.048e-05,
+  "offset_points": -512,
+  "raw_payload_sha256": "4a8652fd1f70589be79cc93a7c3893751d803906e5c93952981d4f3201fb5cd2",
+  "load_input_off_confirmed": true,
+  "source_output_off_confirmed": true,
+  "final_errors": []
+}

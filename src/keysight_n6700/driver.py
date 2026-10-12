@@ -136,6 +136,10 @@ class _AliasFacade:
     def _query_binary_scpi(self, command: str, *, max_bytes: int) -> bytes:
         return self._driver._query_binary_scpi(command, max_bytes=max_bytes, alias=self._alias)
 
+    def _channel_supports_digitizing(self, channel: int) -> bool:
+        caps = self._driver._discovery.get(self._alias, _AliasDiscovery()).capabilities.get(channel)
+        return bool(caps and caps.supports_digitizing)
+
 
 def _connection_info_dict(info: ConnectionInfo) -> dict[str, Any]:
     return {
@@ -171,6 +175,18 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
 
     def _end_digitize(self, channel: int, alias: str | None = None) -> None:
         self._digitize_leases.release(self._resolve_alias(alias), channel)
+
+    def _channel_supports_digitizing(self, channel: int, alias: str | None = None) -> bool:
+        """Whether ``channel`` has a real SWEep/digitizer subsystem at all.
+
+        Real hardware found the hard way: a plain power-supply channel can
+        answer SENS:FUNC:VOLT?/CURR? (ordinary measurement enables) but never
+        replies at all to SENS:SWE:POIN? -- no SCPI error, a silent hang.
+        Based on discovery-time module classification, not a live probe.
+        """
+        key = self._resolve_alias(alias)
+        caps = self._discovery.get(key, _AliasDiscovery()).capabilities.get(channel)
+        return bool(caps and caps.supports_digitizing)
 
     @capability(
         "safety.raw_scpi.guard",

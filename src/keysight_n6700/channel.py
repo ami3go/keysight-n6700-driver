@@ -59,6 +59,8 @@ class _DriverProtocol(Protocol):
 
     def _query_binary_scpi(self, command: str, *, max_bytes: int) -> bytes: ...
 
+    def _channel_supports_digitizing(self, channel: int) -> bool: ...
+
 
 class BaseChannel:
     """Safe common operations shared by all module types."""
@@ -702,6 +704,17 @@ class ElectronicLoadChannel(BaseChannel):
         total = 0
         active = 0
         for channel in range(1, count + 1):
+            # A non-digitizing channel (e.g. a plain power-supply module) can
+            # answer SENS:FUNC:VOLT?/CURR? (ordinary measurement enables) but
+            # never replies at all to SENS:SWE:POIN? -- no SCPI error, just a
+            # silent hang, the same failure mode already known for FUNC:MODE?
+            # on N679xA. Only digitizing-capable channels have a SWEep
+            # subsystem or any claim on the shared digitizer memory budget.
+            # self.channel is always digitizing-capable here -- _require_digitizing
+            # already enforced that -- so it's trusted directly rather than via
+            # discovery, which a caller may not have run against this exact object.
+            if channel != self.channel and not self._driver._channel_supports_digitizing(channel):
+                continue
             selectors = format_channel_list(channel)
             enabled = 0
             for kind in ("VOLT", "CURR"):

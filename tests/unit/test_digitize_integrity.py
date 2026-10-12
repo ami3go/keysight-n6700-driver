@@ -63,6 +63,12 @@ def test_changed_array_format_cannot_silently_decode_wrong_payload(driver) -> No
 
 
 def test_shared_512k_budget_protects_other_channels(driver) -> None:
+    # Only digitizing-capable channels (real N679xA/N678xA modules) have any
+    # claim on the shared sweep memory -- a plain power supply (channel 1's
+    # default simulated model) never replies to SENS:SWE:POIN? on real
+    # hardware. Register channel 1 as a second genuinely digitizing-capable
+    # module so this test exercises cross-channel budget sharing honestly.
+    driver._discovery["default"].capabilities[1] = classify_module("N6792A")
     driver.write_scpi("SENS:FUNC:VOLT ON,(@1)")
     driver.write_scpi("SENS:SWE:POIN 500000,(@1)")
     ch = load(driver)

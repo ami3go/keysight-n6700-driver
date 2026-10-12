@@ -159,6 +159,25 @@ Before calling it `stable`:
   `results/load_transient/20261009_n6791a_internal_buffer/`. Remaining
   qualification risk is broader trigger/topology coverage, not whether the
   N6791A current-level trigger and pre-trigger buffer work at all.
+- **Closed 2026-10-12:** a live DUT load-transient scope capture against the
+  same N6700C, now with channel 1 (N6775A, plain power supply) energized
+  alongside channel 2 (N6791A) rather than idle, hung on `configure_digitize`
+  every time. Protocol tracing isolated the exact stuck command:
+  `SENS:SWE:POIN? (@1)` — channel 1 answers `SENS:FUNC:VOLT?/CURR?` (ordinary
+  measurement enables) but never replies at all to `SENS:SWE:POIN?`, the
+  same silent-hang-instead-of-SCPI-error failure mode already known for
+  `FUNC:MODE?` on N679xA. `_verify_digitize_shared_memory()`'s shared-512K-
+  point-budget loop queried every channel reporting an enabled measurement
+  function, assuming that implied a real SWEep subsystem; a plain power
+  supply can report the former without having the latter at all. Fixed by
+  gating the loop on discovery-time `supports_digitizing` classification
+  instead. Confirmed working on real hardware afterward:
+  `scripts/run_load_transient_test.py` energized both channels, stepped the
+  load current 100 mA → 2.5 A through a 0.5 A trigger, and captured the
+  voltage transient with the edge landing at sample 511 of an expected 512.
+  Both channels were independently confirmed off afterward with an empty
+  error queue. Evidence is retained under
+  `results/load_transient/20261012T082457Z_dut_scope_test/`.
 - Complete the full LPDS-010 review checklist's Domain J (hardware
   qualification, performance, compatibility), which is entirely
   hardware-dependent and not attempted here.
