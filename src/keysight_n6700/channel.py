@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import numbers
 import threading
 from collections.abc import Callable, Sequence
 from time import monotonic, sleep
@@ -15,6 +16,7 @@ from ._translate import translated
 from .acquisition import AcquisitionSnapshot, AcquisitionState, AcquisitionTracker, DigitizeTiming
 from .exceptions import (
     DriverArgumentValueError,
+    DriverCommandRejectedError,
     DriverError,
     DriverMalformedResponseError,
     DriverOperationUncertainError,
@@ -177,6 +179,14 @@ class PowerSupplyChannel(BaseChannel):
 
     _WTG_TRANSIENT = 16
     _TRANSIENT_ACTIVE = 64
+    # Profile ceiling must stay this fraction below OVP so slew overshoot at a
+    # step edge cannot trip protection mid-profile.
+    _OVP_HEADROOM_FRACTION = 0.05
+    # Completion-wait default: quantized profile duration plus this margin.
+    _COMPLETE_TIMEOUT_MARGIN_S = 2.0
+    _COMPLETE_TIMEOUT_MARGIN_FRACTION = 0.1
+    # Undefined header / hardware missing: the module or mainframe lacks the feature.
+    _UNSUPPORTED_SCPI_CODES = frozenset({-113, -241})
 
     def __init__(self, driver: _DriverProtocol, channel: int, capabilities: ChannelCapabilities) -> None:
         super().__init__(driver, channel, capabilities)
@@ -311,12 +321,58 @@ class PowerSupplyChannel(BaseChannel):
             raise DriverArgumentValueError(
                 f"every voltage point must stay within the approved {minimum:g}..{maximum:g} V envelope"
             )
-        instrument_max = min(self.get_voltage_range(), self.get_ovp())
-        if maximum > instrument_max:
+        voltage_range = self.get_voltage_range()
+        if maximum > voltage_range:
             raise DriverArgumentValueError(
-                f"approved maximum {maximum:g} V exceeds instrument range/OVP {instrument_max:g} V"
+                f"approved maximum {maximum:g} V exceeds instrument range {voltage_range:g} V"
             )
+        ovp = self.get_ovp()
+        ovp_ceiling = ovp * (1.0 - self._OVP_HEADROOM_FRACTION)
+        if maximum > ovp_ceiling:
+            raise DriverArgumentValueError(
+                f"approved maximum {maximum:g} V leaves less than "
+                f"{self._OVP_HEADROOM_FRACTION:.0%} headroom below OVP {ovp:g} V "
+                f"(ceiling {ovp_ceiling:g} V)"
+            )
+        if self.capabilities.module_type == "smu":
+            # A voltage LIST/ARB only programs the output in voltage priority.
+            function = self._query(f"FUNC? {self._chan}").strip().upper()
+            if not function.startswith("VOLT"):
+                raise DriverPreconditionError(
+                    "SMU voltage LIST/ARB requires voltage priority mode (FUNC VOLT)"
+                )
         return levels
+
+    @property
+    def _smu_dwell_timebase(self) -> bool:
+        return self.capabilities.model.startswith("N678")
+
+    @property
+    def _maximum_dwell_s(self) -> float:
+        # Programmer's Reference, [SOURce:]ARB/LIST dwell: 268.435 s on N678xA.
+        return 268.435 if self._smu_dwell_timebase else 262.144
+
+    @staticmethod
+    def _repeat_count(value: int, maximum: int) -> int:
+        message = f"repeat_count must be an integer within 1..{maximum}"
+        if isinstance(value, bool) or not isinstance(value, numbers.Real):
+            raise DriverArgumentValueError(message)
+        if not math.isfinite(value) or int(value) != value or not 1 <= int(value) <= maximum:
+            raise DriverArgumentValueError(message)
+        return int(value)
+
+    def _check_transient_errors(self, feature: str) -> None:
+        """Map "feature absent" SCPI errors to a clean unsupported-operation error."""
+        try:
+            self._driver.check_errors()
+        except DriverCommandRejectedError as exc:
+            codes = {code for code, _ in exc.scpi_errors}
+            if codes & self._UNSUPPORTED_SCPI_CODES:
+                raise DriverUnsupportedOperationError(
+                    f"{self.capabilities.model} channel {self.channel} rejected {feature} "
+                    f"commands as unsupported: {list(exc.scpi_errors)}"
+                ) from exc
+            raise
 
     @staticmethod
     def _csv(values: Sequence[float]) -> str:
@@ -369,10 +425,9 @@ class PowerSupplyChannel(BaseChannel):
             raise DriverOperationUncertainError(
                 f"{name} readback does not match the requested profile"
             )
-        smu = self.capabilities.model.startswith("N678")
         limits = (0.268435, 2.68435, 26.8435)
         resolutions = (1.024e-6, 10.24e-6, 102.4e-6, 1.024e-3)
-        if not smu:
+        if not self._smu_dwell_timebase:
             limits = (0.262144, 2.62144, 26.2144)
             resolutions = (1e-6, 10e-6, 100e-6, 1e-3)
         for requested, returned in zip(expected, actual, strict=True):
@@ -401,7 +456,7 @@ class PowerSupplyChannel(BaseChannel):
                 raise DriverArgumentValueError("rate_v_per_s must be > 0")
             command_value = format_float(rate)
         self._write(f"VOLT:SLEW {command_value},{self._chan}")
-        self._driver.check_errors()
+        self._check_transient_errors("voltage slew")
         return self.get_voltage_slew_rate()
 
     def get_voltage_slew_rate(self) -> float:
@@ -426,6 +481,14 @@ class PowerSupplyChannel(BaseChannel):
         self._write(f"ABOR:TRAN {self._chan}")
         self._write(f"INIT:CONT:TRAN OFF,{self._chan}")
         self._write(f"VOLT:MODE FIX,{self._chan}")
+        # The fixed current limit applies to every step; a current LIST is
+        # never used, so pin current to FIX rather than programming LIST:CURR.
+        self._write(f"CURR:MODE FIX,{self._chan}")
+
+    def _invalidate_transient_tokens(self) -> None:
+        # Every ABOR:TRAN path bumps the generation so a concurrent wait can
+        # tell "aborted" apart from "ran to completion" (both clear the bits).
+        self._transient_generation += 1
 
     def _configuration_failed(self) -> None:
         try:
@@ -433,6 +496,7 @@ class PowerSupplyChannel(BaseChannel):
             self._write(f"INIT:CONT:TRAN OFF,{self._chan}")
             self._write(f"VOLT:MODE FIX,{self._chan}")
         finally:
+            self._invalidate_transient_tokens()
             self._transient_state = "unknown"
             self._transient_mode = "fixed"
             self._transient_config = None
@@ -464,21 +528,22 @@ class PowerSupplyChannel(BaseChannel):
         terminate_last: bool = False,
         maximum_duration_s: float = 60.0,
     ) -> VoltageListConfiguration:
-        """Configure a bounded, output-OFF voltage LIST and verify readback."""
+        """Configure a bounded, output-OFF voltage LIST and verify readback.
+
+        ``step_mode='once'`` advances one step per trigger and therefore
+        requires the ``'external'`` transient trigger source.
+        """
         levels = self._validate_voltage_profile(
             levels_v,
             minimum_voltage_v=minimum_voltage_v,
             maximum_voltage_v=maximum_voltage_v,
             maximum_points=512,
         )
-        dwells = self._normalize_dwells(dwell_s, len(levels), maximum_s=262.144)
-        if isinstance(repeat_count, bool) or not 1 <= int(repeat_count) <= 256:
-            raise DriverArgumentValueError("repeat_count must be an integer within 1..256")
-        if int(repeat_count) != repeat_count:
-            raise DriverArgumentValueError("repeat_count must be an integer within 1..256")
+        dwells = self._normalize_dwells(dwell_s, len(levels), maximum_s=self._maximum_dwell_s)
+        repeat = self._repeat_count(repeat_count, 256)
         if step_mode not in {"auto", "once"}:
             raise DriverArgumentValueError("step_mode must be 'auto' or 'once'")
-        duration = sum(dwells) * int(repeat_count)
+        duration = sum(dwells) * repeat
         duration_limit = self._finite(maximum_duration_s, "maximum_duration_s")
         if duration_limit <= 0 or duration > duration_limit:
             raise DriverArgumentValueError(
@@ -488,30 +553,26 @@ class PowerSupplyChannel(BaseChannel):
         with self._transient_lock:
             self._require_output_off_for_configuration()
             try:
+                self._invalidate_transient_tokens()
                 self._prepare_transient_configuration()
                 self._write(f"LIST:VOLT {self._csv(levels)},{self._chan}")
-                self._write(f"LIST:CURR {format_float(current_limit)},{self._chan}")
                 self._write(f"LIST:DWEL {self._csv(dwells)},{self._chan}")
                 self._write(f"LIST:TOUT:BOST 0,{self._chan}")
                 self._write(f"LIST:TOUT:EOST 0,{self._chan}")
-                self._write(f"LIST:COUN {int(repeat_count)},{self._chan}")
+                self._write(f"LIST:COUN {repeat},{self._chan}")
                 self._write(f"LIST:STEP {step_mode.upper()},{self._chan}")
                 self._write(f"LIST:TERM:LAST {format_bool(terminate_last)},{self._chan}")
                 self._write(f"VOLT:MODE LIST,{self._chan}")
-                self._driver.check_errors()
+                self._check_transient_errors("voltage LIST")
                 level_readback = self._parse_csv_floats(
                     self._query(f"LIST:VOLT? {self._chan}"), "LIST voltage"
                 )
                 dwell_readback = self._parse_csv_floats(
                     self._query(f"LIST:DWEL? {self._chan}"), "LIST dwell"
                 )
-                current_readback = self._parse_csv_floats(
-                    self._query(f"LIST:CURR? {self._chan}"), "LIST current"
-                )
                 self._assert_profile_readback(levels, level_readback, "LIST voltage")
                 self._assert_dwell_readback(dwells, dwell_readback, "LIST dwell")
-                self._assert_profile_readback((current_limit,), current_readback, "LIST current")
-                if sum(dwell_readback) * int(repeat_count) > duration_limit:
+                if sum(dwell_readback) * repeat > duration_limit:
                     raise DriverOperationUncertainError(
                         "quantized LIST duration exceeds maximum_duration_s"
                     )
@@ -522,12 +583,13 @@ class PowerSupplyChannel(BaseChannel):
                 terminate_readback = self._parse_boolean(
                     self._query(f"LIST:TERM:LAST? {self._chan}"), "LIST termination"
                 )
-                if count_readback != int(repeat_count):
+                if count_readback != repeat:
                     raise DriverOperationUncertainError("LIST repeat-count readback mismatch")
                 if not step_readback.startswith(step_mode.upper()):
                     raise DriverOperationUncertainError("LIST step-mode readback mismatch")
                 if terminate_readback != bool(terminate_last):
                     raise DriverOperationUncertainError("LIST termination readback mismatch")
+                self._assert_fixed_current_mode()
                 if not self._query(f"VOLT:MODE? {self._chan}").strip().upper().startswith("LIST"):
                     raise DriverOperationUncertainError("voltage mode did not enter LIST")
             except BaseException:
@@ -538,7 +600,7 @@ class PowerSupplyChannel(BaseChannel):
                 levels_v=level_readback,
                 dwell_s=dwell_readback,
                 current_limit_a=current_limit,
-                repeat_count=int(repeat_count),
+                repeat_count=repeat,
                 step_mode=step_mode,
                 terminate_last=bool(terminate_last),
                 minimum_voltage_v=float(minimum_voltage_v),
@@ -571,12 +633,9 @@ class PowerSupplyChannel(BaseChannel):
             maximum_voltage_v=maximum_voltage_v,
             maximum_points=511,
         )
-        dwells = self._normalize_dwells(dwell_s, len(levels), maximum_s=262.144)
-        if isinstance(repeat_count, bool) or int(repeat_count) != repeat_count:
-            raise DriverArgumentValueError("repeat_count must be an integer within 1..16777216")
-        if not 1 <= int(repeat_count) <= 16_777_216:
-            raise DriverArgumentValueError("repeat_count must be an integer within 1..16777216")
-        duration = sum(dwells) * int(repeat_count)
+        dwells = self._normalize_dwells(dwell_s, len(levels), maximum_s=self._maximum_dwell_s)
+        repeat = self._repeat_count(repeat_count, 16_777_216)
+        duration = sum(dwells) * repeat
         duration_limit = self._finite(maximum_duration_s, "maximum_duration_s")
         if duration_limit <= 0 or duration > duration_limit:
             raise DriverArgumentValueError(
@@ -585,16 +644,17 @@ class PowerSupplyChannel(BaseChannel):
         with self._transient_lock:
             self._require_output_off_for_configuration()
             try:
+                self._invalidate_transient_tokens()
                 self._prepare_transient_configuration()
                 self._write(f"ARB:FUNC:TYPE VOLT,{self._chan}")
                 self._write(f"ARB:FUNC:SHAP UDEF,{self._chan}")
                 self._write(f"ARB:VOLT:UDEF:LEV {self._csv(levels)},{self._chan}")
                 self._write(f"ARB:VOLT:UDEF:DWEL {self._csv(dwells)},{self._chan}")
                 self._write(f"ARB:VOLT:UDEF:BOST 0,{self._chan}")
-                self._write(f"ARB:COUN {int(repeat_count)},{self._chan}")
+                self._write(f"ARB:COUN {repeat},{self._chan}")
                 self._write(f"ARB:TERM:LAST {format_bool(terminate_last)},{self._chan}")
                 self._write(f"VOLT:MODE ARB,{self._chan}")
-                self._driver.check_errors()
+                self._check_transient_errors("voltage ARB")
                 level_readback = self._parse_csv_floats(
                     self._query(f"ARB:VOLT:UDEF:LEV? {self._chan}"), "ARB voltage"
                 )
@@ -603,7 +663,7 @@ class PowerSupplyChannel(BaseChannel):
                 )
                 self._assert_profile_readback(levels, level_readback, "ARB voltage")
                 self._assert_dwell_readback(dwells, dwell_readback, "ARB dwell")
-                if sum(dwell_readback) * int(repeat_count) > duration_limit:
+                if sum(dwell_readback) * repeat > duration_limit:
                     raise DriverOperationUncertainError(
                         "quantized ARB duration exceeds maximum_duration_s"
                     )
@@ -615,7 +675,7 @@ class PowerSupplyChannel(BaseChannel):
                 )
                 function_readback = self._query(f"ARB:FUNC:TYPE? {self._chan}").strip().upper()
                 shape_readback = self._query(f"ARB:FUNC:SHAP? {self._chan}").strip().upper()
-                if count_readback != int(repeat_count):
+                if count_readback != repeat:
                     raise DriverOperationUncertainError("ARB repeat-count readback mismatch")
                 if terminate_readback != bool(terminate_last):
                     raise DriverOperationUncertainError("ARB termination readback mismatch")
@@ -623,6 +683,7 @@ class PowerSupplyChannel(BaseChannel):
                     "UDEF"
                 ):
                     raise DriverOperationUncertainError("ARB function/shape readback mismatch")
+                self._assert_fixed_current_mode()
                 if not self._query(f"VOLT:MODE? {self._chan}").strip().upper().startswith("ARB"):
                     raise DriverOperationUncertainError("voltage mode did not enter ARB")
             except BaseException:
@@ -632,7 +693,7 @@ class PowerSupplyChannel(BaseChannel):
                 channel=self.channel,
                 levels_v=level_readback,
                 dwell_s=dwell_readback,
-                repeat_count=int(repeat_count),
+                repeat_count=repeat,
                 terminate_last=bool(terminate_last),
                 minimum_voltage_v=float(minimum_voltage_v),
                 maximum_voltage_v=float(maximum_voltage_v),
@@ -641,6 +702,10 @@ class PowerSupplyChannel(BaseChannel):
             self._transient_mode = "arb"
             self._transient_state = "configured"
             return config
+
+    def _assert_fixed_current_mode(self) -> None:
+        if not self._query(f"CURR:MODE? {self._chan}").strip().upper().startswith("FIX"):
+            raise DriverOperationUncertainError("current mode did not stay FIX")
 
     def configure_voltage_transient_trigger(
         self, source: Literal["bus", "external"] = "bus"
@@ -660,26 +725,75 @@ class PowerSupplyChannel(BaseChannel):
                 raise DriverOperationUncertainError("transient trigger-source readback mismatch")
             self._transient_trigger_source = source
 
+    def _read_transient_trigger_source(self) -> Literal["bus", "external"]:
+        # The instrument, not the cached default, decides what INIT:TRAN waits for.
+        readback = self._query(f"TRIG:TRAN:SOUR? {self._chan}").strip().upper()
+        source: Literal["bus", "external"]
+        if readback.startswith("BUS"):
+            source = "bus"
+        elif readback.startswith("EXT"):
+            source = "external"
+        else:
+            raise DriverPreconditionError(
+                f"unsupported transient trigger source {readback!r}; "
+                "call configure_voltage_transient_trigger() first"
+            )
+        self._transient_trigger_source = source
+        return source
+
     def arm_voltage_transient(self) -> VoltageTransientToken:
         with self._transient_lock:
-            if self._transient_config is None or self._transient_state not in {
+            config = self._transient_config
+            if config is None or self._transient_state not in {
                 "configured", "complete", "aborted"
             }:
                 raise DriverPreconditionError("a verified voltage LIST/ARB must be configured first")
             if not self.get_output():
                 raise DriverPreconditionError("source output must be ON before arming a voltage transient")
-            self._transient_generation += 1
-            self._write(f"INIT:TRAN {self._chan}")
-            self._driver.check_errors()
+            source = self._read_transient_trigger_source()
+            if (
+                isinstance(config, VoltageListConfiguration)
+                and config.step_mode == "once"
+                and source == "bus"
+            ):
+                # Each step needs its own trigger and triggers during a dwell
+                # are ignored, so one software trigger cannot run the list.
+                raise DriverPreconditionError(
+                    "LIST step_mode 'once' requires the 'external' transient trigger source"
+                )
+            self._invalidate_transient_tokens()
+            token = VoltageTransientToken(self.channel, self._transient_generation)
             self._transient_state = "armed"
-            return VoltageTransientToken(self.channel, self._transient_generation)
+            try:
+                self._write(f"INIT:TRAN {self._chan}")
+                self._driver.check_errors()
+            except BaseException as primary:
+                self._cleanup_failed_voltage_transient(primary)
+                raise
+            return token
 
     def _require_transient_token(self, token: VoltageTransientToken) -> None:
         if token.channel != self.channel or token.generation != self._transient_generation:
             raise DriverPreconditionError("stale or foreign voltage-transient token")
 
+    def _require_not_superseded(self, token: VoltageTransientToken) -> None:
+        if token.generation != self._transient_generation:
+            raise DriverOperationUncertainError(
+                "voltage transient was aborted or reconfigured while waiting",
+                details={
+                    "voltage_transient_generation": token.generation,
+                    "current_generation": self._transient_generation,
+                },
+            )
+
+    def _token_status(self, token: VoltageTransientToken) -> VoltageTransientStatus:
+        self._require_not_superseded(token)
+        return self.get_voltage_transient_status()
+
     def get_voltage_transient_status(self) -> VoltageTransientStatus:
-        raw = int(self._query(f"STAT:OPER:COND? {self._chan}").strip())
+        raw = self._parse_integer(
+            self._query(f"STAT:OPER:COND? {self._chan}"), "operation status"
+        )
         return VoltageTransientStatus(
             channel=self.channel,
             mode=self._transient_mode,  # type: ignore[arg-type]
@@ -691,6 +805,31 @@ class PowerSupplyChannel(BaseChannel):
             transient_active=bool(raw & self._TRANSIENT_ACTIVE),
         )
 
+    def _poll_transient(
+        self,
+        token: VoltageTransientToken,
+        predicate: Callable[[], bool],
+        *,
+        operation: str,
+        description: str,
+        timeout_s: float,
+        poll_interval_s: float,
+    ) -> None:
+        try:
+            with translated(operation=operation):
+                poll_until(
+                    predicate,
+                    timeout_s=timeout_s,
+                    interval_s=poll_interval_s,
+                    description=description,
+                )
+        except BaseException as primary:
+            # A superseded generation was already aborted by someone else;
+            # aborting again could cancel a newer arm.
+            if token.generation == self._transient_generation:
+                self._cleanup_failed_voltage_transient(primary)
+            raise
+
     def wait_voltage_transient_ready(
         self,
         token: VoltageTransientToken,
@@ -698,76 +837,145 @@ class PowerSupplyChannel(BaseChannel):
         timeout_s: float = 5.0,
         poll_interval_s: float = 0.01,
     ) -> VoltageTransientStatus:
-        self._require_transient_token(token)
-        if self._transient_state != "armed":
-            raise DriverPreconditionError("voltage transient is not armed")
-        last = self.get_voltage_transient_status()
+        """Wait until the armed transient accepts a trigger.
+
+        With the ``'external'`` source the trigger may land between polls, so
+        TRAN_active without WTG (running) or an idle system after the
+        successful ``INIT:TRAN`` (already finished) also ends the wait, with
+        the state advanced to ``'triggered'``.
+        """
+        with self._transient_lock:
+            self._require_transient_token(token)
+            if self._transient_state != "armed":
+                raise DriverPreconditionError("voltage transient is not armed")
+            external = self._transient_trigger_source == "external"
+        last: VoltageTransientStatus | None = None
 
         def predicate() -> bool:
             nonlocal last
-            last = self.get_voltage_transient_status()
-            return last.waiting_for_trigger
+            last = self._token_status(token)
+            return last.waiting_for_trigger or external
 
-        try:
-            with translated(operation="wait_voltage_transient_ready"):
-                poll_until(
-                    predicate,
-                    timeout_s=timeout_s,
-                    interval_s=poll_interval_s,
-                    description=f"channel {self.channel} transient trigger ready",
-                )
-        except BaseException as primary:
-            self._cleanup_failed_voltage_transient(primary)
-            raise
-        self._transient_state = "ready"
+        self._poll_transient(
+            token,
+            predicate,
+            operation="wait_voltage_transient_ready",
+            description=f"channel {self.channel} transient trigger ready",
+            timeout_s=timeout_s,
+            poll_interval_s=poll_interval_s,
+        )
+        with self._transient_lock:
+            self._require_not_superseded(token)
+            waiting = last is not None and last.waiting_for_trigger
+            self._transient_state = "ready" if waiting else "triggered"
         return self.get_voltage_transient_status()
 
     def trigger_voltage_transient(self, token: VoltageTransientToken) -> None:
-        self._require_transient_token(token)
-        if self._transient_state != "ready":
-            raise DriverPreconditionError("wait_voltage_transient_ready() must succeed before triggering")
-        if self._transient_trigger_source != "bus":
-            raise DriverPreconditionError("software trigger requires trigger source 'bus'")
-        self._write(f"TRIG:TRAN {self._chan}")
-        self._driver.check_errors()
-        self._transient_state = "triggered"
+        with self._transient_lock:
+            self._require_transient_token(token)
+            if self._transient_state != "ready":
+                raise DriverPreconditionError(
+                    "wait_voltage_transient_ready() must succeed before triggering"
+                )
+            if self._transient_trigger_source != "bus":
+                raise DriverPreconditionError("software trigger requires trigger source 'bus'")
+            self._write(f"TRIG:TRAN {self._chan}")
+            self._driver.check_errors()
+            self._transient_state = "triggered"
+
+    def _default_complete_timeout_s(self) -> float:
+        config = self._transient_config
+        duration = config.duration_s if config is not None else 0.0
+        return (
+            duration * (1.0 + self._COMPLETE_TIMEOUT_MARGIN_FRACTION)
+            + self._COMPLETE_TIMEOUT_MARGIN_S
+        )
+
+    def _verify_transient_outcome(self) -> None:
+        """Idle bits also follow a protection trip or output OFF; reject those."""
+        protection = self.get_protection_status()
+        output_on = self.get_output()
+        if protection.active or not output_on:
+            reason = (
+                f"protection fault active (STAT:QUES:COND {protection.raw_status})"
+                if protection.active
+                else "output is OFF"
+            )
+            raise DriverOperationUncertainError(
+                f"voltage transient ended without a clean completion: {reason}",
+                details={
+                    "protection_raw_status": protection.raw_status,
+                    "output_on": output_on,
+                },
+            )
 
     def wait_voltage_transient_complete(
         self,
         token: VoltageTransientToken,
         *,
-        timeout_s: float = 10.0,
+        timeout_s: float | None = None,
         poll_interval_s: float = 0.01,
     ) -> VoltageTransientStatus:
-        self._require_transient_token(token)
-        if self._transient_state not in {"ready", "triggered"}:
-            raise DriverPreconditionError("voltage transient is not armed/triggered")
-        last = self.get_voltage_transient_status()
+        """Wait for a clean completion of the armed generation.
+
+        ``timeout_s=None`` derives the bound from the configured profile
+        duration; pass an explicit value for externally paced step-once lists.
+        """
+        with self._transient_lock:
+            self._require_transient_token(token)
+            if self._transient_state not in {"ready", "triggered"}:
+                raise DriverPreconditionError("voltage transient is not armed/triggered")
+            if timeout_s is None:
+                timeout_s = self._default_complete_timeout_s()
 
         def predicate() -> bool:
-            nonlocal last
-            last = self.get_voltage_transient_status()
-            return not last.waiting_for_trigger and not last.transient_active
+            status = self._token_status(token)
+            return not status.waiting_for_trigger and not status.transient_active
 
-        try:
-            with translated(operation="wait_voltage_transient_complete"):
-                poll_until(
-                    predicate,
-                    timeout_s=timeout_s,
-                    interval_s=poll_interval_s,
-                    description=f"channel {self.channel} voltage transient complete",
-                )
-        except BaseException as primary:
-            self._cleanup_failed_voltage_transient(primary)
-            raise
-        self._driver.check_errors()
-        self._transient_state = "complete"
+        self._poll_transient(
+            token,
+            predicate,
+            operation="wait_voltage_transient_complete",
+            description=f"channel {self.channel} voltage transient complete",
+            timeout_s=timeout_s,
+            poll_interval_s=poll_interval_s,
+        )
+        with self._transient_lock:
+            self._require_not_superseded(token)
+            try:
+                self._driver.check_errors()
+                self._verify_transient_outcome()
+            except BaseException:
+                self._transient_state = "unknown"
+                raise
+            self._transient_state = "complete"
         return self.get_voltage_transient_status()
 
     def abort_voltage_transient(self) -> None:
-        self._write(f"ABOR:TRAN {self._chan}")
-        self._write(f"INIT:CONT:TRAN OFF,{self._chan}")
-        self._driver.check_errors()
+        with self._transient_lock:
+            self._invalidate_transient_tokens()
+            try:
+                self._write(f"ABOR:TRAN {self._chan}")
+                self._write(f"INIT:CONT:TRAN OFF,{self._chan}")
+                self._driver.check_errors()
+            except BaseException:
+                self._transient_state = "unknown"
+                raise
+            self._transient_state = "aborted"
+
+    def _emergency_abort_voltage_transient(self) -> None:
+        """Send only ``ABOR:TRAN`` for shutdown.
+
+        It is the one transient command a digitizer lease held by another
+        thread lets through, and it skips the lock so a long configure call
+        cannot delay shutdown.
+        """
+        self._invalidate_transient_tokens()
+        try:
+            self._write(f"ABOR:TRAN {self._chan}")
+        except BaseException:
+            self._transient_state = "unknown"
+            raise
         self._transient_state = "aborted"
 
 

@@ -925,10 +925,11 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         channel: int,
         token: VoltageTransientToken,
         *,
-        timeout_s: float = 10.0,
+        timeout_s: float | None = None,
         poll_interval_s: float = 0.01,
         alias: str | None = None,
     ) -> VoltageTransientStatus:
+        """Wait for clean completion; ``timeout_s=None`` derives it from the profile."""
         return self.power_supply(channel, alias=alias).wait_voltage_transient_complete(
             token, timeout_s=timeout_s, poll_interval_s=poll_interval_s
         )
@@ -1392,7 +1393,7 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
                     ch.input_off()
                 elif isinstance(ch, PowerSupplyChannel):
                     try:
-                        ch.abort_voltage_transient()
+                        ch._emergency_abort_voltage_transient()
                     except Exception as exc:
                         errors.append(f"transient abort failed: {exc}")
                     finally:

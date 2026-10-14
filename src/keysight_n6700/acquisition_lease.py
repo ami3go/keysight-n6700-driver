@@ -68,7 +68,7 @@ class AcquisitionCoordinator:
     def _is_emergency_abort(cmd: str) -> bool:
         # Only the source-transient abort is safety-relevant; ABOR:ACQ from a
         # non-owner thread would silently cancel another caller's capture.
-        return cmd.startswith(("ABOR:TRAN", "ABORT:TRANSIENT"))
+        return bool(re.match(r"^ABOR(?:T)?:TRAN(?:SIENT)?(?:\s|$)", cmd))
 
     @staticmethod
     def _is_safe_owner_command(cmd: str) -> bool:

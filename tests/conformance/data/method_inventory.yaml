@@ -1393,8 +1393,8 @@ methods:
   aliases: []
   implementation_target: keysight_n6700.driver.N6700.wait_voltage_transient_complete
   signature: 'wait_voltage_transient_complete(self, channel: ''int'', token: ''VoltageTransientToken'',
-    *, timeout_s: ''float'' = 10.0, poll_interval_s: ''float'' = 0.01, alias: ''str | None'' = None) ->
-    ''VoltageTransientStatus'''
+    *, timeout_s: ''float | None'' = None, poll_interval_s: ''float'' = 0.01, alias: ''str | None'' =
+    None) -> ''VoltageTransientStatus'''
   required_arguments:
   - channel
   - token

@@ -77,6 +77,9 @@ class _ChannelState:
     transient_state: str = "idle"
     transient_generation: int = 0
     transient_initial_voltage: float = 0.0
+    transient_steps_left: int = 0
+    transient_polls_left: int = 0
+    current_mode: str = "FIX"
 
 
 class SimN6700Instrument:
@@ -97,6 +100,19 @@ class SimN6700Instrument:
         self.array_format = "ASC"
         self.array_border = "NORM"
         self.idn = "KEYSIGHT TECHNOLOGIES,N6700B,SIM000001,B.00.00"
+        # Status polls a triggered AUTO profile stays TRAN_active; 0 completes
+        # immediately on the trigger.
+        self.transient_active_polls = 0
+
+    @staticmethod
+    def _finish_transient(st: _ChannelState) -> None:
+        levels = st.voltage_list if st.voltage_mode == "LIST" else st.arb_voltage
+        terminate_last = (
+            st.list_terminate_last if st.voltage_mode == "LIST" else st.arb_terminate_last
+        )
+        st.voltage = levels[-1] if terminate_last else st.transient_initial_voltage
+        st.transient_state = "complete"
+        st.operation_status &= ~(16 | 64)
 
     def clear(self) -> None:
         self.errors.clear()
@@ -203,6 +219,12 @@ class SimN6700Instrument:
             return ",".join(str(self.channels[ch].questionable_status) for ch in channels)
         if upper.startswith("STAT:OPER:COND?") or upper.startswith("STATUS:OPERATION:CONDITION?"):
             channels = self._channels_from_command(norm)
+            for ch in channels:
+                st = self.channels[ch]
+                if st.transient_state == "active":
+                    st.transient_polls_left -= 1
+                    if st.transient_polls_left <= 0:
+                        self._finish_transient(st)
             return ",".join(str(self.channels[ch].operation_status) for ch in channels)
         if upper.startswith("OUTP:PROT?") or upper.startswith("OUTPUT:PROTECTION?"):
             self._push_error(-113, f"Undefined header: {cmd}")
@@ -322,6 +344,13 @@ class SimN6700Instrument:
             for ch in self._channels_from_command(norm):
                 self.channels[ch].voltage_slew_v_per_s = value
             return None
+        if upper.startswith("CURR:MODE?"):
+            return self._query_values(self._channels_from_command(norm), "current_mode")
+        if upper.startswith("CURR:MODE"):
+            current_mode = self._argument_values(norm)[0].upper()
+            for ch in self._channels_from_command(norm):
+                self.channels[ch].current_mode = "FIX" if current_mode == "FIXED" else current_mode
+            return None
         if upper.startswith("VOLT:MODE?"):
             return self._query_values(self._channels_from_command(norm), "voltage_mode")
         if upper.startswith("VOLT:MODE"):
@@ -424,8 +453,11 @@ class SimN6700Instrument:
                 st.transient_generation += 1
                 st.transient_initial_voltage = st.voltage
                 st.transient_state = "waiting"
-                st.operation_status |= 16
-                st.operation_status &= ~64
+                levels = st.voltage_list if st.voltage_mode == "LIST" else st.arb_voltage
+                count = st.list_count if st.voltage_mode == "LIST" else st.arb_count
+                st.transient_steps_left = len(levels) * count
+                # TRAN_active stays set from INIT until the trigger system is idle.
+                st.operation_status |= 16 | 64
             return None
         if upper.startswith("TRIG:TRAN"):
             for ch in self._channels_from_command(norm):
@@ -433,18 +465,19 @@ class SimN6700Instrument:
                 if st.transient_state != "waiting":
                     self._push_error(-230, "Transient system is not armed")
                     continue
+                if st.voltage_mode == "LIST" and st.list_step == "ONCE":
+                    # One step per trigger; WTG returns for the next step.
+                    st.transient_steps_left -= 1
+                    if st.transient_steps_left <= 0:
+                        self._finish_transient(st)
+                    continue
                 st.operation_status &= ~16
                 st.operation_status |= 64
-                levels = st.voltage_list if st.voltage_mode == "LIST" else st.arb_voltage
-                terminate_last = (
-                    st.list_terminate_last if st.voltage_mode == "LIST" else st.arb_terminate_last
-                )
-                if terminate_last:
-                    st.voltage = levels[-1]
+                if self.transient_active_polls > 0:
+                    st.transient_state = "active"
+                    st.transient_polls_left = self.transient_active_polls
                 else:
-                    st.voltage = st.transient_initial_voltage
-                st.transient_state = "complete"
-                st.operation_status &= ~64
+                    self._finish_transient(st)
             return None
         if upper.startswith("ABOR:TRAN"):
             for ch in self._channels_from_command(norm):

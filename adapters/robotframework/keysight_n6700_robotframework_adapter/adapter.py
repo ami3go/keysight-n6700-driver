@@ -517,15 +517,19 @@ class KeysightN6700Library:
 
     @keyword("Wait Until N6700 Voltage Transient Is Complete")
     def wait_until_n6700_voltage_transient_is_complete(
-        self, channel: Any, generation: Any, timeout: Any = "10s", alias: str | None = None
+        self, channel: Any, generation: Any, timeout: Any = None, alias: str | None = None
     ) -> dict[str, Any]:
-        """Wait for bounded completion; timeout automatically aborts the profile."""
+        """Wait for bounded completion; timeout automatically aborts the profile.
+
+        Without ``timeout`` the bound is derived from the configured profile duration.
+        """
         ch = _as_channel(channel)
+        timeout_s = None if timeout in (None, "", "None") else _as_seconds(timeout)
         return _serialize(
             self._driver.wait_voltage_transient_complete(
                 ch,
                 VoltageTransientToken(ch, int(generation)),
-                timeout_s=_as_seconds(timeout),
+                timeout_s=timeout_s,
                 alias=alias,
             )
         )

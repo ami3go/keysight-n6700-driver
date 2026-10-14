@@ -55,12 +55,30 @@ def test_cross_thread_transient_abort_allowed_acquisition_abort_denied(driver: N
 
     def contend() -> None:
         driver.write_scpi("ABOR:TRAN (@1)")
+        driver.write_scpi("ABORT:TRANSIENT (@1)")
         with pytest.raises(DriverResourceBusyError):
             driver.write_scpi("ABOR:ACQ (@3)")
 
     with ThreadPoolExecutor(max_workers=1) as pool:
         pool.submit(contend).result(timeout=4)
     ch.abort_digitize()
+
+
+def test_cross_thread_shutdown_aborts_source_transient_under_lease(driver: N6700) -> None:
+    driver.configure_voltage_list(1, [12.0, 6.0], 0.01, maximum_voltage_v=18.0)
+    driver.set_dc_voltage(12.0, 1)
+    driver.enable_output(1)
+    driver.arm_voltage_transient(1)
+    ch = load(driver)
+    ch.configure_digitize("voltage", points=10, interval_s=20.48e-6)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        result = pool.submit(driver.safe_shutdown).result(timeout=4)
+    ch.abort_digitize()
+    source = next(item for item in result["channels"] if item["channel"] == 1)
+    assert source["success"] is True, source
+    assert driver.get_output_state(1) is False
+    assert driver.get_voltage_transient_status(1).state == "aborted"
 
 
 def test_second_channel_cannot_steal_ownership(driver: N6700) -> None:
