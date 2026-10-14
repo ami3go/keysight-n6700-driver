@@ -3,6 +3,22 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## Unreleased
+
+Voltage-transient lifecycle review fixes: an abort from another thread, a
+protection trip, or output OFF during a run is no longer reported as
+`complete` (every abort bumps the token generation; completion also checks
+`STAT:QUES:COND?` and output state). The completion timeout now defaults to
+the profile duration plus margin. External-trigger readiness tolerates an
+edge landing between polls. Arming reads the trigger source from the
+instrument, and LIST `step_mode="once"` requires the external source.
+`safe_shutdown()` sends only `ABOR:TRAN`, so it also succeeds under another
+thread's digitizer lease. Profiles must stay 5 % below OVP, and SMU channels
+must be in voltage priority. N678xA dwell may be up to 268.435 s.
+`CURR:MODE FIX` replaces the unused `LIST:CURR`. SCPI -113/-241 map to
+`DriverUnsupportedOperationError`. The simulator now models TRAN_active
+while initiated, multi-poll runs and step-once pacing.
+
 ## v0.7.0 — 2026-10-14
 
 Added bounded source-voltage transient generation for power-supply/SMU

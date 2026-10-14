@@ -75,7 +75,7 @@ configure_voltage_transient_trigger(channel, source="bus")
 arm_voltage_transient(channel) -> VoltageTransientToken
 wait_voltage_transient_ready(channel, token, timeout_s=5.0)
 trigger_voltage_transient(channel, token)
-wait_voltage_transient_complete(channel, token, timeout_s=10.0)
+wait_voltage_transient_complete(channel, token, timeout_s=None)  # None: duration × 1.1 + 2 s
 abort_voltage_transient(channel)
 get_voltage_transient_status(channel) -> VoltageTransientStatus
 ```
@@ -127,22 +127,25 @@ For a user-defined ARB, replace `configure_voltage_list` with `configure_voltage
 2. LIST and ARB configuration is rejected if the selected output is ON. The check runs before any write, so a refused call never aborts or alters a profile that is already armed or running.
 3. Every number must be finite; boolean-as-number, NaN and infinity are rejected except the explicit string `"max"` for slew.
 4. Every voltage point must be within caller-supplied `minimum_voltage_v..maximum_voltage_v`.
-5. The caller's maximum may not exceed the lower of the selected instrument range and OVP readback.
-6. Point count, dwell, repeat count and calculated total duration are bounded before the first profile write.
+5. The caller's maximum may not exceed the selected instrument range, and must stay at least 5 % below the OVP readback so step overshoot cannot trip protection.
+   On N678xA SMU channels the channel must be in voltage priority (`FUNC VOLT`).
+6. Point count, dwell (262.144 s, or 268.435 s on N678xA), integer repeat count and calculated total duration are bounded before the first profile write.
 7. Infinite repeat is unavailable from the typed API.
-8. LIST writes an explicit singleton current-limit list and disabled BOST/EOST arrays so stale instrument arrays cannot invalidate the profile or emit unreviewed triggers.
+8. Configuration pins `CURR:MODE FIX` (the fixed current limit applies to every step; no current list is programmed) and LIST writes disabled BOST/EOST arrays so stale instrument arrays cannot invalidate the profile or emit unreviewed triggers.
 9. Profile arrays and voltage mode are read back before configuration is reported successful.
 10. Partial configuration failure sends `ABOR:TRAN`, disables continuous transient initiation, selects FIXED voltage mode, and marks local state unknown.
+11. SCPI errors -113 (undefined header) or -241 (hardware missing) during configuration are reported as `DriverUnsupportedOperationError`: the module or mainframe lacks the feature.
 
 ### Execution
 
 1. Configuration never enables an output.
-2. Arming requires a verified profile and an already-enabled output.
+2. Arming requires a verified profile and an already-enabled output. It reads `TRIG:TRAN:SOUR?` from the instrument and refuses any source other than BUS or EXT.
+   LIST `step_mode="once"` needs one trigger per step (triggers during a dwell are ignored), so it is only accepted with the external source.
 3. Each arm returns a generation token. Stale or cross-channel tokens are rejected.
-4. Software trigger requires BUS mode and a successful WTG_transient readiness observation.
-5. Completion requires both WTG_transient and TRAN_active to be clear after the matching trigger generation.
+4. Software trigger requires BUS mode and a successful WTG_transient readiness observation. With the external source an edge can land between polls, so readiness also ends on TRAN_active or an idle system after `INIT:TRAN` and the state moves straight to `triggered`.
+5. Completion requires both WTG_transient and TRAN_active to be clear for the matching generation, followed by a clean `STAT:QUES:COND?` and output still ON. Every abort path bumps the generation, so an abort from another thread or a protection trip is reported as `DriverOperationUncertainError`, never as `complete`.
 6. Waits are bounded. Completion timeout attempts `ABOR:TRAN` before returning the timeout.
-7. `safe_shutdown()` attempts transient abort before commanding each source output OFF. `ABOR:TRAN` and output-OFF commands remain permitted from any thread during an active digitizer lease; `ABOR:ACQ` stays restricted to the lease owner.
+7. `safe_shutdown()` sends only `ABOR:TRAN` before commanding each source output OFF. `ABOR:TRAN` and output-OFF commands remain permitted from any thread during an active digitizer lease; `ABOR:ACQ` stays restricted to the lease owner.
 
 The driver validates instrument and caller-supplied limits. It cannot discover the actual DUT, harness, capacitor energy, relay state or external interlock. The application/fixture remains responsible for those limits.
 
@@ -151,8 +154,8 @@ The driver validates instrument and caller-supplied limits. It cannot discover t
 | Typed operation | Commands/readbacks |
 |---|---|
 | Set slew | `VOLT:SLEW`, `VOLT:SLEW?` |
-| Prepare profile | `ABOR:TRAN`, `INIT:CONT:TRAN OFF`, `VOLT:MODE FIX` |
-| LIST arrays | `LIST:VOLT`, `LIST:CURR`, `LIST:DWEL`, `LIST:TOUT:BOST`, `LIST:TOUT:EOST` |
+| Prepare profile | `ABOR:TRAN`, `INIT:CONT:TRAN OFF`, `VOLT:MODE FIX`, `CURR:MODE FIX` |
+| LIST arrays | `LIST:VOLT`, `LIST:DWEL`, `LIST:TOUT:BOST`, `LIST:TOUT:EOST` |
 | LIST policy | `LIST:COUN`, `LIST:STEP`, `LIST:TERM:LAST`, `VOLT:MODE LIST` |
 | UDEF ARB | `ARB:FUNC:TYPE VOLT`, `ARB:FUNC:SHAP UDEF`, `ARB:VOLT:UDEF:LEV`, `ARB:VOLT:UDEF:DWEL`, `ARB:VOLT:UDEF:BOST` |
 | ARB policy | `ARB:COUN`, `ARB:TERM:LAST`, `VOLT:MODE ARB` |
