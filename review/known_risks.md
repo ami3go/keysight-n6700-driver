@@ -1,4 +1,4 @@
-# Known risks and deliberate scope decisions — v0.1.0
+# Known risks and deliberate scope decisions — v0.7.0
 
 This driver targets **software-verifiable full LPDS conformance**: every
 requirement checkable without real hardware or organization-scale tooling is
@@ -182,6 +182,16 @@ Before calling it `stable`:
   qualification, performance, compatibility), which is entirely
   hardware-dependent and not attempted here.
 
+**Open 2026-10-14 — source-voltage transient physical qualification:**
+finite voltage LIST/UDEF ARB, `VOLT:SLEW`, trigger readiness, completion,
+abort, and safe-shutdown recovery are implemented and verified against the
+simulator and exact outbound SCPI history. A confirmation-gated N6775A HIL
+test is included, but was not run for v0.7.0. No claim is made yet for real
+amplitude, dwell, transition time, overshoot/undershoot, trigger latency, or
+jitter. Those require the independent oscilloscope matrix and retained
+evidence in `docs/VOLTAGE_TRANSIENT_IMPLEMENTATION.md`; unattended production
+use remains out of scope until those gates and fault/soak tests pass.
+
 ## No `lpds-core` shared package exists yet
 
 LPDS-003 (`BaseInstrument`) describes a shared package most drivers in this
@@ -220,22 +230,25 @@ consume it. `export_diagnostics()` (driver/session summary) and
 `N6700(audit_log_path=...)`'s higher-level JSONL audit trail remain the
 other software-verifiable evidence pieces shipped directly by the driver.
 
-## LPDS-019 conformance: 25 realized vectors, 48 documented exclusions
+## LPDS-019 conformance: 29 realized vectors, 64 documented exclusions
 
 `tests/conformance/data/protocol_vectors.yaml` covers connection lifecycle,
 identity, the error queue, voltage/current setpoints, output control,
-measurement, SMU/load mode selection, and one protocol-error path — a
+measurement, SMU/load mode selection, source-transient slew/status/abort,
+and one protocol-error path — a
 representative slice across every conditional capability group, each a real
-transport-boundary assertion. The remaining 48 device-facing methods are in
+transport-boundary assertion. The remaining 64 device-facing methods are in
 `exclusions.yaml`, each with a specific, reviewed reason (most: "same
 protocol shape as an already-vectored method," a few: "planned for the next
 conformance pass"). `test_every_device_facing_method_has_a_vector_or_exclusion`
 enforces that this list cannot silently rot — a newly added device-facing
 method fails CI until it gets a vector or an exclusion entry.
 
-The same 24 vectors are now also realized against real hardware by
+The original 24 vectors are also realized against real hardware by
 `tests/hardware/test_hardware_protocol_conformance.py` (see the hardware
-section above) — the two suites share their pass/fail logic
+section above). The five new source-transient vectors skip there because the
+dedicated N6775A HIL test has the required output-off, electrical-envelope,
+confirmation, and cleanup gates. The two suites share their pass/fail logic
 (`tests/conformance/checks.py`) so "what it means for a vector to pass"
 cannot silently diverge between the simulator and real-hardware runs.
 

@@ -14,11 +14,33 @@ methods:
   - alias
   device_facing: true
   execution_status: not_yet_run
+- method: abort_voltage_transient
+  canonical_method: abort_voltage_transient
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.abort_voltage_transient
+  signature: 'abort_voltage_transient(self, channel: ''int'', alias: ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
 - method: arm_digitize
   canonical_method: arm_digitize
   aliases: []
   implementation_target: keysight_n6700.driver.N6700.arm_digitize
   signature: 'arm_digitize(self, channel: ''int'', alias: ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: arm_voltage_transient
+  canonical_method: arm_voltage_transient
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.arm_voltage_transient
+  signature: 'arm_voltage_transient(self, channel: ''int'', alias: ''str | None'' = None) -> ''VoltageTransientToken'''
   required_arguments:
   - channel
   optional_arguments:
@@ -218,6 +240,62 @@ methods:
   - voltage
   - current_limit
   optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: configure_voltage_arb
+  canonical_method: configure_voltage_arb
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_voltage_arb
+  signature: 'configure_voltage_arb(self, channel: ''int'', levels_v: ''Sequence[float]'', dwell_s: ''float
+    | Sequence[float]'', *, maximum_voltage_v: ''float'', minimum_voltage_v: ''float'' = 0.0, repeat_count:
+    ''int'' = 1, terminate_last: ''bool'' = False, maximum_duration_s: ''float'' = 60.0, alias: ''str
+    | None'' = None) -> ''VoltageArbConfiguration'''
+  required_arguments:
+  - channel
+  - levels_v
+  - dwell_s
+  - maximum_voltage_v
+  optional_arguments:
+  - minimum_voltage_v
+  - repeat_count
+  - terminate_last
+  - maximum_duration_s
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: configure_voltage_list
+  canonical_method: configure_voltage_list
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_voltage_list
+  signature: 'configure_voltage_list(self, channel: ''int'', levels_v: ''Sequence[float]'', dwell_s: ''float
+    | Sequence[float]'', *, maximum_voltage_v: ''float'', minimum_voltage_v: ''float'' = 0.0, repeat_count:
+    ''int'' = 1, step_mode: "Literal[''auto'', ''once'']" = ''auto'', terminate_last: ''bool'' = False,
+    maximum_duration_s: ''float'' = 60.0, alias: ''str | None'' = None) -> ''VoltageListConfiguration'''
+  required_arguments:
+  - channel
+  - levels_v
+  - dwell_s
+  - maximum_voltage_v
+  optional_arguments:
+  - minimum_voltage_v
+  - repeat_count
+  - step_mode
+  - terminate_last
+  - maximum_duration_s
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: configure_voltage_transient_trigger
+  canonical_method: configure_voltage_transient_trigger
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_voltage_transient_trigger
+  signature: 'configure_voltage_transient_trigger(self, channel: ''int'', source: "Literal[''bus'', ''external'']"
+    = ''bus'', alias: ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - source
   - alias
   device_facing: true
   execution_status: not_yet_run
@@ -686,6 +764,28 @@ methods:
   - alias
   device_facing: true
   execution_status: not_yet_run
+- method: get_voltage_slew_rate
+  canonical_method: get_voltage_slew_rate
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_voltage_slew_rate
+  signature: 'get_voltage_slew_rate(self, channel: ''int'', alias: ''str | None'' = None) -> ''float'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: get_voltage_transient_status
+  canonical_method: get_voltage_transient_status
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_voltage_transient_status
+  signature: 'get_voltage_transient_status(self, channel: ''int'', alias: ''str | None'' = None) -> ''VoltageTransientStatus'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
 - method: idn
   canonical_method: get_identity
   aliases:
@@ -1104,6 +1204,19 @@ methods:
   - alias
   device_facing: true
   execution_status: not_yet_run
+- method: set_voltage_slew_rate
+  canonical_method: set_voltage_slew_rate
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.set_voltage_slew_rate
+  signature: 'set_voltage_slew_rate(self, channel: ''int'', rate_v_per_s: ''float | str'', alias: ''str
+    | None'' = None) -> ''float'''
+  required_arguments:
+  - channel
+  - rate_v_per_s
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
 - method: shutdown_all
   canonical_method: shutdown_all
   aliases: []
@@ -1152,6 +1265,19 @@ methods:
   signature: 'trigger_digitize(self, channel: ''int'', alias: ''str | None'' = None) -> ''None'''
   required_arguments:
   - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: trigger_voltage_transient
+  canonical_method: trigger_voltage_transient
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.trigger_voltage_transient
+  signature: 'trigger_voltage_transient(self, channel: ''int'', token: ''VoltageTransientToken'', alias:
+    ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - channel
+  - token
   optional_arguments:
   - alias
   device_facing: true
@@ -1256,6 +1382,37 @@ methods:
   - channel
   - minimum
   - maximum
+  optional_arguments:
+  - timeout_s
+  - poll_interval_s
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: wait_voltage_transient_complete
+  canonical_method: wait_voltage_transient_complete
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.wait_voltage_transient_complete
+  signature: 'wait_voltage_transient_complete(self, channel: ''int'', token: ''VoltageTransientToken'',
+    *, timeout_s: ''float'' = 10.0, poll_interval_s: ''float'' = 0.01, alias: ''str | None'' = None) ->
+    ''VoltageTransientStatus'''
+  required_arguments:
+  - channel
+  - token
+  optional_arguments:
+  - timeout_s
+  - poll_interval_s
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: wait_voltage_transient_ready
+  canonical_method: wait_voltage_transient_ready
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.wait_voltage_transient_ready
+  signature: 'wait_voltage_transient_ready(self, channel: ''int'', token: ''VoltageTransientToken'', *,
+    timeout_s: ''float'' = 5.0, poll_interval_s: ''float'' = 0.01, alias: ''str | None'' = None) -> ''VoltageTransientStatus'''
+  required_arguments:
+  - channel
+  - token
   optional_arguments:
   - timeout_s
   - poll_interval_s

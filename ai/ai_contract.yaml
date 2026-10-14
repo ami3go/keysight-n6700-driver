@@ -3,7 +3,7 @@ identity:
   plugin_id: keysight.n6700
   driver_name: keysight_n6700
   distribution_name: keysight-n6700-driver
-  distribution_version: 0.6.13
+  distribution_version: 0.7.0
   driver_import_path: keysight_n6700.driver
   driver_class: keysight_n6700.driver.N6700
   supported_models:
@@ -56,6 +56,12 @@ resources:
     - current
     - power
     availability: module-dependent
+  - id: voltage_transient_source
+    quantity:
+    - voltage_list
+    - voltage_arb
+    - voltage_slew
+    availability: supported source-module dependent; physical timing qualification pending
   - id: smu
     quantity:
     - source_voltage
@@ -291,6 +297,121 @@ capabilities:
   binding:
     python_method: set_dc_voltage
     canonical_method: set_dc_voltage
+    aliases: []
+- capability_id: source.voltage.slew.set
+  display_name: Set Voltage Slew Rate
+  description: Set voltage slew rate in V/s and return the instrument readback.
+  category: source
+  standard: true
+  risk_level: medium
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: set_voltage_slew_rate
+    canonical_method: set_voltage_slew_rate
+    aliases: []
+- capability_id: source.voltage.transient.list.configure
+  display_name: Configure Voltage List
+  description: Configure and verify a finite voltage LIST without enabling the output.
+  category: source
+  standard: true
+  risk_level: high
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Target source output is OFF.
+  - Caller supplied an approved voltage envelope.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: configure_voltage_list
+    canonical_method: configure_voltage_list
+    aliases: []
+- capability_id: source.voltage.transient.arb.configure
+  display_name: Configure Voltage Arb
+  description: Configure and verify a finite user-defined voltage ARB.
+  category: source
+  standard: true
+  risk_level: high
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Target source output is OFF.
+  - Caller supplied an approved voltage envelope.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: configure_voltage_arb
+    canonical_method: configure_voltage_arb
+    aliases: []
+- capability_id: source.voltage.transient.arm
+  display_name: Arm Voltage Transient
+  description: ''
+  category: source
+  standard: true
+  risk_level: high
+  mutating: true
+  may_energize_or_sink_power: true
+  preconditions:
+  - A verified LIST/ARB profile exists.
+  - The source output is already ON.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: arm_voltage_transient
+    canonical_method: arm_voltage_transient
+    aliases: []
+- capability_id: source.voltage.transient.trigger
+  display_name: Trigger Voltage Transient
+  description: ''
+  category: source
+  standard: true
+  risk_level: critical
+  mutating: true
+  may_energize_or_sink_power: true
+  preconditions:
+  - The matching generation is armed and reports WTG_transient.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: trigger_voltage_transient
+    canonical_method: trigger_voltage_transient
+    aliases: []
+- capability_id: source.voltage.transient.abort
+  display_name: Abort Voltage Transient
+  description: ''
+  category: source
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: abort_voltage_transient
+    canonical_method: abort_voltage_transient
     aliases: []
 - capability_id: source.current.set
   display_name: Set Dc Current
@@ -686,6 +807,11 @@ safety_rules:
   set_auto_shutdown_on_disconnect(False) was called explicitly.
 - Raw SCPI (write_scpi/query_scpi) bypasses every typed safeguard; do not use it to work around a typed
   method's restriction.
+- Voltage LIST/ARB configuration requires output OFF, finite bounded points, an explicit caller-approved
+  voltage envelope, finite repeat count and bounded duration; configuration never enables the output.
+- A source transient may be triggered only after a matching generation token is armed and WTG_transient
+  readiness is observed; timeout cleanup aborts the transient and safe_shutdown() aborts before output
+  OFF.
 - Electronic-load SCPI commands are refused for real modules unless the model matches keysight_n6700.module_capabilities.LOAD_PREFIXES
   (currently N679x); the simulator's SIM_LOAD is the only other load model exempted, for testing.
 verification_objectives:
@@ -702,6 +828,9 @@ verification_objectives:
     vs. calculated).
 - id: VO-PROTECTION
   description: get_protection_status()/clear_protection() report and clear a tripped protection condition.
+- id: VO-VOLTAGE-TRANSIENT
+  description: A bounded LIST/UDEF ARB profile reads back, reaches WTG_transient, runs once for its matching
+    generation token, completes or aborts within a bounded timeout, and leaves no SCPI/protection error.
 - id: VO-SHUTDOWN
   description: safe_shutdown() disables every installed channel and reports per-channel success.
 setup_teardown_contract:
@@ -717,12 +846,18 @@ limitations:
   only; real N6700 remote/local behavior is transport-specific and not yet verified.
 - Hardware evidence is specific to N6700C firmware E.02.09.3271 with N6775A/N6791A modules; other mainframes,
   firmware revisions, module families, and trigger sources remain unqualified.
+- Voltage LIST/UDEF ARB and slew control are software-implemented and simulator-tested, but analog amplitude,
+  dwell, transition time, overshoot, trigger latency and jitter remain unqualified until guarded N6775A
+  HIL plus independent oscilloscope testing is retained.
 planning_hints:
 - Always call discover_modules() (or let connect()'s default discover=True do it) before addressing a
   channel by type-specific accessor (power_supply/smu/load).
 - Configure a channel's setpoints and protection with the output/load input off, then enable it explicitly,
   mirroring TEMPLATE-SAFE-SOURCE-CHANNEL.
 - Prefer typed methods over write_scpi/query_scpi; raw SCPI has no capability or safety gating.
+- For voltage dips/peaks, configure a finite LIST or UDEF ARB with the output OFF, use the returned read-back
+  configuration as authoritative, enable and stabilize explicitly, then arm, wait for readiness, trigger,
+  wait for completion, and abort/disable in finally.
 unknown_handling:
   policy: fail_closed
   blocking_unknowns:

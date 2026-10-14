@@ -51,3 +51,13 @@ def test_n678x_still_classifies_as_smu() -> None:
     assert caps.module_type == "smu"
     assert caps.supports_smu_priority_mode is True
     assert caps.supports_aux_voltage_input is True
+    assert caps.supports_voltage_arb is True
+    assert caps.supports_voltage_slew is True
+
+
+def test_n677x_supports_voltage_list_arb_and_slew() -> None:
+    caps = classify_module("N6775A")
+    assert caps.module_type == "power_supply"
+    assert caps.supports_list_mode is True
+    assert caps.supports_voltage_arb is True
+    assert caps.supports_voltage_slew is True

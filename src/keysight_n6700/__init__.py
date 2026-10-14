@@ -36,6 +36,10 @@ from .types import (
     RemoteState,
     ScpiErrorRecord,
     ShutdownResult,
+    VoltageArbConfiguration,
+    VoltageListConfiguration,
+    VoltageTransientStatus,
+    VoltageTransientToken,
 )
 from .version import __version__
 
@@ -73,6 +77,10 @@ __all__ = [
     "ScpiErrorRecord",
     "ShutdownResult",
     "SimN6700Instrument",
+    "VoltageArbConfiguration",
+    "VoltageListConfiguration",
+    "VoltageTransientStatus",
+    "VoltageTransientToken",
     "__version__",
     "classify_module",
 ]

@@ -20,7 +20,7 @@ from typing import Any, cast
 from robot.api import logger
 from robot.api.deco import keyword, library, not_keyword
 
-from keysight_n6700 import N6700, DriverTimeoutError
+from keysight_n6700 import N6700, DriverTimeoutError, VoltageTransientToken
 
 from .version import __version__
 
@@ -134,6 +134,19 @@ def _as_channels(value: Any) -> list[int]:
     if len(set(channels)) != len(channels):
         raise ValueError(f"channels contain duplicates: {channels}")
     return channels
+
+
+@not_keyword
+def _as_float_list(value: Any, *, name: str) -> list[float]:
+    if isinstance(value, str):
+        raw = [part for part in re.split(r"[,;\s]+", value.strip()) if part]
+    elif isinstance(value, Sequence):
+        raw = list(value)
+    else:
+        raw = [value]
+    if not raw:
+        raise ValueError(f"{name} cannot be empty")
+    return [_as_float(item, name=f"{name}[{index}]") for index, item in enumerate(raw)]
 
 
 @not_keyword
@@ -378,6 +391,150 @@ class KeysightN6700Library:
     def get_n6700_voltage_setpoint(self, channel: Any, alias: str | None = None) -> float:
         """Return the programmed voltage setpoint."""
         return self._driver.get_dc_voltage_setpoint(_as_channel(channel), alias=alias)
+
+    @keyword("Set N6700 Voltage Slew Rate")
+    def set_n6700_voltage_slew_rate(
+        self, channel: Any, rate_v_per_s: Any, alias: str | None = None
+    ) -> float:
+        """Set voltage slew in V/s; use ``max`` for the fastest hardware rate."""
+        rate: float | str = (
+            "max"
+            if isinstance(rate_v_per_s, str)
+            and rate_v_per_s.strip().lower() in {"max", "inf", "infinity"}
+            else _as_float(rate_v_per_s, name="rate_v_per_s")
+        )
+        result = self._driver.set_voltage_slew_rate(_as_channel(channel), rate, alias=alias)
+        self._post_write(alias)
+        return result
+
+    @keyword("Get N6700 Voltage Slew Rate")
+    def get_n6700_voltage_slew_rate(self, channel: Any, alias: str | None = None) -> float:
+        """Return the programmed voltage slew rate in V/s."""
+        return self._driver.get_voltage_slew_rate(_as_channel(channel), alias=alias)
+
+    @keyword("Configure N6700 Voltage List")
+    def configure_n6700_voltage_list(
+        self,
+        channel: Any,
+        levels_v: Any,
+        dwell_s: Any,
+        maximum_voltage_v: Any,
+        minimum_voltage_v: Any = 0.0,
+        repeat_count: Any = 1,
+        step_mode: str = "auto",
+        terminate_last: Any = False,
+        maximum_duration_s: Any = 60.0,
+        alias: str | None = None,
+    ) -> dict[str, Any]:
+        """Configure a bounded voltage LIST while the selected output is OFF."""
+        dwells = _as_float_list(dwell_s, name="dwell_s")
+        config = self._driver.configure_voltage_list(
+            _as_channel(channel),
+            _as_float_list(levels_v, name="levels_v"),
+            dwells[0] if len(dwells) == 1 else dwells,
+            maximum_voltage_v=_as_float(maximum_voltage_v, name="maximum_voltage_v"),
+            minimum_voltage_v=_as_float(minimum_voltage_v, name="minimum_voltage_v"),
+            repeat_count=int(repeat_count),
+            step_mode=str(step_mode).strip().lower(),  # type: ignore[arg-type]
+            terminate_last=_as_bool(terminate_last, name="terminate_last"),
+            maximum_duration_s=_as_seconds(maximum_duration_s, name="maximum_duration_s"),
+            alias=alias,
+        )
+        self._post_write(alias)
+        return _serialize(config)
+
+    @keyword("Configure N6700 Voltage Arb")
+    def configure_n6700_voltage_arb(
+        self,
+        channel: Any,
+        levels_v: Any,
+        dwell_s: Any,
+        maximum_voltage_v: Any,
+        minimum_voltage_v: Any = 0.0,
+        repeat_count: Any = 1,
+        terminate_last: Any = False,
+        maximum_duration_s: Any = 60.0,
+        alias: str | None = None,
+    ) -> dict[str, Any]:
+        """Configure a bounded user-defined voltage ARB while output is OFF."""
+        dwells = _as_float_list(dwell_s, name="dwell_s")
+        config = self._driver.configure_voltage_arb(
+            _as_channel(channel),
+            _as_float_list(levels_v, name="levels_v"),
+            dwells[0] if len(dwells) == 1 else dwells,
+            maximum_voltage_v=_as_float(maximum_voltage_v, name="maximum_voltage_v"),
+            minimum_voltage_v=_as_float(minimum_voltage_v, name="minimum_voltage_v"),
+            repeat_count=int(repeat_count),
+            terminate_last=_as_bool(terminate_last, name="terminate_last"),
+            maximum_duration_s=_as_seconds(maximum_duration_s, name="maximum_duration_s"),
+            alias=alias,
+        )
+        self._post_write(alias)
+        return _serialize(config)
+
+    @keyword("Configure N6700 Voltage Transient Trigger")
+    def configure_n6700_voltage_transient_trigger(
+        self, channel: Any, source: str = "bus", alias: str | None = None
+    ) -> str:
+        """Select ``bus`` or ``external`` source-transient triggering."""
+        normalized = str(source).strip().lower()
+        self._driver.configure_voltage_transient_trigger(
+            _as_channel(channel), normalized, alias=alias  # type: ignore[arg-type]
+        )
+        self._post_write(alias)
+        return normalized
+
+    @keyword("Arm N6700 Voltage Transient")
+    def arm_n6700_voltage_transient(
+        self, channel: Any, alias: str | None = None
+    ) -> dict[str, Any]:
+        """Arm a verified profile; the output must already be ON."""
+        return _serialize(self._driver.arm_voltage_transient(_as_channel(channel), alias=alias))
+
+    @keyword("Wait Until N6700 Voltage Transient Is Ready")
+    def wait_until_n6700_voltage_transient_is_ready(
+        self, channel: Any, generation: Any, timeout: Any = "5s", alias: str | None = None
+    ) -> dict[str, Any]:
+        """Wait for WTG_transient before generating the reviewed event."""
+        ch = _as_channel(channel)
+        token = VoltageTransientToken(ch, int(generation))
+        return _serialize(
+            self._driver.wait_voltage_transient_ready(
+                ch, token, timeout_s=_as_seconds(timeout), alias=alias
+            )
+        )
+
+    @keyword("Trigger N6700 Voltage Transient")
+    def trigger_n6700_voltage_transient(
+        self, channel: Any, generation: Any, alias: str | None = None
+    ) -> None:
+        """Generate the channel-scoped software trigger for a ready BUS profile."""
+        ch = _as_channel(channel)
+        self._driver.trigger_voltage_transient(
+            ch, VoltageTransientToken(ch, int(generation)), alias=alias
+        )
+        self._post_write(alias)
+
+    @keyword("Wait Until N6700 Voltage Transient Is Complete")
+    def wait_until_n6700_voltage_transient_is_complete(
+        self, channel: Any, generation: Any, timeout: Any = "10s", alias: str | None = None
+    ) -> dict[str, Any]:
+        """Wait for bounded completion; timeout automatically aborts the profile."""
+        ch = _as_channel(channel)
+        return _serialize(
+            self._driver.wait_voltage_transient_complete(
+                ch,
+                VoltageTransientToken(ch, int(generation)),
+                timeout_s=_as_seconds(timeout),
+                alias=alias,
+            )
+        )
+
+    @keyword("Abort N6700 Voltage Transient")
+    def abort_n6700_voltage_transient(self, channel: Any, alias: str | None = None) -> None:
+        """Abort the channel's output transient trigger system."""
+        self._driver.abort_voltage_transient(_as_channel(channel), alias=alias)
+        self._post_write(alias)
 
     @keyword("Set N6700 Current Limit")
     def set_n6700_current_limit(self, channel: Any, current: Any, alias: str | None = None) -> float:

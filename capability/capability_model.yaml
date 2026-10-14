@@ -205,6 +205,121 @@ capabilities:
     python_method: set_dc_voltage
     canonical_method: set_dc_voltage
     aliases: []
+- capability_id: source.voltage.slew.set
+  display_name: Set Voltage Slew Rate
+  description: Set voltage slew rate in V/s and return the instrument readback.
+  category: source
+  standard: true
+  risk_level: medium
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: set_voltage_slew_rate
+    canonical_method: set_voltage_slew_rate
+    aliases: []
+- capability_id: source.voltage.transient.list.configure
+  display_name: Configure Voltage List
+  description: Configure and verify a finite voltage LIST without enabling the output.
+  category: source
+  standard: true
+  risk_level: high
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Target source output is OFF.
+  - Caller supplied an approved voltage envelope.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: configure_voltage_list
+    canonical_method: configure_voltage_list
+    aliases: []
+- capability_id: source.voltage.transient.arb.configure
+  display_name: Configure Voltage Arb
+  description: Configure and verify a finite user-defined voltage ARB.
+  category: source
+  standard: true
+  risk_level: high
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Target source output is OFF.
+  - Caller supplied an approved voltage envelope.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: configure_voltage_arb
+    canonical_method: configure_voltage_arb
+    aliases: []
+- capability_id: source.voltage.transient.arm
+  display_name: Arm Voltage Transient
+  description: ''
+  category: source
+  standard: true
+  risk_level: high
+  mutating: true
+  may_energize_or_sink_power: true
+  preconditions:
+  - A verified LIST/ARB profile exists.
+  - The source output is already ON.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: arm_voltage_transient
+    canonical_method: arm_voltage_transient
+    aliases: []
+- capability_id: source.voltage.transient.trigger
+  display_name: Trigger Voltage Transient
+  description: ''
+  category: source
+  standard: true
+  risk_level: critical
+  mutating: true
+  may_energize_or_sink_power: true
+  preconditions:
+  - The matching generation is armed and reports WTG_transient.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: trigger_voltage_transient
+    canonical_method: trigger_voltage_transient
+    aliases: []
+- capability_id: source.voltage.transient.abort
+  display_name: Abort Voltage Transient
+  description: ''
+  category: source
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: abort_voltage_transient
+    canonical_method: abort_voltage_transient
+    aliases: []
 - capability_id: source.current.set
   display_name: Set Dc Current
   description: 'LPDS-002: program the current limit on ``channel``.'

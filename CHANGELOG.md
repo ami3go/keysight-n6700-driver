@@ -3,6 +3,16 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.7.0 — 2026-10-14
+
+Added bounded source-voltage transient generation for power-supply/SMU
+channels: voltage slew, finite LIST and user-defined ARB profiles, BUS or
+external trigger setup, generation-token arm/ready/trigger/complete/abort
+lifecycle, readback validation, timeout cleanup, simulator support, Robot
+Framework keywords, and a guarded N6775A HIL test. Analog timing and waveform
+quality remain pending independent oscilloscope qualification; no hardware
+was energized for this release.
+
 ## v0.6.13 — 2026-10-12
 
 Fixed a real-hardware hang found while running a live DUT load-transient

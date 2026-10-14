@@ -104,3 +104,29 @@ def test_raw_scpi_guard_keywords_delegate_to_the_driver(library: KeysightN6700Li
     library.disable_n6700_raw_scpi()
     with pytest.raises(Exception):  # noqa: B017 - keysight_n6700.DriverUnsafeOperationError
         library.write_n6700_scpi("*CLS")
+
+
+def test_voltage_list_keywords_translate_lists_units_and_generation(library) -> None:
+    config = library.configure_n6700_voltage_list(
+        1, "12V,6V,12V", "10ms,20ms,10ms", "18V"
+    )
+    assert config["levels_v"] == pytest.approx([12.0, 6.0, 12.0])
+    assert config["dwell_s"] == pytest.approx([0.01, 0.02, 0.01])
+    library.set_n6700_voltage(1, "12V")
+    library.turn_on_n6700_output(1)
+    token = library.arm_n6700_voltage_transient(1)
+    ready = library.wait_until_n6700_voltage_transient_is_ready(1, token["generation"])
+    assert ready["waiting_for_trigger"] is True
+    library.trigger_n6700_voltage_transient(1, token["generation"])
+    complete = library.wait_until_n6700_voltage_transient_is_complete(
+        1, token["generation"]
+    )
+    assert complete["state"] == "complete"
+
+
+def test_voltage_arb_and_slew_keywords_delegate_to_driver(library) -> None:
+    assert library.set_n6700_voltage_slew_rate(1, "500") == pytest.approx(500.0)
+    config = library.configure_n6700_voltage_arb(
+        1, [12, 4, 12], "5ms", 18, maximum_duration_s="1s"
+    )
+    assert config["levels_v"] == pytest.approx([12.0, 4.0, 12.0])

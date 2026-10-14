@@ -65,6 +65,12 @@ class AcquisitionCoordinator:
         return bool(re.match(r"^(OUTP(?:UT)?)(?:\s|:STAT(?:E)?\s)(?:OFF|0)(?:\s*,|$)", cmd))
 
     @staticmethod
+    def _is_emergency_abort(cmd: str) -> bool:
+        # Only the source-transient abort is safety-relevant; ABOR:ACQ from a
+        # non-owner thread would silently cancel another caller's capture.
+        return cmd.startswith(("ABOR:TRAN", "ABORT:TRANSIENT"))
+
+    @staticmethod
     def _is_safe_owner_command(cmd: str) -> bool:
         # Explicitly allow only commands used by the existing capture API,
         # status/error inspection, and deliberately commanded source/load
@@ -74,6 +80,7 @@ class AcquisitionCoordinator:
             "INIT:ACQ", "ABOR:ACQ", "FETC:ARR:", "STAT:OPER:COND?",
             "SYST:ERR?", "SYST:CHAN:COUN?", "FORM?", "FORM ", "FORM:BORD?", "FORM:BORD ",
             "CURR ", "VOLT ", "RES ", "POW ", "FUNC ",
+            "LIST:", "ARB:", "TRIG:TRAN", "INIT:TRAN", "INIT:CONT:TRAN", "ABOR:TRAN",
             "OUTP ", "OUTP:", "OUTPUT ",
         )
         return cmd.startswith(allowed)
@@ -85,7 +92,7 @@ class AcquisitionCoordinator:
             owner = self._owners.get(alias)
             if owner is not None:
                 normalized = " ".join(command.strip().upper().split())
-                if self._is_output_off(normalized):
+                if self._is_output_off(normalized) or self._is_emergency_abort(normalized):
                     pass  # Emergency output OFF must never be blocked.
                 elif owner.thread_id != threading.get_ident():
                     if not normalized.startswith("STAT:OPER:COND?"):
