@@ -72,6 +72,10 @@ from .types import (
     SelfTestResult,
     ShutdownChannelResult,
     ShutdownResult,
+    VoltageArbConfiguration,
+    VoltageListConfiguration,
+    VoltageTransientStatus,
+    VoltageTransientToken,
 )
 from .version import __version__
 
@@ -786,6 +790,165 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         return {"ovp_v": ps.get_ovp(), "range_v": ps.get_voltage_range()}
 
     @capability(
+        "source.voltage.slew.set",
+        category="source",
+        risk_level="medium",
+        mutating=True,
+        canonical_method="set_voltage_slew_rate",
+    )
+    def set_voltage_slew_rate(
+        self, channel: int, rate_v_per_s: float | str, alias: str | None = None
+    ) -> float:
+        """Set voltage slew rate in V/s and return the instrument readback."""
+        return self.power_supply(channel, alias=alias).set_voltage_slew_rate(rate_v_per_s)
+
+    def get_voltage_slew_rate(self, channel: int, alias: str | None = None) -> float:
+        return self.power_supply(channel, alias=alias).get_voltage_slew_rate()
+
+    @capability(
+        "source.voltage.transient.list.configure",
+        category="source",
+        risk_level="high",
+        mutating=True,
+        canonical_method="configure_voltage_list",
+        preconditions=("Target source output is OFF.", "Caller supplied an approved voltage envelope.",),
+    )
+    def configure_voltage_list(
+        self,
+        channel: int,
+        levels_v: Sequence[float],
+        dwell_s: float | Sequence[float],
+        *,
+        maximum_voltage_v: float,
+        minimum_voltage_v: float = 0.0,
+        repeat_count: int = 1,
+        step_mode: Literal["auto", "once"] = "auto",
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+        alias: str | None = None,
+    ) -> VoltageListConfiguration:
+        """Configure and verify a finite voltage LIST without enabling the output."""
+        return self.power_supply(channel, alias=alias).configure_voltage_list(
+            levels_v,
+            dwell_s,
+            maximum_voltage_v=maximum_voltage_v,
+            minimum_voltage_v=minimum_voltage_v,
+            repeat_count=repeat_count,
+            step_mode=step_mode,
+            terminate_last=terminate_last,
+            maximum_duration_s=maximum_duration_s,
+        )
+
+    @capability(
+        "source.voltage.transient.arb.configure",
+        category="source",
+        risk_level="high",
+        mutating=True,
+        canonical_method="configure_voltage_arb",
+        preconditions=("Target source output is OFF.", "Caller supplied an approved voltage envelope.",),
+    )
+    def configure_voltage_arb(
+        self,
+        channel: int,
+        levels_v: Sequence[float],
+        dwell_s: float | Sequence[float],
+        *,
+        maximum_voltage_v: float,
+        minimum_voltage_v: float = 0.0,
+        repeat_count: int = 1,
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+        alias: str | None = None,
+    ) -> VoltageArbConfiguration:
+        """Configure and verify a finite user-defined voltage ARB."""
+        return self.power_supply(channel, alias=alias).configure_voltage_arb(
+            levels_v,
+            dwell_s,
+            maximum_voltage_v=maximum_voltage_v,
+            minimum_voltage_v=minimum_voltage_v,
+            repeat_count=repeat_count,
+            terminate_last=terminate_last,
+            maximum_duration_s=maximum_duration_s,
+        )
+
+    def configure_voltage_transient_trigger(
+        self,
+        channel: int,
+        source: Literal["bus", "external"] = "bus",
+        alias: str | None = None,
+    ) -> None:
+        self.power_supply(channel, alias=alias).configure_voltage_transient_trigger(source)
+
+    @capability(
+        "source.voltage.transient.arm",
+        category="source",
+        risk_level="high",
+        mutating=True,
+        canonical_method="arm_voltage_transient",
+        may_energize_or_sink_power=True,
+        preconditions=("A verified LIST/ARB profile exists.", "The source output is already ON.",),
+    )
+    def arm_voltage_transient(
+        self, channel: int, alias: str | None = None
+    ) -> VoltageTransientToken:
+        return self.power_supply(channel, alias=alias).arm_voltage_transient()
+
+    def wait_voltage_transient_ready(
+        self,
+        channel: int,
+        token: VoltageTransientToken,
+        *,
+        timeout_s: float = 5.0,
+        poll_interval_s: float = 0.01,
+        alias: str | None = None,
+    ) -> VoltageTransientStatus:
+        return self.power_supply(channel, alias=alias).wait_voltage_transient_ready(
+            token, timeout_s=timeout_s, poll_interval_s=poll_interval_s
+        )
+
+    @capability(
+        "source.voltage.transient.trigger",
+        category="source",
+        risk_level="critical",
+        mutating=True,
+        canonical_method="trigger_voltage_transient",
+        may_energize_or_sink_power=True,
+        preconditions=("The matching generation is armed and reports WTG_transient.",),
+    )
+    def trigger_voltage_transient(
+        self, channel: int, token: VoltageTransientToken, alias: str | None = None
+    ) -> None:
+        self.power_supply(channel, alias=alias).trigger_voltage_transient(token)
+
+    def wait_voltage_transient_complete(
+        self,
+        channel: int,
+        token: VoltageTransientToken,
+        *,
+        timeout_s: float = 10.0,
+        poll_interval_s: float = 0.01,
+        alias: str | None = None,
+    ) -> VoltageTransientStatus:
+        return self.power_supply(channel, alias=alias).wait_voltage_transient_complete(
+            token, timeout_s=timeout_s, poll_interval_s=poll_interval_s
+        )
+
+    @capability(
+        "source.voltage.transient.abort",
+        category="source",
+        risk_level="low",
+        mutating=True,
+        canonical_method="abort_voltage_transient",
+    )
+    def abort_voltage_transient(self, channel: int, alias: str | None = None) -> None:
+        self.power_supply(channel, alias=alias).abort_voltage_transient()
+
+    def get_voltage_transient_status(
+        self, channel: int, alias: str | None = None
+    ) -> VoltageTransientStatus:
+        return self.power_supply(channel, alias=alias).get_voltage_transient_status()
+
+    @capability(
         "source.current.set",
         category="source",
         risk_level="medium",
@@ -1222,13 +1385,21 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         installed = self._discovery.get(key, _AliasDiscovery()).channels
         results: list[ShutdownChannelResult] = []
         for ch_num in sorted(installed):
+            errors: list[str] = []
             try:
                 ch = self.channel(ch_num, alias=key)
                 if isinstance(ch, ElectronicLoadChannel):
                     ch.input_off()
                 elif isinstance(ch, PowerSupplyChannel):
-                    ch.output_off()
-                results.append(ShutdownChannelResult(ch_num, True, True))
+                    try:
+                        ch.abort_voltage_transient()
+                    except Exception as exc:
+                        errors.append(f"transient abort failed: {exc}")
+                    finally:
+                        ch.output_off()
+                results.append(
+                    ShutdownChannelResult(ch_num, True, not errors, "; ".join(errors) or None)
+                )
             except Exception as exc:
                 results.append(ShutdownChannelResult(ch_num, True, False, str(exc)))
         return ShutdownResult(tuple(results))

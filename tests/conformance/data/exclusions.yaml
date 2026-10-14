@@ -2,10 +2,10 @@
 # realized protocol vector must be listed here with an honest reason,
 # reviewed and approved by the maintainer, not silently dropped.
 #
-# This driver's status is "untested" (LPDS-001 §9): unit tests and the 25
+# This driver's status is "untested" (LPDS-001 §9): unit tests and the 29
 # protocol vectors in protocol_vectors.yaml pass against the simulator;
 # nothing here has been run against real hardware, and the exclusions below
-# are v0.1.0 conformance-pass scope decisions, not permanent gaps. They are
+# are reviewed release-scope decisions, not permanent gaps. They are
 # already covered by tests/unit at the Python-call level (see the file next
 # to each reason); what is missing is specifically the transport-boundary
 # outbound/inbound protocol vector.
@@ -416,3 +416,45 @@ exclusions:
     scope: v0.6.0
     review_date: "2026-10-09"
     covered_by: tests/unit/test_electronic_load_digitize.py
+  - method: configure_voltage_list
+    reason: "A multi-command, safety-bounded transaction rather than one protocol shape. Exact ordered writes and readbacks are asserted at the transport boundary in test_voltage_transient.py; guarded real execution has a dedicated confirmation-gated HIL test."
+    risk: high
+    approval: maintainer
+    scope: v0.7.0
+    review_date: "2026-10-14"
+    covered_by: tests/unit/test_voltage_transient.py
+  - method: configure_voltage_arb
+    reason: "A multi-command, safety-bounded transaction rather than one protocol shape. Array writes/readbacks and execution are covered by the voltage-transient unit suite; hardware execution is intentionally excluded from general conformance."
+    risk: high
+    approval: maintainer
+    scope: v0.7.0
+    review_date: "2026-10-14"
+    covered_by: tests/unit/test_voltage_transient.py
+  - method: arm_voltage_transient
+    reason: "Requires a verified profile, explicitly enabled output, and a runtime generation token; covered by the lifecycle unit suite and the separately gated HIL test rather than general protocol conformance."
+    risk: high
+    approval: maintainer
+    scope: v0.7.0
+    review_date: "2026-10-14"
+    covered_by: tests/unit/test_voltage_transient.py
+  - method: wait_voltage_transient_ready
+    reason: "Polls status for a runtime generation token and adds no protocol shape beyond the vectored status query. Timeout and WTG behavior are covered by the lifecycle unit suite."
+    risk: low
+    approval: maintainer
+    scope: v0.7.0
+    review_date: "2026-10-14"
+    covered_by: tests/unit/test_voltage_transient.py
+  - method: trigger_voltage_transient
+    reason: "Intentionally requires a runtime generation token and observed WTG readiness. Exact channel-scoped trigger text and lifecycle gating are covered by the voltage-transient unit suite; real execution requires the dedicated energization gate."
+    risk: critical
+    approval: maintainer
+    scope: v0.7.0
+    review_date: "2026-10-14"
+    covered_by: tests/unit/test_voltage_transient.py
+  - method: wait_voltage_transient_complete
+    reason: "Polls WTG/active state for a runtime generation token; timeout-to-abort recovery is covered by the lifecycle unit suite and adds no untested protocol shape beyond status and abort vectors."
+    risk: low
+    approval: maintainer
+    scope: v0.7.0
+    review_date: "2026-10-14"
+    covered_by: tests/unit/test_voltage_transient.py

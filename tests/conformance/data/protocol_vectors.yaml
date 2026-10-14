@@ -72,6 +72,42 @@ vectors:
     expected_outbound: { operation: query, command: "VOLT? (@1)" }
     expected_return: { type: float }
 
+  - id: set-voltage-slew-rate
+    method: set_voltage_slew_rate
+    arguments: { channel: 1, rate_v_per_s: 500.0 }
+    preconditions: [connected]
+    expected_outbound: { operation: write, command: "VOLT:SLEW 500,(@1)" }
+    expected_return: { type: float }
+    cleanup: [{ method: set_voltage_slew_rate, arguments: { channel: 1, rate_v_per_s: max } }]
+
+  - id: get-voltage-slew-rate
+    method: get_voltage_slew_rate
+    arguments: { channel: 1 }
+    preconditions: [connected]
+    expected_outbound: { operation: query, command: "VOLT:SLEW? (@1)" }
+    expected_return: { type: float }
+
+  - id: configure-voltage-transient-trigger
+    method: configure_voltage_transient_trigger
+    arguments: { channel: 1, source: bus }
+    preconditions: [connected]
+    expected_outbound: { operation: write, command: "TRIG:TRAN:SOUR BUS,(@1)" }
+    expected_return: { type: "NoneType" }
+
+  - id: get-voltage-transient-status
+    method: get_voltage_transient_status
+    arguments: { channel: 1 }
+    preconditions: [connected]
+    expected_outbound: { operation: query, command: "STAT:OPER:COND? (@1)" }
+    expected_return: { type: VoltageTransientStatus }
+
+  - id: abort-voltage-transient
+    method: abort_voltage_transient
+    arguments: { channel: 1 }
+    preconditions: [connected]
+    expected_outbound: { operation: write, command: "ABOR:TRAN (@1)" }
+    expected_return: { type: "NoneType" }
+
   - id: set-dc-current
     method: set_dc_current
     arguments: { value: 0.5, channel: 1 }

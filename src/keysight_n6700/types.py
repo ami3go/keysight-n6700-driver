@@ -8,6 +8,10 @@ from typing import Literal
 from scpi_driver_core.models import Identity as _CoreIdentity
 
 RemoteState = Literal["local", "remote", "remote_lockout"]
+VoltageTransientMode = Literal["fixed", "list", "arb"]
+VoltageTransientState = Literal[
+    "idle", "configured", "armed", "ready", "triggered", "complete", "aborted", "unknown"
+]
 
 
 @dataclass(frozen=True)
@@ -126,6 +130,64 @@ class ArrayMeasurement:
     interval_s: float | None = None  # sample spacing; time axis is i * interval_s
     offset_points: int | None = None  # trigger-relative index of the first sample
     raw_sha256: str | None = None  # sha256 of received binary sample bytes
+
+
+@dataclass(frozen=True)
+class VoltageListConfiguration:
+    """Validated/read-back voltage LIST configuration for one source channel."""
+
+    channel: int
+    levels_v: tuple[float, ...]
+    dwell_s: tuple[float, ...]
+    current_limit_a: float
+    repeat_count: int
+    step_mode: Literal["auto", "once"]
+    terminate_last: bool
+    minimum_voltage_v: float
+    maximum_voltage_v: float
+
+    @property
+    def duration_s(self) -> float:
+        return sum(self.dwell_s) * self.repeat_count
+
+
+@dataclass(frozen=True)
+class VoltageArbConfiguration:
+    """Validated/read-back user-defined voltage ARB configuration."""
+
+    channel: int
+    levels_v: tuple[float, ...]
+    dwell_s: tuple[float, ...]
+    repeat_count: int
+    terminate_last: bool
+    minimum_voltage_v: float
+    maximum_voltage_v: float
+
+    @property
+    def duration_s(self) -> float:
+        return sum(self.dwell_s) * self.repeat_count
+
+
+@dataclass(frozen=True)
+class VoltageTransientToken:
+    """Identifies one armed source-transient generation."""
+
+    channel: int
+    generation: int
+
+
+@dataclass(frozen=True)
+class VoltageTransientStatus:
+    """Non-destructive projection of the source transient trigger state."""
+
+    channel: int
+    mode: VoltageTransientMode
+    state: VoltageTransientState
+    generation: int
+    trigger_source: Literal["bus", "external"]
+    operation_status: int
+    waiting_for_trigger: bool
+    transient_active: bool
 
 
 @dataclass(frozen=True)

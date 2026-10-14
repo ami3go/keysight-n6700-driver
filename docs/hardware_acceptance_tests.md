@@ -164,6 +164,40 @@ N6700_HIL_DIGITIZE_ENABLED=true N6700_HIL_DIGITIZE_CHANNEL=2 N6700_HIL_DIGITIZE_
   pytest tests/hardware/test_hardware_load_digitize.py -v
 ```
 
+## 6. `test_hardware_voltage_transient.py` — guarded N6775A voltage dip
+
+This test programs and triggers one real finite voltage LIST on an N6775A.
+It is a command/lifecycle HIL check, not analog waveform qualification. It
+requires the selected output to start OFF, rejects any other module model,
+and always aborts the transient and disables the output during teardown.
+
+| Variable | Meaning |
+|---|---|
+| `N6700_HIL_VOLTAGE_TRANSIENT_ENABLED` | must be `true` |
+| `N6700_HIL_VOLTAGE_TRANSIENT_CHANNEL` | reviewed N6775A channel, no default |
+| `N6700_HIL_VOLTAGE_TRANSIENT_BASELINE_V` | normal source voltage, no default |
+| `N6700_HIL_VOLTAGE_TRANSIENT_DIP_V` | dip voltage below baseline, no default |
+| `N6700_HIL_VOLTAGE_TRANSIENT_DWELL_S` | dip dwell, limited by the test to 1 s |
+| `N6700_HIL_VOLTAGE_TRANSIENT_CURRENT_LIMIT_A` | reviewed current limit, no default |
+| `N6700_HIL_VOLTAGE_TRANSIENT_MAXIMUM_V` | approved DUT/fixture envelope, no default |
+| `N6700_HIL_VOLTAGE_TRANSIENT_CONFIRM` | exact phrase `GENERATE_REVIEWED_DIP` |
+
+```bash
+N6700_HIL_ENABLED=true N6700_RESOURCE=192.168.1.50 N6700_CONNECTION_TYPE=ethernet \
+N6700_HIL_VOLTAGE_TRANSIENT_ENABLED=true N6700_HIL_VOLTAGE_TRANSIENT_CHANNEL=1 \
+N6700_HIL_VOLTAGE_TRANSIENT_BASELINE_V=12 N6700_HIL_VOLTAGE_TRANSIENT_DIP_V=6 \
+N6700_HIL_VOLTAGE_TRANSIENT_DWELL_S=0.02 \
+N6700_HIL_VOLTAGE_TRANSIENT_CURRENT_LIMIT_A=1 \
+N6700_HIL_VOLTAGE_TRANSIENT_MAXIMUM_V=18 \
+N6700_HIL_VOLTAGE_TRANSIENT_CONFIRM=GENERATE_REVIEWED_DIP \
+  pytest tests/hardware/test_hardware_voltage_transient.py -v
+```
+
+Passing proves profile readback, WTG readiness, channel-scoped trigger,
+completion, empty error queue, inactive protection, and final output OFF on
+that instrument. The independent DSO matrix and release gates are specified
+in [`VOLTAGE_TRANSIENT_IMPLEMENTATION.md`](VOLTAGE_TRANSIENT_IMPLEMENTATION.md).
+
 ### Retained real load-transient evidence
 
 On 2026-10-09 the updated driver was also used as the VOUT waveform source
@@ -189,10 +223,11 @@ The run exposed two mandatory sequencing rules for consumers:
 
 ## What none of these prove
 
-Passing all five is real evidence the driver's read-only calls, one basic
+Passing all six is real evidence the driver's read-only calls, one basic
 enable/measure/disable cycle, the power-supply/electronic-load interaction,
 (for the vectors this mainframe's topology supports) LPDS-019 conformance
-itself, and a digitize configuration/arm/trigger/fetch round trip all work
+itself, a digitize configuration/arm/trigger/fetch round trip, and one
+guarded source-voltage transient lifecycle all work
 against your specific instrument and wiring. It does not cover SMU
 priority-mode switching on real SMU hardware (no SMU vector can pass
 without one installed), protection-trip/clear behavior, remote/local

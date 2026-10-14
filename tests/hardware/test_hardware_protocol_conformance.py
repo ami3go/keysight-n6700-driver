@@ -70,6 +70,17 @@ VECTORS = load_yaml("protocol_vectors.yaml")["vectors"]
 # understands. Neither has a real-hardware equivalent to check.
 SIMULATOR_ONLY_VECTOR_IDS = {"connect-simulated", "set-load-mode"}
 
+# Source-transient vectors deliberately stay in simulator conformance. The
+# dedicated voltage-transient HIL test has stronger module, output-OFF,
+# electrical-envelope, confirmation, and cleanup gates.
+SOURCE_TRANSIENT_VECTOR_IDS = {
+    "set-voltage-slew-rate",
+    "get-voltage-slew-rate",
+    "configure-voltage-transient-trigger",
+    "get-voltage-transient-status",
+    "abort-voltage-transient",
+}
+
 # These vectors' arguments/expected_outbound hardcode the simulator's
 # default channel map (see protocol_vectors.yaml's header comment) and must
 # be remapped onto this real mainframe's actual channel numbers.
@@ -188,6 +199,8 @@ def test_protocol_vector_against_real_hardware(
 
     if vector_id in SIMULATOR_ONLY_VECTOR_IDS:
         pytest.skip("simulator-only command/connection path, not applicable to real hardware")
+    if vector_id in SOURCE_TRANSIENT_VECTOR_IDS:
+        pytest.skip("covered by the separately gated N6775A voltage-transient HIL test")
     if vector_id == RESET_VECTOR_ID and not _truthy_env("N6700_HIL_PROTOCOL_ALLOW_RESET"):
         pytest.skip("set N6700_HIL_PROTOCOL_ALLOW_RESET=yes to include *RST (resets every channel)")
     if vector_id == OUTPUT_ENABLE_VECTOR_ID and not _truthy_env("N6700_HIL_PROTOCOL_OUTPUT_CONFIRM"):

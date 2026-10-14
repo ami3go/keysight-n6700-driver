@@ -81,6 +81,7 @@ def build_contract() -> dict[str, object]:
             ],
             "provided": [
                 {"id": "dc_source", "quantity": ["voltage", "current", "power"], "availability": "module-dependent"},
+                {"id": "voltage_transient_source", "quantity": ["voltage_list", "voltage_arb", "voltage_slew"], "availability": "supported source-module dependent; physical timing qualification pending"},
                 {"id": "smu", "quantity": ["source_voltage", "source_current", "measure_voltage", "measure_current"], "availability": "SMU module-dependent"},
                 {"id": "electronic_load", "quantity": ["cc", "cv", "cr", "cp"], "availability": "N679xA (N6791A/N6792A) verified against official Keysight documentation; other real load modules remain restricted unless explicitly supported"},
                 {"id": "internal_measurement", "quantity": ["voltage", "current", "power"], "availability": "module-dependent"},
@@ -117,6 +118,8 @@ def build_contract() -> dict[str, object]:
             "Typed configuration methods (set_dc_voltage, set_dc_current, configure_*) never enable an output; enable_output()/set_input() are separate, explicit calls.",
             "disconnect()/disconnect_all() attempt a best-effort shutdown of every installed channel first, unless set_auto_shutdown_on_disconnect(False) was called explicitly.",
             "Raw SCPI (write_scpi/query_scpi) bypasses every typed safeguard; do not use it to work around a typed method's restriction.",
+            "Voltage LIST/ARB configuration requires output OFF, finite bounded points, an explicit caller-approved voltage envelope, finite repeat count and bounded duration; configuration never enables the output.",
+            "A source transient may be triggered only after a matching generation token is armed and WTG_transient readiness is observed; timeout cleanup aborts the transient and safe_shutdown() aborts before output OFF.",
             "Electronic-load SCPI commands are refused for real modules unless the model matches keysight_n6700.module_capabilities.LOAD_PREFIXES (currently N679x); the simulator's SIM_LOAD is the only other load model exempted, for testing.",
         ],
         "verification_objectives": [
@@ -126,6 +129,7 @@ def build_contract() -> dict[str, object]:
             {"id": "VO-OUTPUT", "description": "enable_output()/disable_output() change, and get_output_state() reports, the output state."},
             {"id": "VO-MEASUREMENT", "description": "measure_dc_voltage/current/power return a finite value with a documented source (instrument vs. calculated)."},
             {"id": "VO-PROTECTION", "description": "get_protection_status()/clear_protection() report and clear a tripped protection condition."},
+            {"id": "VO-VOLTAGE-TRANSIENT", "description": "A bounded LIST/UDEF ARB profile reads back, reaches WTG_transient, runs once for its matching generation token, completes or aborts within a bounded timeout, and leaves no SCPI/protection error."},
             {"id": "VO-SHUTDOWN", "description": "safe_shutdown() disables every installed channel and reports per-channel success."},
         ],
         "setup_teardown_contract": {
@@ -136,11 +140,13 @@ def build_contract() -> dict[str, object]:
             "N679xA (N6791A/N6792A) electronic-load read/write and buffered-acquisition commands are verified against official Keysight documentation and real N6791A hardware. Other real load module families remain unsupported; only the simulator's SIM_LOAD is exercised for those.",
             "Remote/local control (get_remote_state/set_remote_state/remote_lockout) is implemented against the simulator only; real N6700 remote/local behavior is transport-specific and not yet verified.",
             "Hardware evidence is specific to N6700C firmware E.02.09.3271 with N6775A/N6791A modules; other mainframes, firmware revisions, module families, and trigger sources remain unqualified.",
+            "Voltage LIST/UDEF ARB and slew control are software-implemented and simulator-tested, but analog amplitude, dwell, transition time, overshoot, trigger latency and jitter remain unqualified until guarded N6775A HIL plus independent oscilloscope testing is retained.",
         ],
         "planning_hints": [
             "Always call discover_modules() (or let connect()'s default discover=True do it) before addressing a channel by type-specific accessor (power_supply/smu/load).",
             "Configure a channel's setpoints and protection with the output/load input off, then enable it explicitly, mirroring TEMPLATE-SAFE-SOURCE-CHANNEL.",
             "Prefer typed methods over write_scpi/query_scpi; raw SCPI has no capability or safety gating.",
+            "For voltage dips/peaks, configure a finite LIST or UDEF ARB with the output OFF, use the returned read-back configuration as authoritative, enable and stabilize explicitly, then arm, wait for readiness, trigger, wait for completion, and abort/disable in finally.",
         ],
         "unknown_handling": {
             "policy": "fail_closed",

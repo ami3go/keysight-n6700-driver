@@ -49,6 +49,20 @@ def test_cross_thread_measurement_denied_emergency_off_allowed(driver: N6700) ->
     ch.abort_digitize()
 
 
+def test_cross_thread_transient_abort_allowed_acquisition_abort_denied(driver: N6700) -> None:
+    ch = load(driver)
+    ch.configure_digitize("voltage", points=10, interval_s=20.48e-6)
+
+    def contend() -> None:
+        driver.write_scpi("ABOR:TRAN (@1)")
+        with pytest.raises(DriverResourceBusyError):
+            driver.write_scpi("ABOR:ACQ (@3)")
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pool.submit(contend).result(timeout=4)
+    ch.abort_digitize()
+
+
 def test_second_channel_cannot_steal_ownership(driver: N6700) -> None:
     first = load(driver, 3)
     other = load(driver, 2)

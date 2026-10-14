@@ -61,6 +61,22 @@ class _ChannelState:
     acquisition_state: str = "idle"
     acquisition_generation: int = 0
     completed_generation: int | None = None
+    voltage_slew_v_per_s: float = 9.9e37
+    voltage_mode: str = "FIX"
+    voltage_list: tuple[float, ...] = (0.0,)
+    current_list: tuple[float, ...] = (1.0,)
+    dwell_list: tuple[float, ...] = (0.001,)
+    list_count: int = 1
+    list_step: str = "AUTO"
+    list_terminate_last: bool = False
+    arb_voltage: tuple[float, ...] = (0.0,)
+    arb_dwell: tuple[float, ...] = (0.001,)
+    arb_count: int = 1
+    arb_terminate_last: bool = False
+    transient_trigger_source: str = "BUS"
+    transient_state: str = "idle"
+    transient_generation: int = 0
+    transient_initial_voltage: float = 0.0
 
 
 class SimN6700Instrument:
@@ -98,6 +114,16 @@ class SimN6700Instrument:
         vals = [str(getattr(self.channels[ch], getter)) for ch in channels]
         return ",".join(vals)
 
+    @staticmethod
+    def _argument_values(command: str) -> tuple[str, ...]:
+        payload = command.split(None, 1)[1]
+        payload = re.sub(r",?\s*\(@[^)]*\)\s*$", "", payload)
+        return tuple(value.strip() for value in payload.split(",") if value.strip())
+
+    @classmethod
+    def _float_arguments(cls, command: str) -> tuple[float, ...]:
+        return tuple(float(value) for value in cls._argument_values(command))
+
     def execute(self, message: str) -> str | bytes | None:
         """Run every ``;``-separated part of ``message``; return the last reply."""
         response: str | bytes | None = None
@@ -124,6 +150,9 @@ class SimN6700Instrument:
                 st.operation_status &= ~(8 | 32)
                 st.acquisition_state = "idle"
                 st.completed_generation = None
+                st.voltage_mode = "FIX"
+                st.transient_state = "idle"
+                st.operation_status &= ~(16 | 64)
             return None
         if upper == "*OPC?":
             return "1"
@@ -273,6 +302,157 @@ class SimN6700Instrument:
             value = float(norm.split(None, 1)[1].split(",")[0])
             for ch in self._channels_from_command(norm):
                 self.channels[ch].load_current_limit = value
+            return None
+        # Source voltage LIST/ARB/slew and the output transient trigger system.
+        # These branches intentionally precede the generic VOLT/CURR handlers.
+        if upper.startswith("VOLT:SLEW:MAX?"):
+            st = self.channels[self._channels_from_command(norm)[0]]
+            return "1" if st.voltage_slew_v_per_s >= 9.9e37 else "0"
+        if upper.startswith("VOLT:SLEW:MAX"):
+            enabled = self._argument_values(norm)[0].upper() in {"ON", "1"}
+            for ch in self._channels_from_command(norm):
+                if enabled:
+                    self.channels[ch].voltage_slew_v_per_s = 9.9e37
+            return None
+        if upper.startswith("VOLT:SLEW?"):
+            return self._query_values(self._channels_from_command(norm), "voltage_slew_v_per_s")
+        if upper.startswith("VOLT:SLEW"):
+            raw = self._argument_values(norm)[0].upper()
+            value = 9.9e37 if raw in {"INF", "INFINITY", "MAX"} else float(raw)
+            for ch in self._channels_from_command(norm):
+                self.channels[ch].voltage_slew_v_per_s = value
+            return None
+        if upper.startswith("VOLT:MODE?"):
+            return self._query_values(self._channels_from_command(norm), "voltage_mode")
+        if upper.startswith("VOLT:MODE"):
+            mode = self._argument_values(norm)[0].upper()
+            if mode not in {"FIX", "FIXED", "LIST", "ARB", "STEP"}:
+                self._push_error(-222, "Invalid voltage transient mode")
+            else:
+                normalized_mode = "FIX" if mode == "FIXED" else mode
+                for ch in self._channels_from_command(norm):
+                    self.channels[ch].voltage_mode = normalized_mode
+            return None
+        for command, attribute in (
+            ("LIST:VOLT", "voltage_list"),
+            ("LIST:CURR", "current_list"),
+            ("LIST:DWEL", "dwell_list"),
+            ("ARB:VOLT:UDEF:LEV", "arb_voltage"),
+            ("ARB:VOLT:UDEF:DWEL", "arb_dwell"),
+        ):
+            if upper.startswith(command + ":POIN?"):
+                profile_values = getattr(
+                    self.channels[self._channels_from_command(norm)[0]], attribute
+                )
+                return str(len(profile_values))
+            if upper.startswith(command + "?"):
+                profile_values = getattr(
+                    self.channels[self._channels_from_command(norm)[0]], attribute
+                )
+                return ",".join(str(value) for value in profile_values)
+            if upper.startswith(command):
+                profile_values = self._float_arguments(norm)
+                for ch in self._channels_from_command(norm):
+                    setattr(self.channels[ch], attribute, profile_values)
+                return None
+        if upper.startswith("LIST:COUN?"):
+            return self._query_values(self._channels_from_command(norm), "list_count")
+        if upper.startswith("LIST:COUN"):
+            list_count_value = int(float(self._argument_values(norm)[0]))
+            for ch in self._channels_from_command(norm):
+                self.channels[ch].list_count = list_count_value
+            return None
+        if upper.startswith("LIST:STEP?"):
+            return self._query_values(self._channels_from_command(norm), "list_step")
+        if upper.startswith("LIST:STEP"):
+            list_step_value = self._argument_values(norm)[0].upper()
+            for ch in self._channels_from_command(norm):
+                self.channels[ch].list_step = list_step_value
+            return None
+        if upper.startswith("LIST:TERM:LAST?"):
+            st = self.channels[self._channels_from_command(norm)[0]]
+            return "1" if st.list_terminate_last else "0"
+        if upper.startswith("LIST:TERM:LAST"):
+            list_terminate_last = self._argument_values(norm)[0].upper() in {"ON", "1"}
+            for ch in self._channels_from_command(norm):
+                self.channels[ch].list_terminate_last = list_terminate_last
+            return None
+        if upper.startswith(("LIST:TOUT:BOST?", "LIST:TOUT:EOST?")):
+            return "0"
+        if upper.startswith(("LIST:TOUT:BOST", "LIST:TOUT:EOST")):
+            return None
+        if upper.startswith(("ARB:FUNC:TYPE?", "ARB:FUNC:SHAP?")):
+            return "VOLT" if ":TYPE?" in upper else "UDEF"
+        if upper.startswith(("ARB:FUNC:TYPE", "ARB:FUNC:SHAP")):
+            return None
+        if upper.startswith("ARB:VOLT:UDEF:BOST?"):
+            return "0"
+        if upper.startswith("ARB:VOLT:UDEF:BOST"):
+            return None
+        if upper.startswith("ARB:COUN?"):
+            return self._query_values(self._channels_from_command(norm), "arb_count")
+        if upper.startswith("ARB:COUN"):
+            arb_count_value = int(float(self._argument_values(norm)[0]))
+            for ch in self._channels_from_command(norm):
+                self.channels[ch].arb_count = arb_count_value
+            return None
+        if upper.startswith("ARB:TERM:LAST?"):
+            st = self.channels[self._channels_from_command(norm)[0]]
+            return "1" if st.arb_terminate_last else "0"
+        if upper.startswith("ARB:TERM:LAST"):
+            arb_terminate_last = self._argument_values(norm)[0].upper() in {"ON", "1"}
+            for ch in self._channels_from_command(norm):
+                self.channels[ch].arb_terminate_last = arb_terminate_last
+            return None
+        if upper.startswith("TRIG:TRAN:SOUR?"):
+            return self._query_values(self._channels_from_command(norm), "transient_trigger_source")
+        if upper.startswith("TRIG:TRAN:SOUR"):
+            transient_source = self._argument_values(norm)[0].upper()
+            for ch in self._channels_from_command(norm):
+                self.channels[ch].transient_trigger_source = transient_source
+            return None
+        if upper.startswith("INIT:CONT:TRAN?"):
+            return "0"
+        if upper.startswith("INIT:CONT:TRAN"):
+            return None
+        if upper.startswith("INIT:TRAN"):
+            for ch in self._channels_from_command(norm):
+                st = self.channels[ch]
+                if st.voltage_mode not in {"LIST", "ARB"}:
+                    self._push_error(-230, "No voltage LIST/ARB selected")
+                    continue
+                st.transient_generation += 1
+                st.transient_initial_voltage = st.voltage
+                st.transient_state = "waiting"
+                st.operation_status |= 16
+                st.operation_status &= ~64
+            return None
+        if upper.startswith("TRIG:TRAN"):
+            for ch in self._channels_from_command(norm):
+                st = self.channels[ch]
+                if st.transient_state != "waiting":
+                    self._push_error(-230, "Transient system is not armed")
+                    continue
+                st.operation_status &= ~16
+                st.operation_status |= 64
+                levels = st.voltage_list if st.voltage_mode == "LIST" else st.arb_voltage
+                terminate_last = (
+                    st.list_terminate_last if st.voltage_mode == "LIST" else st.arb_terminate_last
+                )
+                if terminate_last:
+                    st.voltage = levels[-1]
+                else:
+                    st.voltage = st.transient_initial_voltage
+                st.transient_state = "complete"
+                st.operation_status &= ~64
+            return None
+        if upper.startswith("ABOR:TRAN"):
+            for ch in self._channels_from_command(norm):
+                st = self.channels[ch]
+                if st.transient_state in {"waiting", "active"}:
+                    st.voltage = st.transient_initial_voltage
+                st.transient_state = "aborted"
+                st.operation_status &= ~(16 | 64)
             return None
         if upper.startswith("VOLT?") or upper.startswith("VOLTAGE?"):
             return self._query_values(self._channels_from_command(norm), "voltage")

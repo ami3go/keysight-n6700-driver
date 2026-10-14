@@ -28,6 +28,8 @@ class ChannelCapabilities:
     supports_power_measurement: bool = False
     supports_array_measurement: bool = False
     supports_list_mode: bool = False
+    supports_voltage_arb: bool = False
+    supports_voltage_slew: bool = False
     supports_aux_voltage_input: bool = False
     supports_smu_priority_mode: bool = False
     supports_smu_output_off_mode: bool = False
@@ -102,6 +104,8 @@ def classify_module(model: str, options: list[str] | tuple[str, ...] | None = No
             supports_power_measurement=True,
             supports_array_measurement=True,
             supports_list_mode=True,
+            supports_voltage_arb=True,
+            supports_voltage_slew=True,
             supports_aux_voltage_input=model_clean.startswith(("N6781", "N6785")),
             supports_smu_priority_mode=True,
             supports_smu_output_off_mode=True,
@@ -116,5 +120,7 @@ def classify_module(model: str, options: list[str] | tuple[str, ...] | None = No
             supports_power_measurement=model_clean.startswith("N676"),
             supports_array_measurement=model_clean.startswith("N676") or "054" in opts,
             supports_list_mode=True,
+            supports_voltage_arb=True,
+            supports_voltage_slew=True,
         )
     return ChannelCapabilities(model=model_clean, module_type="unknown", options=opts)

@@ -61,6 +61,19 @@ with N6700.connect_simulated() as instrument:      # or .connect_visa(resource) 
 
 More examples: [`examples/python/`](examples/python/).
 
+## Voltage dips, peaks, and controlled slew
+
+Power-supply and SMU channels now expose hardware-timed finite voltage LIST
+and user-defined ARB profiles, BUS/external triggering, bounded arm/wait/abort
+lifecycle methods, and `VOLT:SLEW` control. Configuration requires the output
+to be off and an explicit caller-approved voltage envelope; it never enables
+the output. Analog amplitude, dwell, edges, overshoot, and trigger jitter are
+not claimed as physically qualified until the guarded N6775A and independent
+oscilloscope gates are completed.
+
+See the [implementation and verification plan](docs/VOLTAGE_TRANSIENT_IMPLEMENTATION.md)
+for the API example, SCPI mapping, safety contract, HIL gate, and DSO matrix.
+
 ## Robot Framework adapter
 
 ```robotframework
@@ -83,6 +96,8 @@ device logic.
 ## Documentation
 
 - [`docs/`](docs/) — architecture, configuration, safety, troubleshooting.
+- [`docs/VOLTAGE_TRANSIENT_IMPLEMENTATION.md`](docs/VOLTAGE_TRANSIENT_IMPLEMENTATION.md)
+  — voltage LIST/ARB/slew usage, implementation decisions, and qualification gates.
 - [`capability/capability_model.yaml`](capability/capability_model.yaml) — the
   LPDS-013 self-describing capability model (`get_capability_model()`).
 - [`config/schema.json`](config/schema.json) — the LPDS-014 configuration
