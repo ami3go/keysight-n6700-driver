@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.7.7 — 2026-10-15
+
+Documentation-only: created
+[ARB_DRIVER_IMPLEMENTATION_TASK.md](docs/ARB_DRIVER_IMPLEMENTATION_TASK.md),
+with nine phased PR packages: Option 054/mainframe capability fixes,
+error-preserving cleanup/session serialization, trigger-command verification,
+finite standard voltage/current Arbs, CDW, indexed sequences, pinned core
+integration and separately authorized DSO HIL. Includes source-based findings,
+code sketches, test matrices and explicit acceptance criteria; references the
+cross-repository [scpi-driver-core hardening task](https://github.com/ami3go/scpi-driver-core/blob/main/task/N6700_ARB_CORE_HARDENING_TASK.md).
+**No runtime changes or hardware operation; existing core pin unchanged.**
+
 ## v0.7.6 — 2026-10-15
 
 Documentation-only Arb example expansion: added

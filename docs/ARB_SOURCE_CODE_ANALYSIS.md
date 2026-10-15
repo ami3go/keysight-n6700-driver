@@ -241,3 +241,7 @@ Most third-party repositories have their own licenses (SweepMe!'s reviewed file 
 ## 8. Worked code examples and offline tests (v0.7.6)
 
 See [**ARB_WORKED_CODE_EXAMPLES.md**](ARB_WORKED_CODE_EXAMPLES.md), which converts the reviewed sources into an existing simulator-only UDEF execution example and six original, offline-only proposals: typed PULSE compiler, frequency/duty conversion, mainframe/Option 054 capability gating, CDW vector formatting, finite sequence compilation, and trigger-family selection. Includes explicit source links and seven negative/contract tests. Standard PULSE/CDW/sequence APIs are **not implemented** in the driver; no live instrument command sequences are provided.
+
+## 9. Coordinated implementation work packages (v0.7.7)
+
+See [**ARB_DRIVER_IMPLEMENTATION_TASK.md**](ARB_DRIVER_IMPLEMENTATION_TASK.md) for source-confirmed driver findings, proposed APIs/code snippets, dependency-ordered PRs, automated acceptance matrices and the companion [scpi-driver-core task](https://github.com/ami3go/scpi-driver-core/blob/main/task/N6700_ARB_CORE_HARDENING_TASK.md). Publication of this task does **not** fix the listed driver findings or qualify hardware.

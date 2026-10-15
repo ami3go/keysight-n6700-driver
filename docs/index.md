@@ -14,6 +14,7 @@ power systems.
 - [Full N6700 Arb waveform and SCPI function reference](ARB_WAVEFORM_REFERENCE.md)
 - [Source-code analysis of third-party Arb implementations](ARB_SOURCE_CODE_ANALYSIS.md)
 - [Worked Arb code examples and offline tests](ARB_WORKED_CODE_EXAMPLES.md)
+- [Coordinated Arb driver implementation task](ARB_DRIVER_IMPLEMENTATION_TASK.md)
 - [Troubleshooting](troubleshooting.md)
 - [Release notes](release_notes.md)
 
