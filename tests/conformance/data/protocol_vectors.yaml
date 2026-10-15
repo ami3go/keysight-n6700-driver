@@ -87,6 +87,21 @@ vectors:
     expected_outbound: { operation: query, command: "VOLT:SLEW? (@1)" }
     expected_return: { type: float }
 
+  - id: set-current-slew-rate
+    method: set_current_slew_rate
+    arguments: { channel: 2, rate_a_per_s: 100.0 }
+    preconditions: [connected]
+    expected_outbound: { operation: write, command: "CURR:SLEW 100,(@2)" }
+    expected_return: { type: float }
+    cleanup: [{ method: set_current_slew_rate, arguments: { channel: 2, rate_a_per_s: max } }]
+
+  - id: get-current-slew-rate
+    method: get_current_slew_rate
+    arguments: { channel: 2 }
+    preconditions: [connected]
+    expected_outbound: { operation: query, command: "CURR:SLEW? (@2)" }
+    expected_return: { type: float }
+
   - id: configure-voltage-transient-trigger
     method: configure_voltage_transient_trigger
     arguments: { channel: 1, source: bus }

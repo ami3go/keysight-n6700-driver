@@ -40,11 +40,13 @@ methods:
   canonical_method: arm_voltage_transient
   aliases: []
   implementation_target: keysight_n6700.driver.N6700.arm_voltage_transient
-  signature: 'arm_voltage_transient(self, channel: ''int'', alias: ''str | None'' = None) -> ''VoltageTransientToken'''
+  signature: 'arm_voltage_transient(self, channel: ''int'', alias: ''str | None'' = None, *, continuous:
+    ''bool'' = False) -> ''VoltageTransientToken'''
   required_arguments:
   - channel
   optional_arguments:
   - alias
+  - continuous
   device_facing: true
   execution_status: not_yet_run
 - method: channel
@@ -166,6 +168,130 @@ methods:
   - alias
   device_facing: false
   execution_status: not_yet_run
+- method: configure_current_arb
+  canonical_method: configure_current_arb
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_current_arb
+  signature: 'configure_current_arb(self, channel: ''int'', levels_a: ''Sequence[float]'', dwell_s: ''float
+    | Sequence[float]'', *, maximum_current_a: ''float'', minimum_current_a: ''float'' = 0.0, repeat_count:
+    ''RepeatCount'' = 1, terminate_last: ''bool'' = False, maximum_duration_s: ''float'' = 60.0, begin_step_triggers:
+    ''bool | Sequence[bool]'' = False, alias: ''str | None'' = None) -> ''CurrentArbConfiguration'''
+  required_arguments:
+  - channel
+  - levels_a
+  - dwell_s
+  - maximum_current_a
+  optional_arguments:
+  - minimum_current_a
+  - repeat_count
+  - terminate_last
+  - maximum_duration_s
+  - begin_step_triggers
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: configure_current_arb_sequence
+  canonical_method: configure_current_arb_sequence
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_current_arb_sequence
+  signature: 'configure_current_arb_sequence(self, channel: ''int'', steps: ''Sequence[ArbSequenceStep]'',
+    *, maximum_current_a: ''float'', minimum_current_a: ''float'' = 0.0, sequence_count: ''RepeatCount''
+    = 1, terminate_last: ''bool'' = False, maximum_duration_s: ''float'' = 60.0, alias: ''str | None''
+    = None) -> ''ArbSequenceConfiguration'''
+  required_arguments:
+  - channel
+  - steps
+  - maximum_current_a
+  optional_arguments:
+  - minimum_current_a
+  - sequence_count
+  - terminate_last
+  - maximum_duration_s
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: configure_current_arb_waveform
+  canonical_method: configure_current_arb_waveform
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_current_arb_waveform
+  signature: 'configure_current_arb_waveform(self, channel: ''int'', waveform: ''ArbShape'', *, maximum_current_a:
+    ''float'', minimum_current_a: ''float'' = 0.0, repeat_count: ''RepeatCount'' = 1, terminate_last:
+    ''bool'' = False, maximum_duration_s: ''float'' = 60.0, alias: ''str | None'' = None) -> ''ArbWaveformConfiguration'''
+  required_arguments:
+  - channel
+  - waveform
+  - maximum_current_a
+  optional_arguments:
+  - minimum_current_a
+  - repeat_count
+  - terminate_last
+  - maximum_duration_s
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: configure_current_constant_dwell_arb
+  canonical_method: configure_current_constant_dwell_arb
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_current_constant_dwell_arb
+  signature: 'configure_current_constant_dwell_arb(self, channel: ''int'', levels_a: ''Sequence[float]'',
+    dwell_s: ''float'', *, maximum_current_a: ''float'', minimum_current_a: ''float'' = 0.0, repeat_count:
+    ''RepeatCount'' = 1, terminate_last: ''bool'' = False, maximum_duration_s: ''float'' = 60.0, alias:
+    ''str | None'' = None) -> ''ConstantDwellArbConfiguration'''
+  required_arguments:
+  - channel
+  - levels_a
+  - dwell_s
+  - maximum_current_a
+  optional_arguments:
+  - minimum_current_a
+  - repeat_count
+  - terminate_last
+  - maximum_duration_s
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: configure_current_list
+  canonical_method: configure_current_list
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_current_list
+  signature: 'configure_current_list(self, channel: ''int'', levels_a: ''Sequence[float]'', dwell_s: ''float
+    | Sequence[float]'', *, maximum_current_a: ''float'', minimum_current_a: ''float'' = 0.0, repeat_count:
+    ''RepeatCount'' = 1, step_mode: "Literal[''auto'', ''once'']" = ''auto'', terminate_last: ''bool''
+    = False, maximum_duration_s: ''float'' = 60.0, begin_step_triggers: ''bool | Sequence[bool]'' = False,
+    end_step_triggers: ''bool | Sequence[bool]'' = False, alias: ''str | None'' = None) -> ''CurrentListConfiguration'''
+  required_arguments:
+  - channel
+  - levels_a
+  - dwell_s
+  - maximum_current_a
+  optional_arguments:
+  - minimum_current_a
+  - repeat_count
+  - step_mode
+  - terminate_last
+  - maximum_duration_s
+  - begin_step_triggers
+  - end_step_triggers
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: configure_current_step
+  canonical_method: configure_current_step
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_current_step
+  signature: 'configure_current_step(self, channel: ''int'', triggered_current_a: ''float'', *, maximum_current_a:
+    ''float'', minimum_current_a: ''float'' = 0.0, trigger_output: ''bool'' = False, alias: ''str | None''
+    = None) -> ''StepTransientConfiguration'''
+  required_arguments:
+  - channel
+  - triggered_current_a
+  - maximum_current_a
+  optional_arguments:
+  - minimum_current_a
+  - trigger_output
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
 - method: configure_digitize
   canonical_method: configure_digitize
   aliases: []
@@ -249,8 +375,69 @@ methods:
   implementation_target: keysight_n6700.driver.N6700.configure_voltage_arb
   signature: 'configure_voltage_arb(self, channel: ''int'', levels_v: ''Sequence[float]'', dwell_s: ''float
     | Sequence[float]'', *, maximum_voltage_v: ''float'', minimum_voltage_v: ''float'' = 0.0, repeat_count:
-    ''int'' = 1, terminate_last: ''bool'' = False, maximum_duration_s: ''float'' = 60.0, alias: ''str
-    | None'' = None) -> ''VoltageArbConfiguration'''
+    ''RepeatCount'' = 1, terminate_last: ''bool'' = False, maximum_duration_s: ''float'' = 60.0, begin_step_triggers:
+    ''bool | Sequence[bool]'' = False, alias: ''str | None'' = None) -> ''VoltageArbConfiguration'''
+  required_arguments:
+  - channel
+  - levels_v
+  - dwell_s
+  - maximum_voltage_v
+  optional_arguments:
+  - minimum_voltage_v
+  - repeat_count
+  - terminate_last
+  - maximum_duration_s
+  - begin_step_triggers
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: configure_voltage_arb_sequence
+  canonical_method: configure_voltage_arb_sequence
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_voltage_arb_sequence
+  signature: 'configure_voltage_arb_sequence(self, channel: ''int'', steps: ''Sequence[ArbSequenceStep]'',
+    *, maximum_voltage_v: ''float'', minimum_voltage_v: ''float'' = 0.0, sequence_count: ''RepeatCount''
+    = 1, terminate_last: ''bool'' = False, maximum_duration_s: ''float'' = 60.0, alias: ''str | None''
+    = None) -> ''ArbSequenceConfiguration'''
+  required_arguments:
+  - channel
+  - steps
+  - maximum_voltage_v
+  optional_arguments:
+  - minimum_voltage_v
+  - sequence_count
+  - terminate_last
+  - maximum_duration_s
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: configure_voltage_arb_waveform
+  canonical_method: configure_voltage_arb_waveform
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_voltage_arb_waveform
+  signature: 'configure_voltage_arb_waveform(self, channel: ''int'', waveform: ''ArbShape'', *, maximum_voltage_v:
+    ''float'', minimum_voltage_v: ''float'' = 0.0, repeat_count: ''RepeatCount'' = 1, terminate_last:
+    ''bool'' = False, maximum_duration_s: ''float'' = 60.0, alias: ''str | None'' = None) -> ''ArbWaveformConfiguration'''
+  required_arguments:
+  - channel
+  - waveform
+  - maximum_voltage_v
+  optional_arguments:
+  - minimum_voltage_v
+  - repeat_count
+  - terminate_last
+  - maximum_duration_s
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: configure_voltage_constant_dwell_arb
+  canonical_method: configure_voltage_constant_dwell_arb
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_voltage_constant_dwell_arb
+  signature: 'configure_voltage_constant_dwell_arb(self, channel: ''int'', levels_v: ''Sequence[float]'',
+    dwell_s: ''float'', *, maximum_voltage_v: ''float'', minimum_voltage_v: ''float'' = 0.0, repeat_count:
+    ''RepeatCount'' = 1, terminate_last: ''bool'' = False, maximum_duration_s: ''float'' = 60.0, alias:
+    ''str | None'' = None) -> ''ConstantDwellArbConfiguration'''
   required_arguments:
   - channel
   - levels_v
@@ -270,8 +457,9 @@ methods:
   implementation_target: keysight_n6700.driver.N6700.configure_voltage_list
   signature: 'configure_voltage_list(self, channel: ''int'', levels_v: ''Sequence[float]'', dwell_s: ''float
     | Sequence[float]'', *, maximum_voltage_v: ''float'', minimum_voltage_v: ''float'' = 0.0, repeat_count:
-    ''int'' = 1, step_mode: "Literal[''auto'', ''once'']" = ''auto'', terminate_last: ''bool'' = False,
-    maximum_duration_s: ''float'' = 60.0, alias: ''str | None'' = None) -> ''VoltageListConfiguration'''
+    ''RepeatCount'' = 1, step_mode: "Literal[''auto'', ''once'']" = ''auto'', terminate_last: ''bool''
+    = False, maximum_duration_s: ''float'' = 60.0, begin_step_triggers: ''bool | Sequence[bool]'' = False,
+    end_step_triggers: ''bool | Sequence[bool]'' = False, alias: ''str | None'' = None) -> ''VoltageListConfiguration'''
   required_arguments:
   - channel
   - levels_v
@@ -283,6 +471,25 @@ methods:
   - step_mode
   - terminate_last
   - maximum_duration_s
+  - begin_step_triggers
+  - end_step_triggers
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: configure_voltage_step
+  canonical_method: configure_voltage_step
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_voltage_step
+  signature: 'configure_voltage_step(self, channel: ''int'', triggered_voltage_v: ''float'', *, maximum_voltage_v:
+    ''float'', minimum_voltage_v: ''float'' = 0.0, trigger_output: ''bool'' = False, alias: ''str | None''
+    = None) -> ''StepTransientConfiguration'''
+  required_arguments:
+  - channel
+  - triggered_voltage_v
+  - maximum_voltage_v
+  optional_arguments:
+  - minimum_voltage_v
+  - trigger_output
   - alias
   device_facing: true
   execution_status: not_yet_run
@@ -550,6 +757,17 @@ methods:
   required_arguments: []
   optional_arguments: []
   device_facing: false
+  execution_status: not_yet_run
+- method: get_current_slew_rate
+  canonical_method: get_current_slew_rate
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_current_slew_rate
+  signature: 'get_current_slew_rate(self, channel: ''int'', alias: ''str | None'' = None) -> ''float'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
   execution_status: not_yet_run
 - method: get_dc_current_limits
   canonical_method: get_dc_current_limits
@@ -851,6 +1069,24 @@ methods:
   - alias
   device_facing: true
   execution_status: not_yet_run
+- method: load_current_arb_sequence
+  canonical_method: load_current_arb_sequence
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.load_current_arb_sequence
+  signature: 'load_current_arb_sequence(self, channel: ''int'', filename: ''str'', *, maximum_current_a:
+    ''float'', minimum_current_a: ''float'' = 0.0, maximum_duration_s: ''float'' = 60.0, allow_infinite:
+    ''bool'' = False, alias: ''str | None'' = None) -> ''ArbSequenceConfiguration'''
+  required_arguments:
+  - channel
+  - filename
+  - maximum_current_a
+  optional_arguments:
+  - minimum_current_a
+  - maximum_duration_s
+  - allow_infinite
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
 - method: load_driver_configuration
   canonical_method: load_driver_configuration
   aliases: []
@@ -862,6 +1098,24 @@ methods:
   optional_arguments:
   - apply
   device_facing: false
+  execution_status: not_yet_run
+- method: load_voltage_arb_sequence
+  canonical_method: load_voltage_arb_sequence
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.load_voltage_arb_sequence
+  signature: 'load_voltage_arb_sequence(self, channel: ''int'', filename: ''str'', *, maximum_voltage_v:
+    ''float'', minimum_voltage_v: ''float'' = 0.0, maximum_duration_s: ''float'' = 60.0, allow_infinite:
+    ''bool'' = False, alias: ''str | None'' = None) -> ''ArbSequenceConfiguration'''
+  required_arguments:
+  - channel
+  - filename
+  - maximum_voltage_v
+  optional_arguments:
+  - minimum_voltage_v
+  - maximum_duration_s
+  - allow_infinite
+  - alias
+  device_facing: true
   execution_status: not_yet_run
 - method: measure_all
   canonical_method: measure_all
@@ -1105,6 +1359,19 @@ methods:
   - alias
   device_facing: true
   execution_status: not_yet_run
+- method: set_current_slew_rate
+  canonical_method: set_current_slew_rate
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.set_current_slew_rate
+  signature: 'set_current_slew_rate(self, channel: ''int'', rate_a_per_s: ''float | str'', alias: ''str
+    | None'' = None) -> ''float'''
+  required_arguments:
+  - channel
+  - rate_a_per_s
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
 - method: set_dc_current
   canonical_method: set_dc_current
   aliases: []
@@ -1254,6 +1521,19 @@ methods:
   implementation_target: keysight_n6700.driver.N6700.status_byte
   signature: 'status_byte(self, alias: ''str | None'' = None) -> ''int'''
   required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: store_arb_sequence
+  canonical_method: store_arb_sequence
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.store_arb_sequence
+  signature: 'store_arb_sequence(self, channel: ''int'', filename: ''str'', alias: ''str | None'' = None)
+    -> ''None'''
+  required_arguments:
+  - channel
+  - filename
   optional_arguments:
   - alias
   device_facing: true

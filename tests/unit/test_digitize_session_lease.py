@@ -81,6 +81,29 @@ def test_cross_thread_shutdown_aborts_source_transient_under_lease(driver: N6700
     assert driver.get_voltage_transient_status(1).state == "aborted"
 
 
+def test_cross_thread_shutdown_stops_continuous_transient_under_lease(driver: N6700) -> None:
+    driver.configure_voltage_list(1, [12.0, 6.0], 0.01, maximum_voltage_v=18.0)
+    driver.set_dc_voltage(12.0, 1)
+    driver.enable_output(1)
+    driver.arm_voltage_transient(1, continuous=True)
+    ch = load(driver)
+    ch.configure_digitize("voltage", points=10, interval_s=20.48e-6)
+
+    def contend() -> dict:
+        with pytest.raises(DriverResourceBusyError):
+            driver.write_scpi("INIT:CONT:TRAN ON,(@1)")
+        return driver.safe_shutdown()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        result = pool.submit(contend).result(timeout=4)
+    ch.abort_digitize()
+    source = next(item for item in result["channels"] if item["channel"] == 1)
+    assert source["success"] is True, source
+    sim_channel = driver._session(None).transport.instrument.channels[1]
+    assert sim_channel.transient_continuous is False
+    assert driver.get_voltage_transient_status(1).operation_status & (16 | 64) == 0
+
+
 def test_second_channel_cannot_steal_ownership(driver: N6700) -> None:
     first = load(driver, 3)
     other = load(driver, 2)

@@ -55,6 +55,22 @@ def test_n678x_still_classifies_as_smu() -> None:
     assert caps.supports_voltage_slew is True
 
 
+def test_n6784a_is_the_only_bipolar_voltage_smu() -> None:
+    assert classify_module("N6784A").supports_bipolar_voltage is True
+    assert classify_module("N6781A").supports_bipolar_voltage is False
+
+
+def test_mainframe_model_gates_arb_without_gating_list_transients() -> None:
+    analyzer = classify_module("N6775A", mainframe_model="N6705C")
+    modular = classify_module("N6775A", mainframe_model="N6700C")
+    assert analyzer.supports_voltage_arb is True
+    assert analyzer.supports_current_arb is True
+    assert modular.supports_voltage_arb is False
+    assert modular.supports_current_arb is False
+    assert modular.supports_list_mode is True
+    assert modular.supports_current_transient is True
+
+
 def test_n677x_supports_voltage_list_arb_and_slew() -> None:
     caps = classify_module("N6775A")
     assert caps.module_type == "power_supply"

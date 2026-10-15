@@ -13,14 +13,21 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict, is_dataclass
+from dataclasses import fields, is_dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from robot.api import logger
 from robot.api.deco import keyword, library, not_keyword
 
-from keysight_n6700 import N6700, DriverTimeoutError, VoltageTransientToken
+from keysight_n6700 import (
+    N6700,
+    ArbSequenceStep,
+    DriverTimeoutError,
+    VoltageTransientToken,
+    read_arb_csv,
+    shape_from_name,
+)
 
 from .version import __version__
 
@@ -150,10 +157,72 @@ def _as_float_list(value: Any, *, name: str) -> list[float]:
 
 
 @not_keyword
+def _as_repeat(value: Any, *, name: str = "repeat_count") -> int | str:
+    """A positive integer count, or ``infinite`` for continuous repetition."""
+    if isinstance(value, str) and value.strip().lower() in {"infinite", "inf", "infinity"}:
+        return "infinite"
+    number = _as_float(value, name=name)
+    if not number.is_integer():
+        raise ValueError(f"{name} must be an integer or 'infinite', got {value!r}")
+    return int(number)
+
+
+@not_keyword
+def _as_flags(value: Any, *, name: str) -> bool | list[bool]:
+    """One boolean for every point, or a comma-separated per-point list."""
+    if isinstance(value, str) and re.search(r"[,;\s]", value.strip()):
+        value = [part for part in re.split(r"[,;\s]+", value.strip()) if part]
+    if isinstance(value, Sequence) and not isinstance(value, str):
+        return [_as_bool(item, name=f"{name}[{index}]") for index, item in enumerate(value)]
+    return _as_bool(value, name=name)
+
+
+@not_keyword
+def _as_shape(shape: Any, parameters: Mapping[str, Any]) -> Any:
+    """Build an ARB shape from a name such as ``ramp`` and keyword values."""
+    converted: dict[str, Any] = {}
+    for key, raw in parameters.items():
+        if key in {"levels", "dwell_s"}:
+            converted[key] = tuple(_as_float_list(raw, name=key))
+        elif key == "begin_step_triggers":
+            flags = _as_flags(raw, name=key)
+            converted[key] = tuple(flags) if isinstance(flags, list) else flags
+        elif key == "steps":
+            converted[key] = _as_repeat(raw, name=key)
+        else:
+            converted[key] = _as_float(raw, name=key)
+    return shape_from_name(str(shape), converted)
+
+
+@not_keyword
+def _as_sequence_steps(steps: Any) -> list[ArbSequenceStep]:
+    """Sequence steps from dictionaries with ``shape``, optional
+    ``repeat_count``/``pacing`` and the shape's own parameters."""
+    if isinstance(steps, Mapping):
+        steps = [steps]
+    if isinstance(steps, str) or not isinstance(steps, Sequence):
+        raise ValueError("steps must be a list of dictionaries, each with a 'shape' key")
+    result = []
+    for index, raw in enumerate(steps):
+        if not isinstance(raw, Mapping) or "shape" not in raw:
+            raise ValueError(f"steps[{index}] must be a dictionary with a 'shape' key")
+        parameters = {str(key): value for key, value in raw.items()}
+        shape = parameters.pop("shape")
+        repeat = _as_repeat(parameters.pop("repeat_count", 1), name=f"steps[{index}].repeat_count")
+        pacing = str(parameters.pop("pacing", "dwell")).strip().lower()
+        result.append(ArbSequenceStep(_as_shape(shape, parameters), repeat, pacing))  # type: ignore[arg-type]
+    return result
+
+
+@not_keyword
 def _serialize(value: Any) -> Any:
     """Convert typed driver values into Robot-friendly Python primitives."""
-    if is_dataclass(value):
-        return {key: _serialize(item) for key, item in asdict(cast(Any, value)).items()}
+    if is_dataclass(value) and not isinstance(value, type):
+        result = {item.name: _serialize(getattr(value, item.name)) for item in fields(value)}
+        shape = getattr(value, "shape", None)
+        if isinstance(shape, str):
+            result["shape"] = shape  # ARB shape keyword, e.g. RAMP
+        return result
     if isinstance(value, Mapping):
         return {(str(key) if isinstance(key, int) else key): _serialize(item) for key, item in value.items()}
     if isinstance(value, tuple):
@@ -425,8 +494,14 @@ class KeysightN6700Library:
         terminate_last: Any = False,
         maximum_duration_s: Any = 60.0,
         alias: str | None = None,
+        begin_step_triggers: Any = False,
+        end_step_triggers: Any = False,
     ) -> dict[str, Any]:
-        """Configure a bounded voltage LIST while the selected output is OFF."""
+        """Configure a bounded voltage LIST while the selected output is OFF.
+
+        ``repeat_count`` accepts ``infinite``; the step-trigger arguments take
+        one boolean or a per-step list.
+        """
         dwells = _as_float_list(dwell_s, name="dwell_s")
         config = self._driver.configure_voltage_list(
             _as_channel(channel),
@@ -434,10 +509,12 @@ class KeysightN6700Library:
             dwells[0] if len(dwells) == 1 else dwells,
             maximum_voltage_v=_as_float(maximum_voltage_v, name="maximum_voltage_v"),
             minimum_voltage_v=_as_float(minimum_voltage_v, name="minimum_voltage_v"),
-            repeat_count=int(repeat_count),
+            repeat_count=_as_repeat(repeat_count),  # type: ignore[arg-type]
             step_mode=str(step_mode).strip().lower(),  # type: ignore[arg-type]
             terminate_last=_as_bool(terminate_last, name="terminate_last"),
             maximum_duration_s=_as_seconds(maximum_duration_s, name="maximum_duration_s"),
+            begin_step_triggers=_as_flags(begin_step_triggers, name="begin_step_triggers"),
+            end_step_triggers=_as_flags(end_step_triggers, name="end_step_triggers"),
             alias=alias,
         )
         self._post_write(alias)
@@ -455,6 +532,7 @@ class KeysightN6700Library:
         terminate_last: Any = False,
         maximum_duration_s: Any = 60.0,
         alias: str | None = None,
+        begin_step_triggers: Any = False,
     ) -> dict[str, Any]:
         """Configure a bounded user-defined voltage ARB while output is OFF."""
         dwells = _as_float_list(dwell_s, name="dwell_s")
@@ -464,9 +542,10 @@ class KeysightN6700Library:
             dwells[0] if len(dwells) == 1 else dwells,
             maximum_voltage_v=_as_float(maximum_voltage_v, name="maximum_voltage_v"),
             minimum_voltage_v=_as_float(minimum_voltage_v, name="minimum_voltage_v"),
-            repeat_count=int(repeat_count),
+            repeat_count=_as_repeat(repeat_count),  # type: ignore[arg-type]
             terminate_last=_as_bool(terminate_last, name="terminate_last"),
             maximum_duration_s=_as_seconds(maximum_duration_s, name="maximum_duration_s"),
+            begin_step_triggers=_as_flags(begin_step_triggers, name="begin_step_triggers"),
             alias=alias,
         )
         self._post_write(alias)
@@ -486,10 +565,19 @@ class KeysightN6700Library:
 
     @keyword("Arm N6700 Voltage Transient")
     def arm_n6700_voltage_transient(
-        self, channel: Any, alias: str | None = None
+        self, channel: Any, alias: str | None = None, continuous: Any = False
     ) -> dict[str, Any]:
-        """Arm a verified profile; the output must already be ON."""
-        return _serialize(self._driver.arm_voltage_transient(_as_channel(channel), alias=alias))
+        """Arm a verified voltage or current profile; the output must already be ON.
+
+        ``continuous=true`` re-arms after every run until the transient is aborted.
+        """
+        return _serialize(
+            self._driver.arm_voltage_transient(
+                _as_channel(channel),
+                alias=alias,
+                continuous=_as_bool(continuous, name="continuous"),
+            )
+        )
 
     @keyword("Wait Until N6700 Voltage Transient Is Ready")
     def wait_until_n6700_voltage_transient_is_ready(
@@ -539,6 +627,420 @@ class KeysightN6700Library:
         """Abort the channel's output transient trigger system."""
         self._driver.abort_voltage_transient(_as_channel(channel), alias=alias)
         self._post_write(alias)
+
+    @keyword("Set N6700 Current Slew Rate")
+    def set_n6700_current_slew_rate(
+        self, channel: Any, rate_a_per_s: Any, alias: str | None = None
+    ) -> float:
+        """Set current slew in A/s (N678xA SMU); use ``max`` for the fastest rate."""
+        rate: float | str = (
+            "max"
+            if isinstance(rate_a_per_s, str)
+            and rate_a_per_s.strip().lower() in {"max", "inf", "infinity"}
+            else _as_float(rate_a_per_s, name="rate_a_per_s")
+        )
+        result = self._driver.set_current_slew_rate(_as_channel(channel), rate, alias=alias)
+        self._post_write(alias)
+        return result
+
+    @keyword("Get N6700 Current Slew Rate")
+    def get_n6700_current_slew_rate(self, channel: Any, alias: str | None = None) -> float:
+        """Return the programmed current slew rate in A/s."""
+        return self._driver.get_current_slew_rate(_as_channel(channel), alias=alias)
+
+    @keyword("Configure N6700 Current List")
+    def configure_n6700_current_list(
+        self,
+        channel: Any,
+        levels_a: Any,
+        dwell_s: Any,
+        maximum_current_a: Any,
+        minimum_current_a: Any = 0.0,
+        repeat_count: Any = 1,
+        step_mode: str = "auto",
+        terminate_last: Any = False,
+        maximum_duration_s: Any = 60.0,
+        alias: str | None = None,
+        begin_step_triggers: Any = False,
+        end_step_triggers: Any = False,
+    ) -> dict[str, Any]:
+        """Configure a bounded current LIST while the selected output is OFF."""
+        dwells = _as_float_list(dwell_s, name="dwell_s")
+        config = self._driver.configure_current_list(
+            _as_channel(channel),
+            _as_float_list(levels_a, name="levels_a"),
+            dwells[0] if len(dwells) == 1 else dwells,
+            maximum_current_a=_as_float(maximum_current_a, name="maximum_current_a"),
+            minimum_current_a=_as_float(minimum_current_a, name="minimum_current_a"),
+            repeat_count=_as_repeat(repeat_count),  # type: ignore[arg-type]
+            step_mode=str(step_mode).strip().lower(),  # type: ignore[arg-type]
+            terminate_last=_as_bool(terminate_last, name="terminate_last"),
+            maximum_duration_s=_as_seconds(maximum_duration_s, name="maximum_duration_s"),
+            begin_step_triggers=_as_flags(begin_step_triggers, name="begin_step_triggers"),
+            end_step_triggers=_as_flags(end_step_triggers, name="end_step_triggers"),
+            alias=alias,
+        )
+        self._post_write(alias)
+        return _serialize(config)
+
+    @keyword("Configure N6700 Current Arb")
+    def configure_n6700_current_arb(
+        self,
+        channel: Any,
+        levels_a: Any,
+        dwell_s: Any,
+        maximum_current_a: Any,
+        minimum_current_a: Any = 0.0,
+        repeat_count: Any = 1,
+        terminate_last: Any = False,
+        maximum_duration_s: Any = 60.0,
+        alias: str | None = None,
+        begin_step_triggers: Any = False,
+    ) -> dict[str, Any]:
+        """Configure a bounded user-defined current ARB while output is OFF."""
+        dwells = _as_float_list(dwell_s, name="dwell_s")
+        config = self._driver.configure_current_arb(
+            _as_channel(channel),
+            _as_float_list(levels_a, name="levels_a"),
+            dwells[0] if len(dwells) == 1 else dwells,
+            maximum_current_a=_as_float(maximum_current_a, name="maximum_current_a"),
+            minimum_current_a=_as_float(minimum_current_a, name="minimum_current_a"),
+            repeat_count=_as_repeat(repeat_count),  # type: ignore[arg-type]
+            terminate_last=_as_bool(terminate_last, name="terminate_last"),
+            maximum_duration_s=_as_seconds(maximum_duration_s, name="maximum_duration_s"),
+            begin_step_triggers=_as_flags(begin_step_triggers, name="begin_step_triggers"),
+            alias=alias,
+        )
+        self._post_write(alias)
+        return _serialize(config)
+
+    @keyword("Configure N6700 Voltage Arb Waveform")
+    def configure_n6700_voltage_arb_waveform(
+        self,
+        channel: Any,
+        shape: str,
+        maximum_voltage_v: Any,
+        minimum_voltage_v: Any = 0.0,
+        repeat_count: Any = 1,
+        terminate_last: Any = False,
+        maximum_duration_s: Any = 60.0,
+        alias: str | None = None,
+        **parameters: Any,
+    ) -> dict[str, Any]:
+        """Configure a built-in voltage ARB shape while output is OFF.
+
+        ``shape`` is step, ramp, staircase, sine, pulse, trapezoid,
+        exponential or user_defined; its parameters are named arguments,
+        e.g. ``ramp  start_level=6V  end_level=12V  rise_time_s=20ms``.
+        """
+        config = self._driver.configure_voltage_arb_waveform(
+            _as_channel(channel),
+            _as_shape(shape, parameters),
+            maximum_voltage_v=_as_float(maximum_voltage_v, name="maximum_voltage_v"),
+            minimum_voltage_v=_as_float(minimum_voltage_v, name="minimum_voltage_v"),
+            repeat_count=_as_repeat(repeat_count),  # type: ignore[arg-type]
+            terminate_last=_as_bool(terminate_last, name="terminate_last"),
+            maximum_duration_s=_as_seconds(maximum_duration_s, name="maximum_duration_s"),
+            alias=alias,
+        )
+        self._post_write(alias)
+        return _serialize(config)
+
+    @keyword("Configure N6700 Current Arb Waveform")
+    def configure_n6700_current_arb_waveform(
+        self,
+        channel: Any,
+        shape: str,
+        maximum_current_a: Any,
+        minimum_current_a: Any = 0.0,
+        repeat_count: Any = 1,
+        terminate_last: Any = False,
+        maximum_duration_s: Any = 60.0,
+        alias: str | None = None,
+        **parameters: Any,
+    ) -> dict[str, Any]:
+        """Configure a built-in current ARB shape while output is OFF; levels are amperes."""
+        config = self._driver.configure_current_arb_waveform(
+            _as_channel(channel),
+            _as_shape(shape, parameters),
+            maximum_current_a=_as_float(maximum_current_a, name="maximum_current_a"),
+            minimum_current_a=_as_float(minimum_current_a, name="minimum_current_a"),
+            repeat_count=_as_repeat(repeat_count),  # type: ignore[arg-type]
+            terminate_last=_as_bool(terminate_last, name="terminate_last"),
+            maximum_duration_s=_as_seconds(maximum_duration_s, name="maximum_duration_s"),
+            alias=alias,
+        )
+        self._post_write(alias)
+        return _serialize(config)
+
+    @keyword("Configure N6700 Voltage Constant Dwell Arb")
+    def configure_n6700_voltage_constant_dwell_arb(
+        self,
+        channel: Any,
+        levels_v: Any,
+        dwell_s: Any,
+        maximum_voltage_v: Any,
+        minimum_voltage_v: Any = 0.0,
+        repeat_count: Any = 1,
+        terminate_last: Any = False,
+        maximum_duration_s: Any = 60.0,
+        alias: str | None = None,
+    ) -> dict[str, Any]:
+        """Configure a constant-dwell voltage ARB (one dwell for every point)."""
+        config = self._driver.configure_voltage_constant_dwell_arb(
+            _as_channel(channel),
+            _as_float_list(levels_v, name="levels_v"),
+            _as_float(dwell_s, name="dwell_s"),
+            maximum_voltage_v=_as_float(maximum_voltage_v, name="maximum_voltage_v"),
+            minimum_voltage_v=_as_float(minimum_voltage_v, name="minimum_voltage_v"),
+            repeat_count=_as_repeat(repeat_count),  # type: ignore[arg-type]
+            terminate_last=_as_bool(terminate_last, name="terminate_last"),
+            maximum_duration_s=_as_seconds(maximum_duration_s, name="maximum_duration_s"),
+            alias=alias,
+        )
+        self._post_write(alias)
+        return _serialize(config)
+
+    @keyword("Configure N6700 Current Constant Dwell Arb")
+    def configure_n6700_current_constant_dwell_arb(
+        self,
+        channel: Any,
+        levels_a: Any,
+        dwell_s: Any,
+        maximum_current_a: Any,
+        minimum_current_a: Any = 0.0,
+        repeat_count: Any = 1,
+        terminate_last: Any = False,
+        maximum_duration_s: Any = 60.0,
+        alias: str | None = None,
+    ) -> dict[str, Any]:
+        """Configure a constant-dwell current ARB (one dwell for every point)."""
+        config = self._driver.configure_current_constant_dwell_arb(
+            _as_channel(channel),
+            _as_float_list(levels_a, name="levels_a"),
+            _as_float(dwell_s, name="dwell_s"),
+            maximum_current_a=_as_float(maximum_current_a, name="maximum_current_a"),
+            minimum_current_a=_as_float(minimum_current_a, name="minimum_current_a"),
+            repeat_count=_as_repeat(repeat_count),  # type: ignore[arg-type]
+            terminate_last=_as_bool(terminate_last, name="terminate_last"),
+            maximum_duration_s=_as_seconds(maximum_duration_s, name="maximum_duration_s"),
+            alias=alias,
+        )
+        self._post_write(alias)
+        return _serialize(config)
+
+    @keyword("Configure N6700 Voltage Arb Sequence")
+    def configure_n6700_voltage_arb_sequence(
+        self,
+        channel: Any,
+        steps: Any,
+        maximum_voltage_v: Any,
+        minimum_voltage_v: Any = 0.0,
+        sequence_count: Any = 1,
+        terminate_last: Any = False,
+        maximum_duration_s: Any = 60.0,
+        alias: str | None = None,
+    ) -> dict[str, Any]:
+        """Configure a voltage ARB sequence from a list of step dictionaries.
+
+        Each step has ``shape``, optional ``repeat_count`` and ``pacing``
+        (dwell/trigger), plus the shape's parameters.
+        """
+        config = self._driver.configure_voltage_arb_sequence(
+            _as_channel(channel),
+            _as_sequence_steps(steps),
+            maximum_voltage_v=_as_float(maximum_voltage_v, name="maximum_voltage_v"),
+            minimum_voltage_v=_as_float(minimum_voltage_v, name="minimum_voltage_v"),
+            sequence_count=_as_repeat(sequence_count, name="sequence_count"),  # type: ignore[arg-type]
+            terminate_last=_as_bool(terminate_last, name="terminate_last"),
+            maximum_duration_s=_as_seconds(maximum_duration_s, name="maximum_duration_s"),
+            alias=alias,
+        )
+        self._post_write(alias)
+        return _serialize(config)
+
+    @keyword("Configure N6700 Current Arb Sequence")
+    def configure_n6700_current_arb_sequence(
+        self,
+        channel: Any,
+        steps: Any,
+        maximum_current_a: Any,
+        minimum_current_a: Any = 0.0,
+        sequence_count: Any = 1,
+        terminate_last: Any = False,
+        maximum_duration_s: Any = 60.0,
+        alias: str | None = None,
+    ) -> dict[str, Any]:
+        """Configure a current ARB sequence from a list of step dictionaries."""
+        config = self._driver.configure_current_arb_sequence(
+            _as_channel(channel),
+            _as_sequence_steps(steps),
+            maximum_current_a=_as_float(maximum_current_a, name="maximum_current_a"),
+            minimum_current_a=_as_float(minimum_current_a, name="minimum_current_a"),
+            sequence_count=_as_repeat(sequence_count, name="sequence_count"),  # type: ignore[arg-type]
+            terminate_last=_as_bool(terminate_last, name="terminate_last"),
+            maximum_duration_s=_as_seconds(maximum_duration_s, name="maximum_duration_s"),
+            alias=alias,
+        )
+        self._post_write(alias)
+        return _serialize(config)
+
+    @keyword("Store N6700 Arb Sequence")
+    def store_n6700_arb_sequence(
+        self, channel: Any, filename: str, alias: str | None = None
+    ) -> None:
+        """Save the channel's ARB sequence to an instrument file such as ``internal:\\dip.seq``."""
+        self._driver.store_arb_sequence(_as_channel(channel), str(filename), alias=alias)
+        self._post_write(alias)
+
+    @keyword("Load N6700 Voltage Arb Sequence")
+    def load_n6700_voltage_arb_sequence(
+        self,
+        channel: Any,
+        filename: str,
+        maximum_voltage_v: Any,
+        minimum_voltage_v: Any = 0.0,
+        maximum_duration_s: Any = 60.0,
+        allow_infinite: Any = False,
+        alias: str | None = None,
+    ) -> dict[str, Any]:
+        """Load a ``.seq`` file; it is rejected unless it fits the voltage envelope."""
+        config = self._driver.load_voltage_arb_sequence(
+            _as_channel(channel),
+            str(filename),
+            maximum_voltage_v=_as_float(maximum_voltage_v, name="maximum_voltage_v"),
+            minimum_voltage_v=_as_float(minimum_voltage_v, name="minimum_voltage_v"),
+            maximum_duration_s=_as_seconds(maximum_duration_s, name="maximum_duration_s"),
+            allow_infinite=_as_bool(allow_infinite, name="allow_infinite"),
+            alias=alias,
+        )
+        self._post_write(alias)
+        return _serialize(config)
+
+    @keyword("Load N6700 Current Arb Sequence")
+    def load_n6700_current_arb_sequence(
+        self,
+        channel: Any,
+        filename: str,
+        maximum_current_a: Any,
+        minimum_current_a: Any = 0.0,
+        maximum_duration_s: Any = 60.0,
+        allow_infinite: Any = False,
+        alias: str | None = None,
+    ) -> dict[str, Any]:
+        """Load a ``.seq`` file; it is rejected unless it fits the current envelope."""
+        config = self._driver.load_current_arb_sequence(
+            _as_channel(channel),
+            str(filename),
+            maximum_current_a=_as_float(maximum_current_a, name="maximum_current_a"),
+            minimum_current_a=_as_float(minimum_current_a, name="minimum_current_a"),
+            maximum_duration_s=_as_seconds(maximum_duration_s, name="maximum_duration_s"),
+            allow_infinite=_as_bool(allow_infinite, name="allow_infinite"),
+            alias=alias,
+        )
+        self._post_write(alias)
+        return _serialize(config)
+
+    @keyword("Configure N6700 Arb From CSV")
+    def configure_n6700_arb_from_csv(
+        self,
+        channel: Any,
+        path: str,
+        quantity: str,
+        maximum_level: Any,
+        minimum_level: Any = 0.0,
+        repeat_count: Any = 1,
+        terminate_last: Any = False,
+        maximum_duration_s: Any = 60.0,
+        alias: str | None = None,
+    ) -> dict[str, Any]:
+        """Program a Keysight-format ARB CSV file (user-defined or constant-dwell).
+
+        ``quantity`` (voltage/current) must match the file's ``%arbtype``
+        tag; the level bounds are in that quantity's unit.
+        """
+        profile = read_arb_csv(Path(path))
+        expected = str(quantity).strip().lower()
+        if profile.quantity != expected:
+            raise ValueError(f"{path} holds a {profile.quantity} ARB, not {expected}")
+        ch = _as_channel(channel)
+        maximum = _as_float(maximum_level, name="maximum_level")
+        minimum = _as_float(minimum_level, name="minimum_level")
+        common: dict[str, Any] = {
+            "repeat_count": _as_repeat(repeat_count),
+            "terminate_last": _as_bool(terminate_last, name="terminate_last"),
+            "maximum_duration_s": _as_seconds(maximum_duration_s, name="maximum_duration_s"),
+            "alias": alias,
+        }
+        config: Any
+        if profile.kind == "constant_dwell" and profile.quantity == "voltage":
+            config = self._driver.configure_voltage_constant_dwell_arb(
+                ch, profile.levels, profile.dwell_s[0],
+                maximum_voltage_v=maximum, minimum_voltage_v=minimum, **common,
+            )
+        elif profile.kind == "constant_dwell":
+            config = self._driver.configure_current_constant_dwell_arb(
+                ch, profile.levels, profile.dwell_s[0],
+                maximum_current_a=maximum, minimum_current_a=minimum, **common,
+            )
+        elif profile.quantity == "voltage":
+            config = self._driver.configure_voltage_arb(
+                ch, profile.levels, profile.dwell_s,
+                maximum_voltage_v=maximum, minimum_voltage_v=minimum,
+                begin_step_triggers=profile.begin_step_triggers, **common,
+            )
+        else:
+            config = self._driver.configure_current_arb(
+                ch, profile.levels, profile.dwell_s,
+                maximum_current_a=maximum, minimum_current_a=minimum,
+                begin_step_triggers=profile.begin_step_triggers, **common,
+            )
+        self._post_write(alias)
+        return _serialize(config)
+
+    @keyword("Configure N6700 Voltage Step")
+    def configure_n6700_voltage_step(
+        self,
+        channel: Any,
+        triggered_voltage_v: Any,
+        maximum_voltage_v: Any,
+        minimum_voltage_v: Any = 0.0,
+        trigger_output: Any = False,
+        alias: str | None = None,
+    ) -> dict[str, Any]:
+        """Program a triggered voltage step; the output stays at the new level."""
+        config = self._driver.configure_voltage_step(
+            _as_channel(channel),
+            _as_float(triggered_voltage_v, name="triggered_voltage_v"),
+            maximum_voltage_v=_as_float(maximum_voltage_v, name="maximum_voltage_v"),
+            minimum_voltage_v=_as_float(minimum_voltage_v, name="minimum_voltage_v"),
+            trigger_output=_as_bool(trigger_output, name="trigger_output"),
+            alias=alias,
+        )
+        self._post_write(alias)
+        return _serialize(config)
+
+    @keyword("Configure N6700 Current Step")
+    def configure_n6700_current_step(
+        self,
+        channel: Any,
+        triggered_current_a: Any,
+        maximum_current_a: Any,
+        minimum_current_a: Any = 0.0,
+        trigger_output: Any = False,
+        alias: str | None = None,
+    ) -> dict[str, Any]:
+        """Program a triggered current step; the output stays at the new level."""
+        config = self._driver.configure_current_step(
+            _as_channel(channel),
+            _as_float(triggered_current_a, name="triggered_current_a"),
+            maximum_current_a=_as_float(maximum_current_a, name="maximum_current_a"),
+            minimum_current_a=_as_float(minimum_current_a, name="minimum_current_a"),
+            trigger_output=_as_bool(trigger_output, name="trigger_output"),
+            alias=alias,
+        )
+        self._post_write(alias)
+        return _serialize(config)
 
     @keyword("Set N6700 Current Limit")
     def set_n6700_current_limit(self, channel: Any, current: Any, alias: str | None = None) -> float:

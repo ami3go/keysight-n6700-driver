@@ -430,6 +430,97 @@ exclusions:
     scope: v0.7.0
     review_date: "2026-10-14"
     covered_by: tests/unit/test_voltage_transient.py
+  - method: configure_current_list
+    reason: "A multi-command, safety-bounded current LIST transaction; ordered writes, readbacks and execution are asserted at the transport boundary in test_source_waveforms.py."
+    risk: high
+    approval: maintainer
+    scope: unreleased
+    review_date: "2026-10-14"
+    covered_by: tests/unit/test_source_waveforms.py
+  - method: configure_current_arb
+    reason: "A multi-command, safety-bounded user-defined current ARB transaction; array writes/readbacks and execution are covered by the source-waveform unit suite."
+    risk: high
+    approval: maintainer
+    scope: unreleased
+    review_date: "2026-10-14"
+    covered_by: tests/unit/test_source_waveforms.py
+  - method: configure_voltage_arb_waveform
+    reason: "A multi-command shape transaction (one write and readback per shape parameter) rather than one protocol shape; every built-in shape is covered by the source-waveform unit suite."
+    risk: high
+    approval: maintainer
+    scope: unreleased
+    review_date: "2026-10-14"
+    covered_by: tests/unit/test_source_waveforms.py
+  - method: configure_current_arb_waveform
+    reason: "Same multi-command shape transaction as configure_voltage_arb_waveform for current ARBs; covered by the source-waveform unit suite."
+    risk: high
+    approval: maintainer
+    scope: unreleased
+    review_date: "2026-10-14"
+    covered_by: tests/unit/test_source_waveforms.py
+  - method: configure_voltage_constant_dwell_arb
+    reason: "A multi-command constant-dwell transaction with array and dwell-quantum readback; covered by the source-waveform unit suite."
+    risk: high
+    approval: maintainer
+    scope: unreleased
+    review_date: "2026-10-14"
+    covered_by: tests/unit/test_source_waveforms.py
+  - method: configure_current_constant_dwell_arb
+    reason: "Same constant-dwell transaction as the voltage variant for current ARBs; covered by the source-waveform unit suite."
+    risk: high
+    approval: maintainer
+    scope: unreleased
+    review_date: "2026-10-14"
+    covered_by: tests/unit/test_source_waveforms.py
+  - method: configure_voltage_arb_sequence
+    reason: "A multi-step sequence transaction (per-step shape, pacing, count and parameters with full readback); covered by the source-waveform unit suite."
+    risk: high
+    approval: maintainer
+    scope: unreleased
+    review_date: "2026-10-14"
+    covered_by: tests/unit/test_source_waveforms.py
+  - method: configure_current_arb_sequence
+    reason: "Same sequence transaction as the voltage variant for current ARBs; covered by the source-waveform unit suite."
+    risk: high
+    approval: maintainer
+    scope: unreleased
+    review_date: "2026-10-14"
+    covered_by: tests/unit/test_source_waveforms.py
+  - method: load_voltage_arb_sequence
+    reason: "Needs a stored .seq file on the instrument and validates the full read-back sequence against an envelope; covered with simulator files by the source-waveform unit suite."
+    risk: high
+    approval: maintainer
+    scope: unreleased
+    review_date: "2026-10-14"
+    covered_by: tests/unit/test_source_waveforms.py
+  - method: load_current_arb_sequence
+    reason: "Same load-and-validate transaction as load_voltage_arb_sequence for current sequences; covered by the source-waveform unit suite."
+    risk: high
+    approval: maintainer
+    scope: unreleased
+    review_date: "2026-10-14"
+    covered_by: tests/unit/test_source_waveforms.py
+  - method: store_arb_sequence
+    reason: "Requires a configured ARB sequence on the channel as a precondition; the MMEM:STOR:ARB:SEQ text and precondition are covered by the source-waveform unit suite."
+    risk: low
+    approval: maintainer
+    scope: unreleased
+    review_date: "2026-10-14"
+    covered_by: tests/unit/test_source_waveforms.py
+  - method: configure_voltage_step
+    reason: "A multi-command STEP-mode transaction with readback of the triggered level and modes; covered by the source-waveform unit suite."
+    risk: high
+    approval: maintainer
+    scope: unreleased
+    review_date: "2026-10-14"
+    covered_by: tests/unit/test_source_waveforms.py
+  - method: configure_current_step
+    reason: "Same STEP-mode transaction as configure_voltage_step for current; covered by the source-waveform unit suite."
+    risk: high
+    approval: maintainer
+    scope: unreleased
+    review_date: "2026-10-14"
+    covered_by: tests/unit/test_source_waveforms.py
   - method: arm_voltage_transient
     reason: "Requires a verified profile, explicitly enabled output, and a runtime generation token; covered by the lifecycle unit suite and the separately gated HIL test rather than general protocol conformance."
     risk: high

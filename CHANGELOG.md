@@ -12,12 +12,21 @@ protection trip, or output OFF during a run is no longer reported as
 the profile duration plus margin. External-trigger readiness tolerates an
 edge landing between polls. Arming reads the trigger source from the
 instrument, and LIST `step_mode="once"` requires the external source.
-`safe_shutdown()` sends only `ABOR:TRAN`, so it also succeeds under another
-thread's digitizer lease. Profiles must stay 5 % below OVP, and SMU channels
+`safe_shutdown()` sends `INIT:CONT:TRAN OFF` followed by `ABOR:TRAN`; both
+remain available under another thread's digitizer lease. Profiles must stay 5 % below OVP, and SMU channels
 must be in voltage priority. N678xA dwell may be up to 268.435 s.
 `CURR:MODE FIX` replaces the unused `LIST:CURR`. SCPI -113/-241 map to
 `DriverUnsupportedOperationError`. The simulator now models TRAN_active
 while initiated, multi-poll runs and step-once pacing.
+
+Completed the waveform-generator review: ARB capabilities are now combined
+with the discovered mainframe model and rejected before mutation outside an
+N6705 mainframe; LIST/STEP remain available independently. N6784A voltage
+profiles accept explicit bipolar safety envelopes while all unipolar modules
+continue to reject negative levels. ARB sequence setup probes and caches
+whether installed firmware numbers steps from 0 or 1, resolving the conflict
+between Keysight's guide example and parameter table. The simulator and unit
+suite exercise both numbering conventions and N6700C/N6705C capability paths.
 
 ## v0.7.0 — 2026-10-14
 

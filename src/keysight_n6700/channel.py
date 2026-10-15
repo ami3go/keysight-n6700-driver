@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import math
-import numbers
 import threading
 from collections.abc import Callable, Sequence
 from time import monotonic, sleep
-from typing import ClassVar, Literal, Protocol
+from typing import ClassVar, Literal, NamedTuple, Protocol, TypeVar
 
 from scpi_driver_core.execution.polling import poll_until
 
@@ -33,18 +32,50 @@ from .scpi import (
     parse_digitize_real32,
 )
 from .types import (
+    ArbSequenceConfiguration,
+    ArbWaveformConfiguration,
     ArrayMeasurement,
     ChannelStatusSnapshot,
+    ConstantDwellArbConfiguration,
+    CurrentArbConfiguration,
+    CurrentListConfiguration,
     Measurement,
     PowerMeasurement,
     ProtectionClearResult,
     ProtectionStatus,
     ScpiErrorRecord,
+    SourceTransientConfiguration,
+    StepTransientConfiguration,
+    TransientQuantity,
     VoltageArbConfiguration,
     VoltageListConfiguration,
+    VoltageTransientMode,
     VoltageTransientStatus,
     VoltageTransientToken,
 )
+from .waveforms import (
+    PARAMETRIC_SHAPES,
+    USER_DEFINED_MAXIMUM_POINTS,
+    ArbSequenceStep,
+    ArbShape,
+    ArbUserDefined,
+    RepeatCount,
+    normalize_repeat_count,
+    normalize_trigger_flags,
+    repeat_scpi,
+)
+
+_ConfigT = TypeVar("_ConfigT", bound=SourceTransientConfiguration)
+
+
+class _ListReadback(NamedTuple):
+    levels: tuple[float, ...]
+    dwell_s: tuple[float, ...]
+    repeat_count: RepeatCount
+    begin_step_triggers: tuple[bool, ...]
+    end_step_triggers: tuple[bool, ...]
+    minimum: float
+    maximum: float
 
 
 class _DriverProtocol(Protocol):
@@ -187,6 +218,21 @@ class PowerSupplyChannel(BaseChannel):
     _COMPLETE_TIMEOUT_MARGIN_FRACTION = 0.1
     # Undefined header / hardware missing: the module or mainframe lacks the feature.
     _UNSUPPORTED_SCPI_CODES = frozenset({-113, -241})
+    _QUANTITY_SCPI: ClassVar[dict[str, str]] = {"voltage": "VOLT", "current": "CURR"}
+    _UNITS: ClassVar[dict[str, str]] = {"voltage": "V", "current": "A"}
+    _BOUND_NAMES: ClassVar[dict[str, tuple[str, str]]] = {
+        "voltage": ("minimum_voltage_v", "maximum_voltage_v"),
+        "current": ("minimum_current_a", "maximum_current_a"),
+    }
+    # Repeat-count queries report INFinity as 9.9E37.
+    _INFINITE_REPEAT = 9.9e37
+    # Single-value parameter queries reply in NR3 with 7 significant digits.
+    _NR3_REL_TOL = 1e-6
+    # [SOURce:]ARB:<VOLT|CURR>:CDWell:DWELl range, in 10.24 us steps.
+    _CDW_MINIMUM_DWELL_S = 10.24e-6
+    _CDW_MAXIMUM_DWELL_S = 0.30
+    # [SOURce:]ARB:SEQuence:STEP:FUNCtion:SHAPe: at most 100 steps.
+    _MAXIMUM_SEQUENCE_STEPS = 100
 
     def __init__(self, driver: _DriverProtocol, channel: int, capabilities: ChannelCapabilities) -> None:
         super().__init__(driver, channel, capabilities)
@@ -195,7 +241,10 @@ class PowerSupplyChannel(BaseChannel):
         self._transient_state = "idle"
         self._transient_mode = "fixed"
         self._transient_trigger_source = "bus"
-        self._transient_config: VoltageListConfiguration | VoltageArbConfiguration | None = None
+        self._transient_config: SourceTransientConfiguration | None = None
+        self._transient_continuous = False
+        self._transient_triggered_at: float | None = None
+        self._sequence_step_base: int | None = None
 
     def output_on(self) -> None:
         self.set_output(True)
@@ -287,7 +336,7 @@ class PowerSupplyChannel(BaseChannel):
             values = cls._finite_values(dwell_s, "dwell_s")
             if len(values) not in {1, points}:
                 raise DriverArgumentValueError(
-                    "dwell_s must contain one value or one value per voltage point"
+                    "dwell_s must contain one value or one value per point"
                 )
             values = values * points if len(values) == 1 else values
         else:
@@ -296,52 +345,166 @@ class PowerSupplyChannel(BaseChannel):
             raise DriverArgumentValueError(f"dwell_s values must be within 0..{maximum_s:g} s")
         return values
 
-    def _validate_voltage_profile(
-        self,
-        levels_v: Sequence[float],
-        *,
-        minimum_voltage_v: float,
-        maximum_voltage_v: float,
-        maximum_points: int,
-    ) -> tuple[float, ...]:
+    # -- source-transient validation helpers ---------------------------------
+
+    def _require_transient_support(self, quantity: TransientQuantity) -> None:
         if not self.capabilities.supports_list_mode:
             raise DriverUnsupportedOperationError(
                 f"{self.capabilities.model} does not advertise source LIST/ARB support"
             )
-        minimum = self._finite(minimum_voltage_v, "minimum_voltage_v")
-        maximum = self._finite(maximum_voltage_v, "maximum_voltage_v")
-        if minimum < 0 or maximum <= minimum:
-            raise DriverArgumentValueError(
-                "voltage safety bounds require 0 <= minimum_voltage_v < maximum_voltage_v"
+        if quantity == "current" and not self.capabilities.supports_current_transient:
+            raise DriverUnsupportedOperationError(
+                f"{self.capabilities.model} does not advertise current transient support"
             )
-        levels = self._finite_values(levels_v, "levels_v")
-        if len(levels) > maximum_points:
-            raise DriverArgumentValueError(f"levels_v exceeds {maximum_points} points")
-        if any(value < minimum or value > maximum for value in levels):
-            raise DriverArgumentValueError(
-                f"every voltage point must stay within the approved {minimum:g}..{maximum:g} V envelope"
+
+    def _require_arb_support(self, quantity: TransientQuantity) -> None:
+        self._require_transient_support(quantity)
+        supported = (
+            self.capabilities.supports_voltage_arb
+            if quantity == "voltage"
+            else self.capabilities.supports_current_arb
+        )
+        if not supported:
+            mainframe = self.capabilities.mainframe_model or "unknown mainframe"
+            raise DriverUnsupportedOperationError(
+                f"{quantity} ARB is unavailable for {self.capabilities.model} in {mainframe}; "
+                "ARB waveforms require an N6705 mainframe"
             )
-        voltage_range = self.get_voltage_range()
-        if maximum > voltage_range:
+
+    def _bounds(
+        self, quantity: TransientQuantity, minimum: float, maximum: float
+    ) -> tuple[float, float]:
+        low_name, high_name = self._BOUND_NAMES[quantity]
+        low = self._finite(minimum, low_name)
+        high = self._finite(maximum, high_name)
+        negative_allowed = quantity == "voltage" and self.capabilities.supports_bipolar_voltage
+        if high <= low:
             raise DriverArgumentValueError(
-                f"approved maximum {maximum:g} V exceeds instrument range {voltage_range:g} V"
+                f"{quantity} safety bounds require {low_name} < {high_name}"
             )
-        ovp = self.get_ovp()
-        ovp_ceiling = ovp * (1.0 - self._OVP_HEADROOM_FRACTION)
-        if maximum > ovp_ceiling:
+        if low < 0 and not negative_allowed:
             raise DriverArgumentValueError(
-                f"approved maximum {maximum:g} V leaves less than "
-                f"{self._OVP_HEADROOM_FRACTION:.0%} headroom below OVP {ovp:g} V "
-                f"(ceiling {ovp_ceiling:g} V)"
+                f"{quantity} safety bounds require 0 <= {low_name}; only N6784A voltage "
+                "profiles support a bipolar envelope"
             )
-        if self.capabilities.module_type == "smu":
-            # A voltage LIST/ARB only programs the output in voltage priority.
-            function = self._query(f"FUNC? {self._chan}").strip().upper()
-            if not function.startswith("VOLT"):
-                raise DriverPreconditionError(
-                    "SMU voltage LIST/ARB requires voltage priority mode (FUNC VOLT)"
+        return low, high
+
+    @classmethod
+    def _require_within(
+        cls, quantity: TransientQuantity, values: Sequence[float], low: float, high: float
+    ) -> None:
+        if any(value < low or value > high for value in values):
+            raise DriverArgumentValueError(
+                f"every {quantity} point must stay within the approved "
+                f"{low:g}..{high:g} {cls._UNITS[quantity]} envelope"
+            )
+
+    @classmethod
+    def _require_readback_within(
+        cls,
+        quantity: TransientQuantity,
+        values: Sequence[float],
+        low: float,
+        high: float,
+        name: str,
+    ) -> None:
+        if any(value < low or value > high for value in values):
+            raise DriverOperationUncertainError(
+                f"{name} {quantity} readback leaves the approved "
+                f"{low:g}..{high:g} {cls._UNITS[quantity]} envelope"
+            )
+
+    def _check_instrument_envelope(
+        self, quantity: TransientQuantity, minimum: float, maximum: float
+    ) -> None:
+        """Approved ceiling versus the live range, OVP and SMU priority mode."""
+        if quantity == "voltage":
+            voltage_range = self.get_voltage_range()
+            if max(abs(minimum), abs(maximum)) > voltage_range:
+                raise DriverArgumentValueError(
+                    f"approved envelope {minimum:g}..{maximum:g} V exceeds instrument "
+                    f"range +/-{voltage_range:g} V"
                 )
-        return levels
+            ovp = self.get_ovp()
+            ovp_ceiling = ovp * (1.0 - self._OVP_HEADROOM_FRACTION)
+            if maximum > ovp_ceiling:
+                raise DriverArgumentValueError(
+                    f"approved maximum {maximum:g} V leaves less than "
+                    f"{self._OVP_HEADROOM_FRACTION:.0%} headroom below OVP {ovp:g} V "
+                    f"(ceiling {ovp_ceiling:g} V)"
+                )
+        else:
+            current_range = self.get_current_range()
+            if maximum > current_range:
+                raise DriverArgumentValueError(
+                    f"approved maximum {maximum:g} A exceeds instrument range {current_range:g} A"
+                )
+        if self.capabilities.module_type == "smu":
+            # A source profile only programs the output in its own priority mode.
+            expected = self._QUANTITY_SCPI[quantity]
+            function = self._query(f"FUNC? {self._chan}").strip().upper()
+            if not function.startswith(expected):
+                raise DriverPreconditionError(
+                    f"SMU {quantity} LIST/ARB requires {quantity} priority mode (FUNC {expected})"
+                )
+
+    def _validate_profile(
+        self,
+        quantity: TransientQuantity,
+        levels: Sequence[float],
+        *,
+        minimum: float,
+        maximum: float,
+        maximum_points: int,
+    ) -> tuple[tuple[float, ...], float, float]:
+        self._require_transient_support(quantity)
+        low, high = self._bounds(quantity, minimum, maximum)
+        name = f"levels_{self._UNITS[quantity].lower()}"
+        values = self._finite_values(levels, name)
+        if len(values) > maximum_points:
+            raise DriverArgumentValueError(f"{name} exceeds {maximum_points} points")
+        self._require_within(quantity, values, low, high)
+        self._check_instrument_envelope(quantity, low, high)
+        return values, low, high
+
+    def _validate_waveform(
+        self,
+        quantity: TransientQuantity,
+        waveform: ArbShape,
+        low: float,
+        high: float,
+        name: str = "waveform",
+    ) -> None:
+        if not isinstance(waveform, (ArbUserDefined, *PARAMETRIC_SHAPES.values())):
+            raise DriverArgumentValueError(f"{name} must be an ARB shape such as ArbRamp")
+        shape_low, shape_high = waveform.level_bounds
+        self._require_within(quantity, (shape_low, shape_high), low, high)
+        maximum_s = self._maximum_dwell_s
+        if any(value > maximum_s for value in waveform.times_s):
+            raise DriverArgumentValueError(
+                f"{name} time parameters must be within 0..{maximum_s:g} s"
+            )
+
+    @staticmethod
+    def _require_duration(one_pass_s: float, repeat: RepeatCount, maximum_duration_s: float) -> float:
+        """Bound a finite run, or one pass of an ``'infinite'`` profile."""
+        limit = PowerSupplyChannel._finite(maximum_duration_s, "maximum_duration_s")
+        duration = one_pass_s if repeat == "infinite" else one_pass_s * repeat
+        if limit <= 0 or duration > limit:
+            raise DriverArgumentValueError(
+                f"profile duration {duration:g} s exceeds maximum_duration_s {limit:g} s"
+            )
+        return limit
+
+    @staticmethod
+    def _require_quantized_duration(
+        one_pass_s: float, repeat: RepeatCount, limit: float, feature: str
+    ) -> None:
+        duration = one_pass_s if repeat == "infinite" else one_pass_s * repeat
+        if duration > limit:
+            raise DriverOperationUncertainError(
+                f"quantized {feature} duration exceeds maximum_duration_s"
+            )
 
     @property
     def _smu_dwell_timebase(self) -> bool:
@@ -351,15 +514,6 @@ class PowerSupplyChannel(BaseChannel):
     def _maximum_dwell_s(self) -> float:
         # Programmer's Reference, [SOURce:]ARB/LIST dwell: 268.435 s on N678xA.
         return 268.435 if self._smu_dwell_timebase else 262.144
-
-    @staticmethod
-    def _repeat_count(value: int, maximum: int) -> int:
-        message = f"repeat_count must be an integer within 1..{maximum}"
-        if isinstance(value, bool) or not isinstance(value, numbers.Real):
-            raise DriverArgumentValueError(message)
-        if not math.isfinite(value) or int(value) != value or not 1 <= int(value) <= maximum:
-            raise DriverArgumentValueError(message)
-        return int(value)
 
     def _check_transient_errors(self, feature: str) -> None:
         """Map "feature absent" SCPI errors to a clean unsupported-operation error."""
@@ -374,9 +528,15 @@ class PowerSupplyChannel(BaseChannel):
                 ) from exc
             raise
 
+    # -- SCPI formatting and readback parsing --------------------------------
+
     @staticmethod
     def _csv(values: Sequence[float]) -> str:
         return ",".join(format_float(value) for value in values)
+
+    @staticmethod
+    def _flags_csv(flags: Sequence[bool]) -> str:
+        return ",".join("1" if flag else "0" for flag in flags) if flags else "0"
 
     @staticmethod
     def _parse_csv_floats(raw: str, name: str) -> tuple[float, ...]:
@@ -387,6 +547,13 @@ class PowerSupplyChannel(BaseChannel):
         if not values or any(not math.isfinite(value) for value in values):
             raise DriverMalformedResponseError(f"malformed {name} readback: {raw!r}")
         return values
+
+    @classmethod
+    def _parse_float(cls, raw: str, name: str) -> float:
+        values = cls._parse_csv_floats(raw, name)
+        if len(values) != 1:
+            raise DriverMalformedResponseError(f"malformed {name} readback: {raw!r}")
+        return values[0]
 
     @staticmethod
     def _parse_integer(raw: str, name: str) -> int:
@@ -399,11 +566,26 @@ class PowerSupplyChannel(BaseChannel):
         return int(value)
 
     @classmethod
+    def _parse_repeat(cls, raw: str, name: str) -> RepeatCount:
+        try:
+            value = float(raw.strip())
+        except ValueError as exc:
+            raise DriverMalformedResponseError(f"malformed {name} readback: {raw!r}") from exc
+        # The instrument reports INFinity as 9.9E37.
+        if value >= cls._INFINITE_REPEAT:
+            return "infinite"
+        return cls._parse_integer(raw, name)
+
+    @classmethod
     def _parse_boolean(cls, raw: str, name: str) -> bool:
         value = cls._parse_integer(raw, name)
         if value not in {0, 1}:
             raise DriverMalformedResponseError(f"malformed {name} readback: {raw!r}")
         return bool(value)
+
+    @classmethod
+    def _parse_flags(cls, raw: str, name: str) -> tuple[bool, ...]:
+        return tuple(cls._parse_boolean(item, name) for item in raw.strip().split(",") if item.strip())
 
     @staticmethod
     def _assert_profile_readback(
@@ -415,6 +597,14 @@ class PowerSupplyChannel(BaseChannel):
         ):
             raise DriverOperationUncertainError(
                 f"{name} readback does not match the requested profile"
+            )
+
+    @classmethod
+    def _assert_level_readback(cls, expected: float, actual: float, name: str) -> None:
+        # Single-value parameter queries reply in NR3 (+n.nnnnnnE+nn).
+        if not math.isclose(expected, actual, rel_tol=cls._NR3_REL_TOL, abs_tol=1e-9):
+            raise DriverOperationUncertainError(
+                f"{name} readback does not match the requested value"
             )
 
     def _assert_dwell_readback(
@@ -440,34 +630,86 @@ class PowerSupplyChannel(BaseChannel):
                     f"{name} readback differs by more than one documented dwell quantum"
                 )
 
-    def set_voltage_slew_rate(self, rate_v_per_s: float | str) -> float:
-        """Set and read back voltage slew in V/s; ``'max'`` selects fastest."""
-        if not self.capabilities.supports_voltage_slew:
-            raise DriverUnsupportedOperationError(
-                f"{self.capabilities.model} does not advertise voltage slew control"
-            )
-        if isinstance(rate_v_per_s, str):
-            if rate_v_per_s.strip().lower() not in {"max", "infinity", "inf"}:
-                raise DriverArgumentValueError("rate_v_per_s must be finite and > 0, or 'max'")
+    @staticmethod
+    def _assert_flags_readback(
+        expected: Sequence[bool], actual: Sequence[bool], name: str
+    ) -> None:
+        # A singleton reply applies to every point; () expects no trigger at all.
+        if not expected:
+            matches = not any(actual)
+        elif len(actual) == 1:
+            matches = all(flag == actual[0] for flag in expected)
+        else:
+            matches = tuple(actual) == tuple(expected)
+        if not matches:
+            raise DriverOperationUncertainError(f"{name} readback mismatch")
+
+    def _assert_source_modes(self, quantity: TransientQuantity, mode: str) -> None:
+        """The driven quantity is in ``mode``; the other one stayed FIX."""
+        if quantity == "voltage":
+            self._assert_fixed_current_mode()
+            if not self._query(f"VOLT:MODE? {self._chan}").strip().upper().startswith(mode):
+                raise DriverOperationUncertainError(f"voltage mode did not enter {mode}")
+            return
+        if not self._query(f"VOLT:MODE? {self._chan}").strip().upper().startswith("FIX"):
+            raise DriverOperationUncertainError("voltage mode did not stay FIX")
+        if not self._query(f"CURR:MODE? {self._chan}").strip().upper().startswith(mode):
+            raise DriverOperationUncertainError(f"current mode did not enter {mode}")
+
+    def _assert_fixed_current_mode(self) -> None:
+        if not self._query(f"CURR:MODE? {self._chan}").strip().upper().startswith("FIX"):
+            raise DriverOperationUncertainError("current mode did not stay FIX")
+
+    # -- slew -----------------------------------------------------------------
+
+    def _set_slew_rate(self, quantity: TransientQuantity, rate: float | str, name: str) -> float:
+        self._require_slew_support(quantity)
+        if isinstance(rate, str):
+            if rate.strip().lower() not in {"max", "infinity", "inf"}:
+                raise DriverArgumentValueError(f"{name} must be finite and > 0, or 'max'")
             command_value = "INF"
         else:
-            rate = self._finite(rate_v_per_s, "rate_v_per_s")
-            if rate <= 0:
-                raise DriverArgumentValueError("rate_v_per_s must be > 0")
-            command_value = format_float(rate)
-        self._write(f"VOLT:SLEW {command_value},{self._chan}")
-        self._check_transient_errors("voltage slew")
-        return self.get_voltage_slew_rate()
+            value = self._finite(rate, name)
+            if value <= 0:
+                raise DriverArgumentValueError(f"{name} must be > 0")
+            command_value = format_float(value)
+        self._write(f"{self._QUANTITY_SCPI[quantity]}:SLEW {command_value},{self._chan}")
+        self._check_transient_errors(f"{quantity} slew")
+        return self._get_slew_rate(quantity)
+
+    def _get_slew_rate(self, quantity: TransientQuantity) -> float:
+        self._require_slew_support(quantity)
+        value = float(self._query(f"{self._QUANTITY_SCPI[quantity]}:SLEW? {self._chan}"))
+        if not math.isfinite(value) or value <= 0:
+            raise DriverMalformedResponseError(f"invalid {quantity} slew readback: {value!r}")
+        return value
+
+    def _require_slew_support(self, quantity: TransientQuantity) -> None:
+        supported = (
+            self.capabilities.supports_voltage_slew
+            if quantity == "voltage"
+            else self.capabilities.supports_current_slew
+        )
+        if not supported:
+            raise DriverUnsupportedOperationError(
+                f"{self.capabilities.model} does not advertise {quantity} slew control"
+            )
+
+    def set_voltage_slew_rate(self, rate_v_per_s: float | str) -> float:
+        """Set and read back voltage slew in V/s; ``'max'`` selects fastest."""
+        return self._set_slew_rate("voltage", rate_v_per_s, "rate_v_per_s")
 
     def get_voltage_slew_rate(self) -> float:
-        if not self.capabilities.supports_voltage_slew:
-            raise DriverUnsupportedOperationError(
-                f"{self.capabilities.model} does not advertise voltage slew control"
-            )
-        value = float(self._query(f"VOLT:SLEW? {self._chan}"))
-        if not math.isfinite(value) or value <= 0:
-            raise DriverMalformedResponseError(f"invalid voltage slew readback: {value!r}")
-        return value
+        return self._get_slew_rate("voltage")
+
+    def set_current_slew_rate(self, rate_a_per_s: float | str) -> float:
+        """Set and read back current slew in A/s (N678xA SMU only); ``'max'`` selects fastest."""
+        return self._set_slew_rate("current", rate_a_per_s, "rate_a_per_s")
+
+    def get_current_slew_rate(self) -> float:
+        return self._get_slew_rate("current")
+
+    # -- configuration transaction --------------------------------------------
 
     def _require_output_off_for_configuration(self) -> None:
         # Checked before any write: a refused call must not abort a profile
@@ -477,12 +719,19 @@ class PowerSupplyChannel(BaseChannel):
                 "source transient profiles must be configured while the output is OFF"
             )
 
-    def _prepare_transient_configuration(self) -> None:
-        self._write(f"ABOR:TRAN {self._chan}")
+    def _stop_transient_system(self) -> None:
+        # "If INITiate:CONTinuous:TRANsient ON has been programmed, ABORt does
+        # not turn off continuous triggers", so turn continuous initiation off
+        # first, whatever the cached flag says, then return to Idle.
         self._write(f"INIT:CONT:TRAN OFF,{self._chan}")
+        self._write(f"ABOR:TRAN {self._chan}")
+        self._transient_continuous = False
+
+    def _prepare_transient_configuration(self) -> None:
+        self._stop_transient_system()
         self._write(f"VOLT:MODE FIX,{self._chan}")
-        # The fixed current limit applies to every step; a current LIST is
-        # never used, so pin current to FIX rather than programming LIST:CURR.
+        # The quantity a profile does not drive stays FIXed at its DC value,
+        # so pin both before programming the one that is driven.
         self._write(f"CURR:MODE FIX,{self._chan}")
 
     def _invalidate_transient_tokens(self) -> None:
@@ -492,14 +741,36 @@ class PowerSupplyChannel(BaseChannel):
 
     def _configuration_failed(self) -> None:
         try:
-            self._write(f"ABOR:TRAN {self._chan}")
-            self._write(f"INIT:CONT:TRAN OFF,{self._chan}")
+            self._stop_transient_system()
             self._write(f"VOLT:MODE FIX,{self._chan}")
+            self._write(f"CURR:MODE FIX,{self._chan}")
         finally:
             self._invalidate_transient_tokens()
             self._transient_state = "unknown"
             self._transient_mode = "fixed"
             self._transient_config = None
+
+    def _run_configuration(
+        self,
+        mode: VoltageTransientMode,
+        program: Callable[[], None],
+        verify: Callable[[], _ConfigT],
+    ) -> _ConfigT:
+        """Output-OFF guarded program/verify transaction with cleanup on failure."""
+        with self._transient_lock:
+            self._require_output_off_for_configuration()
+            try:
+                self._invalidate_transient_tokens()
+                self._prepare_transient_configuration()
+                program()
+                config = verify()
+            except BaseException:
+                self._configuration_failed()
+                raise
+            self._transient_config = config
+            self._transient_mode = mode
+            self._transient_state = "configured"
+            return config
 
     def _cleanup_failed_voltage_transient(self, primary: BaseException) -> None:
         """Preserve a wait failure while recording best-effort abort outcome."""
@@ -516,6 +787,88 @@ class PowerSupplyChannel(BaseChannel):
         if hasattr(primary, "add_note"):
             primary.add_note(f"voltage transient cleanup: {outcome}")
 
+    # -- LIST -----------------------------------------------------------------
+
+    def _configure_list(
+        self,
+        quantity: TransientQuantity,
+        levels: Sequence[float],
+        dwell_s: float | Sequence[float],
+        *,
+        minimum: float,
+        maximum: float,
+        repeat_count: RepeatCount,
+        step_mode: Literal["auto", "once"],
+        terminate_last: bool,
+        maximum_duration_s: float,
+        begin_step_triggers: bool | Sequence[bool],
+        end_step_triggers: bool | Sequence[bool],
+        build: Callable[[_ListReadback], _ConfigT],
+    ) -> _ConfigT:
+        values, low, high = self._validate_profile(
+            quantity, levels, minimum=minimum, maximum=maximum, maximum_points=512
+        )
+        dwells = self._normalize_dwells(dwell_s, len(values), maximum_s=self._maximum_dwell_s)
+        repeat = normalize_repeat_count(repeat_count, 256)
+        if step_mode not in {"auto", "once"}:
+            raise DriverArgumentValueError("step_mode must be 'auto' or 'once'")
+        begin = normalize_trigger_flags(begin_step_triggers, len(values), "begin_step_triggers")
+        end = normalize_trigger_flags(end_step_triggers, len(values), "end_step_triggers")
+        duration_limit = self._require_duration(sum(dwells), repeat, maximum_duration_s)
+        scpi = self._QUANTITY_SCPI[quantity]
+        label = f"LIST {quantity}"
+
+        def program() -> None:
+            self._write(f"LIST:{scpi} {self._csv(values)},{self._chan}")
+            self._write(f"LIST:DWEL {self._csv(dwells)},{self._chan}")
+            self._write(f"LIST:TOUT:BOST {self._flags_csv(begin)},{self._chan}")
+            self._write(f"LIST:TOUT:EOST {self._flags_csv(end)},{self._chan}")
+            self._write(f"LIST:COUN {repeat_scpi(repeat)},{self._chan}")
+            self._write(f"LIST:STEP {step_mode.upper()},{self._chan}")
+            self._write(f"LIST:TERM:LAST {format_bool(terminate_last)},{self._chan}")
+            self._write(f"{scpi}:MODE LIST,{self._chan}")
+            self._check_transient_errors(f"{quantity} LIST")
+
+        def verify() -> _ConfigT:
+            level_readback = self._parse_csv_floats(
+                self._query(f"LIST:{scpi}? {self._chan}"), label
+            )
+            dwell_readback = self._parse_csv_floats(
+                self._query(f"LIST:DWEL? {self._chan}"), "LIST dwell"
+            )
+            self._assert_profile_readback(values, level_readback, label)
+            self._assert_dwell_readback(dwells, dwell_readback, "LIST dwell")
+            self._require_quantized_duration(sum(dwell_readback), repeat, duration_limit, "LIST")
+            count_readback = self._parse_repeat(
+                self._query(f"LIST:COUN? {self._chan}"), "LIST repeat count"
+            )
+            step_readback = self._query(f"LIST:STEP? {self._chan}").strip().upper()
+            terminate_readback = self._parse_boolean(
+                self._query(f"LIST:TERM:LAST? {self._chan}"), "LIST termination"
+            )
+            if count_readback != repeat:
+                raise DriverOperationUncertainError("LIST repeat-count readback mismatch")
+            if not step_readback.startswith(step_mode.upper()):
+                raise DriverOperationUncertainError("LIST step-mode readback mismatch")
+            if terminate_readback != bool(terminate_last):
+                raise DriverOperationUncertainError("LIST termination readback mismatch")
+            self._assert_flags_readback(
+                begin,
+                self._parse_flags(self._query(f"LIST:TOUT:BOST? {self._chan}"), "LIST BOST"),
+                "LIST begin-of-step trigger",
+            )
+            self._assert_flags_readback(
+                end,
+                self._parse_flags(self._query(f"LIST:TOUT:EOST? {self._chan}"), "LIST EOST"),
+                "LIST end-of-step trigger",
+            )
+            self._assert_source_modes(quantity, "LIST")
+            return build(
+                _ListReadback(level_readback, dwell_readback, repeat, begin, end, low, high)
+            )
+
+        return self._run_configuration("list", program, verify)
+
     def configure_voltage_list(
         self,
         levels_v: Sequence[float],
@@ -523,93 +876,296 @@ class PowerSupplyChannel(BaseChannel):
         *,
         maximum_voltage_v: float,
         minimum_voltage_v: float = 0.0,
-        repeat_count: int = 1,
+        repeat_count: RepeatCount = 1,
         step_mode: Literal["auto", "once"] = "auto",
         terminate_last: bool = False,
         maximum_duration_s: float = 60.0,
+        begin_step_triggers: bool | Sequence[bool] = False,
+        end_step_triggers: bool | Sequence[bool] = False,
     ) -> VoltageListConfiguration:
         """Configure a bounded, output-OFF voltage LIST and verify readback.
 
         ``step_mode='once'`` advances one step per trigger and therefore
         requires the ``'external'`` transient trigger source.
+        ``repeat_count='infinite'`` runs until aborted; ``maximum_duration_s``
+        then bounds one pass.  ``begin_step_triggers``/``end_step_triggers``
+        program the ``LIST:TOUT:BOST``/``EOST`` trigger outputs (a bool
+        applies to every step).
         """
-        levels = self._validate_voltage_profile(
-            levels_v,
-            minimum_voltage_v=minimum_voltage_v,
-            maximum_voltage_v=maximum_voltage_v,
-            maximum_points=512,
-        )
-        dwells = self._normalize_dwells(dwell_s, len(levels), maximum_s=self._maximum_dwell_s)
-        repeat = self._repeat_count(repeat_count, 256)
-        if step_mode not in {"auto", "once"}:
-            raise DriverArgumentValueError("step_mode must be 'auto' or 'once'")
-        duration = sum(dwells) * repeat
-        duration_limit = self._finite(maximum_duration_s, "maximum_duration_s")
-        if duration_limit <= 0 or duration > duration_limit:
-            raise DriverArgumentValueError(
-                f"profile duration {duration:g} s exceeds maximum_duration_s {duration_limit:g} s"
-            )
         current_limit = self.get_current_limit()
-        with self._transient_lock:
-            self._require_output_off_for_configuration()
-            try:
-                self._invalidate_transient_tokens()
-                self._prepare_transient_configuration()
-                self._write(f"LIST:VOLT {self._csv(levels)},{self._chan}")
-                self._write(f"LIST:DWEL {self._csv(dwells)},{self._chan}")
-                self._write(f"LIST:TOUT:BOST 0,{self._chan}")
-                self._write(f"LIST:TOUT:EOST 0,{self._chan}")
-                self._write(f"LIST:COUN {repeat},{self._chan}")
-                self._write(f"LIST:STEP {step_mode.upper()},{self._chan}")
-                self._write(f"LIST:TERM:LAST {format_bool(terminate_last)},{self._chan}")
-                self._write(f"VOLT:MODE LIST,{self._chan}")
-                self._check_transient_errors("voltage LIST")
-                level_readback = self._parse_csv_floats(
-                    self._query(f"LIST:VOLT? {self._chan}"), "LIST voltage"
-                )
-                dwell_readback = self._parse_csv_floats(
-                    self._query(f"LIST:DWEL? {self._chan}"), "LIST dwell"
-                )
-                self._assert_profile_readback(levels, level_readback, "LIST voltage")
-                self._assert_dwell_readback(dwells, dwell_readback, "LIST dwell")
-                if sum(dwell_readback) * repeat > duration_limit:
-                    raise DriverOperationUncertainError(
-                        "quantized LIST duration exceeds maximum_duration_s"
-                    )
-                count_readback = self._parse_integer(
-                    self._query(f"LIST:COUN? {self._chan}"), "LIST repeat count"
-                )
-                step_readback = self._query(f"LIST:STEP? {self._chan}").strip().upper()
-                terminate_readback = self._parse_boolean(
-                    self._query(f"LIST:TERM:LAST? {self._chan}"), "LIST termination"
-                )
-                if count_readback != repeat:
-                    raise DriverOperationUncertainError("LIST repeat-count readback mismatch")
-                if not step_readback.startswith(step_mode.upper()):
-                    raise DriverOperationUncertainError("LIST step-mode readback mismatch")
-                if terminate_readback != bool(terminate_last):
-                    raise DriverOperationUncertainError("LIST termination readback mismatch")
-                self._assert_fixed_current_mode()
-                if not self._query(f"VOLT:MODE? {self._chan}").strip().upper().startswith("LIST"):
-                    raise DriverOperationUncertainError("voltage mode did not enter LIST")
-            except BaseException:
-                self._configuration_failed()
-                raise
-            config = VoltageListConfiguration(
+
+        def build(readback: _ListReadback) -> VoltageListConfiguration:
+            return VoltageListConfiguration(
                 channel=self.channel,
-                levels_v=level_readback,
-                dwell_s=dwell_readback,
+                levels_v=readback.levels,
+                dwell_s=readback.dwell_s,
                 current_limit_a=current_limit,
-                repeat_count=repeat,
+                repeat_count=readback.repeat_count,
                 step_mode=step_mode,
                 terminate_last=bool(terminate_last),
-                minimum_voltage_v=float(minimum_voltage_v),
-                maximum_voltage_v=float(maximum_voltage_v),
+                minimum_voltage_v=readback.minimum,
+                maximum_voltage_v=readback.maximum,
+                begin_step_triggers=readback.begin_step_triggers,
+                end_step_triggers=readback.end_step_triggers,
             )
-            self._transient_config = config
-            self._transient_mode = "list"
-            self._transient_state = "configured"
-            return config
+
+        return self._configure_list(
+            "voltage",
+            levels_v,
+            dwell_s,
+            minimum=minimum_voltage_v,
+            maximum=maximum_voltage_v,
+            repeat_count=repeat_count,
+            step_mode=step_mode,
+            terminate_last=terminate_last,
+            maximum_duration_s=maximum_duration_s,
+            begin_step_triggers=begin_step_triggers,
+            end_step_triggers=end_step_triggers,
+            build=build,
+        )
+
+    def configure_current_list(
+        self,
+        levels_a: Sequence[float],
+        dwell_s: float | Sequence[float],
+        *,
+        maximum_current_a: float,
+        minimum_current_a: float = 0.0,
+        repeat_count: RepeatCount = 1,
+        step_mode: Literal["auto", "once"] = "auto",
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+        begin_step_triggers: bool | Sequence[bool] = False,
+        end_step_triggers: bool | Sequence[bool] = False,
+    ) -> CurrentListConfiguration:
+        """Configure a bounded, output-OFF current LIST; voltage stays FIXed.
+
+        On power-supply modules the list steps the current *limit*; on an
+        SMU it requires current priority (``FUNC CURR``).
+        """
+        voltage_setpoint = self.get_voltage_setpoint()
+
+        def build(readback: _ListReadback) -> CurrentListConfiguration:
+            return CurrentListConfiguration(
+                channel=self.channel,
+                levels_a=readback.levels,
+                dwell_s=readback.dwell_s,
+                voltage_setpoint_v=voltage_setpoint,
+                repeat_count=readback.repeat_count,
+                step_mode=step_mode,
+                terminate_last=bool(terminate_last),
+                minimum_current_a=readback.minimum,
+                maximum_current_a=readback.maximum,
+                begin_step_triggers=readback.begin_step_triggers,
+                end_step_triggers=readback.end_step_triggers,
+            )
+
+        return self._configure_list(
+            "current",
+            levels_a,
+            dwell_s,
+            minimum=minimum_current_a,
+            maximum=maximum_current_a,
+            repeat_count=repeat_count,
+            step_mode=step_mode,
+            terminate_last=terminate_last,
+            maximum_duration_s=maximum_duration_s,
+            begin_step_triggers=begin_step_triggers,
+            end_step_triggers=end_step_triggers,
+            build=build,
+        )
+
+    # -- ARB shapes -------------------------------------------------------------
+
+    def _shape_command(
+        self,
+        quantity: TransientQuantity,
+        suffix: str,
+        value: str | None = None,
+        *,
+        step: int | None = None,
+    ) -> str:
+        """``ARB:<Q>:<suffix>`` or its ``ARB:SEQ:STEP:<Q>:<suffix> ..., <step#>`` form."""
+        scpi = self._QUANTITY_SCPI[quantity]
+        head = f"ARB:{scpi}:{suffix}" if step is None else f"ARB:SEQ:STEP:{scpi}:{suffix}"
+        arguments = [] if value is None else [value]
+        if step is not None:
+            arguments.append(str(step))
+        arguments.append(self._chan)
+        if value is None:
+            return f"{head}? {','.join(arguments)}"
+        return f"{head} {','.join(arguments)}"
+
+    def _write_shape(
+        self, quantity: TransientQuantity, waveform: ArbShape, *, step: int | None = None
+    ) -> None:
+        if isinstance(waveform, ArbUserDefined):
+            self._write(self._shape_command(quantity, "UDEF:LEV", self._csv(waveform.levels), step=step))
+            self._write(self._shape_command(quantity, "UDEF:DWEL", self._csv(waveform.dwell_s), step=step))
+            self._write(
+                self._shape_command(
+                    quantity, "UDEF:BOST", self._flags_csv(waveform.begin_step_triggers), step=step
+                )
+            )
+            return
+        for suffix, value, kind in waveform.scpi_parameters():
+            text = str(int(value)) if kind == "count" else format_float(value)
+            self._write(self._shape_command(quantity, suffix, text, step=step))
+
+    def _read_shape(
+        self, quantity: TransientQuantity, shape: str, *, step: int | None = None
+    ) -> ArbShape:
+        """Read every parameter of ``shape`` back into a validated shape object."""
+        name = f"ARB {quantity} {shape}" if step is None else f"ARB sequence step {step} {shape}"
+        if shape == "UDEF":
+            levels = self._parse_csv_floats(
+                self._query(self._shape_command(quantity, "UDEF:LEV", step=step)), f"{name} level"
+            )
+            dwells = self._parse_csv_floats(
+                self._query(self._shape_command(quantity, "UDEF:DWEL", step=step)), f"{name} dwell"
+            )
+            flags = self._parse_flags(
+                self._query(self._shape_command(quantity, "UDEF:BOST", step=step)), f"{name} BOST"
+            )
+            if len(flags) == 1:
+                flags = flags * len(levels)
+            try:
+                return ArbUserDefined(levels, dwells, flags if any(flags) else ())
+            except DriverArgumentValueError as exc:
+                raise DriverMalformedResponseError(f"inconsistent {name} readback: {exc}") from exc
+        cls = PARAMETRIC_SHAPES.get(shape)
+        if cls is None:
+            raise DriverMalformedResponseError(f"unsupported {name} shape readback {shape!r}")
+        values = {
+            suffix: self._parse_float(
+                self._query(self._shape_command(quantity, suffix, step=step)), f"{name} {suffix}"
+            )
+            for _, suffix, _ in cls._parameters
+        }
+        try:
+            return cls.from_scpi_parameters(values)  # type: ignore[return-value]
+        except DriverArgumentValueError as exc:
+            raise DriverMalformedResponseError(f"invalid {name} readback: {exc}") from exc
+
+    def _assert_shape_readback(self, expected: ArbShape, actual: ArbShape, name: str) -> None:
+        if type(expected) is not type(actual):
+            raise DriverOperationUncertainError(f"{name} shape readback mismatch")
+        if isinstance(expected, ArbUserDefined) and isinstance(actual, ArbUserDefined):
+            self._assert_profile_readback(expected.levels, actual.levels, f"{name} level")
+            self._assert_dwell_readback(expected.dwell_s, actual.dwell_s, f"{name} dwell")
+            self._assert_flags_readback(
+                expected.begin_step_triggers, actual.begin_step_triggers, f"{name} BOST"
+            )
+            return
+        if isinstance(expected, ArbUserDefined) or isinstance(actual, ArbUserDefined):
+            raise DriverOperationUncertainError(f"{name} shape readback mismatch")
+        for (suffix, wanted, kind), (_, got, _) in zip(
+            expected.scpi_parameters(), actual.scpi_parameters(), strict=True
+        ):
+            label = f"{name} {suffix}"
+            if kind == "time":
+                self._assert_dwell_readback((wanted,), (got,), label)
+            elif kind == "count":
+                if int(wanted) != int(got):
+                    raise DriverOperationUncertainError(f"{label} readback mismatch")
+            else:
+                self._assert_level_readback(wanted, got, label)
+
+    @staticmethod
+    def _parse_shape_keyword(raw: str) -> str:
+        value = raw.strip().strip('"').upper()
+        for keyword in ("STEP", "RAMP", "STA", "SIN", "PULS", "TRAP", "EXP", "UDEF", "CDW", "SEQ", "NONE"):
+            if value.startswith(keyword):
+                return keyword
+        raise DriverMalformedResponseError(f"malformed ARB shape readback: {raw!r}")
+
+    def _assert_arb_function(self, quantity: TransientQuantity, shape: str) -> None:
+        function_readback = self._query(f"ARB:FUNC:TYPE? {self._chan}").strip().upper()
+        shape_readback = self._parse_shape_keyword(self._query(f"ARB:FUNC:SHAP? {self._chan}"))
+        if not function_readback.startswith(self._QUANTITY_SCPI[quantity]) or shape_readback != shape:
+            raise DriverOperationUncertainError("ARB function/shape readback mismatch")
+
+    def _configure_single_arb(
+        self,
+        quantity: TransientQuantity,
+        waveform: ArbShape,
+        *,
+        minimum: float,
+        maximum: float,
+        repeat_count: RepeatCount,
+        terminate_last: bool,
+        maximum_duration_s: float,
+        convert: Callable[[ArbWaveformConfiguration], _ConfigT] | None = None,
+    ) -> _ConfigT | ArbWaveformConfiguration:
+        self._require_arb_support(quantity)
+        low, high = self._bounds(quantity, minimum, maximum)
+        self._validate_waveform(quantity, waveform, low, high)
+        repeat = normalize_repeat_count(repeat_count, 16_777_216)
+        duration_limit = self._require_duration(waveform.duration_s, repeat, maximum_duration_s)
+        self._check_instrument_envelope(quantity, low, high)
+        scpi = self._QUANTITY_SCPI[quantity]
+        label = f"{quantity} ARB"
+
+        def program() -> None:
+            self._write(f"ARB:FUNC:TYPE {scpi},{self._chan}")
+            self._write(f"ARB:FUNC:SHAP {waveform.shape},{self._chan}")
+            self._write_shape(quantity, waveform)
+            self._write(f"ARB:COUN {repeat_scpi(repeat)},{self._chan}")
+            self._write(f"ARB:TERM:LAST {format_bool(terminate_last)},{self._chan}")
+            self._write(f"{scpi}:MODE ARB,{self._chan}")
+            self._check_transient_errors(label)
+
+        def verify() -> _ConfigT | ArbWaveformConfiguration:
+            readback = self._read_shape(quantity, waveform.shape)
+            self._assert_shape_readback(waveform, readback, f"ARB {quantity}")
+            self._require_readback_within(quantity, readback.level_bounds, low, high, "ARB")
+            self._require_quantized_duration(readback.duration_s, repeat, duration_limit, "ARB")
+            count_readback = self._parse_repeat(
+                self._query(f"ARB:COUN? {self._chan}"), "ARB repeat count"
+            )
+            terminate_readback = self._parse_boolean(
+                self._query(f"ARB:TERM:LAST? {self._chan}"), "ARB termination"
+            )
+            if count_readback != repeat:
+                raise DriverOperationUncertainError("ARB repeat-count readback mismatch")
+            if terminate_readback != bool(terminate_last):
+                raise DriverOperationUncertainError("ARB termination readback mismatch")
+            self._assert_arb_function(quantity, waveform.shape)
+            self._assert_source_modes(quantity, "ARB")
+            config = ArbWaveformConfiguration(
+                channel=self.channel,
+                quantity=quantity,
+                waveform=readback,
+                repeat_count=repeat,
+                terminate_last=bool(terminate_last),
+                minimum_level=low,
+                maximum_level=high,
+            )
+            return config if convert is None else convert(config)
+
+        return self._run_configuration("arb", program, verify)
+
+    def _user_defined(
+        self,
+        quantity: TransientQuantity,
+        levels: Sequence[float],
+        dwell_s: float | Sequence[float],
+        begin_step_triggers: bool | Sequence[bool],
+        minimum: float,
+        maximum: float,
+    ) -> ArbUserDefined:
+        # Offline checks only; the instrument envelope is checked once by
+        # _configure_single_arb.
+        self._require_transient_support(quantity)
+        low, high = self._bounds(quantity, minimum, maximum)
+        name = f"levels_{self._UNITS[quantity].lower()}"
+        values = self._finite_values(levels, name)
+        if len(values) > USER_DEFINED_MAXIMUM_POINTS:
+            raise DriverArgumentValueError(f"{name} exceeds {USER_DEFINED_MAXIMUM_POINTS} points")
+        self._require_within(quantity, values, low, high)
+        dwells = self._normalize_dwells(dwell_s, len(values), maximum_s=self._maximum_dwell_s)
+        flags = normalize_trigger_flags(begin_step_triggers, len(values), "begin_step_triggers")
+        return ArbUserDefined(values, dwells, flags)
 
     def configure_voltage_arb(
         self,
@@ -618,94 +1174,723 @@ class PowerSupplyChannel(BaseChannel):
         *,
         maximum_voltage_v: float,
         minimum_voltage_v: float = 0.0,
-        repeat_count: int = 1,
+        repeat_count: RepeatCount = 1,
         terminate_last: bool = False,
         maximum_duration_s: float = 60.0,
+        begin_step_triggers: bool | Sequence[bool] = False,
     ) -> VoltageArbConfiguration:
         """Configure a bounded user-defined voltage ARB and verify readback."""
-        if not self.capabilities.supports_voltage_arb:
-            raise DriverUnsupportedOperationError(
-                f"{self.capabilities.model} does not advertise voltage ARB support"
-            )
-        levels = self._validate_voltage_profile(
-            levels_v,
-            minimum_voltage_v=minimum_voltage_v,
-            maximum_voltage_v=maximum_voltage_v,
-            maximum_points=511,
+        waveform = self._user_defined(
+            "voltage", levels_v, dwell_s, begin_step_triggers, minimum_voltage_v, maximum_voltage_v
         )
-        dwells = self._normalize_dwells(dwell_s, len(levels), maximum_s=self._maximum_dwell_s)
-        repeat = self._repeat_count(repeat_count, 16_777_216)
-        duration = sum(dwells) * repeat
-        duration_limit = self._finite(maximum_duration_s, "maximum_duration_s")
-        if duration_limit <= 0 or duration > duration_limit:
-            raise DriverArgumentValueError(
-                f"profile duration {duration:g} s exceeds maximum_duration_s {duration_limit:g} s"
-            )
-        with self._transient_lock:
-            self._require_output_off_for_configuration()
-            try:
-                self._invalidate_transient_tokens()
-                self._prepare_transient_configuration()
-                self._write(f"ARB:FUNC:TYPE VOLT,{self._chan}")
-                self._write(f"ARB:FUNC:SHAP UDEF,{self._chan}")
-                self._write(f"ARB:VOLT:UDEF:LEV {self._csv(levels)},{self._chan}")
-                self._write(f"ARB:VOLT:UDEF:DWEL {self._csv(dwells)},{self._chan}")
-                self._write(f"ARB:VOLT:UDEF:BOST 0,{self._chan}")
-                self._write(f"ARB:COUN {repeat},{self._chan}")
-                self._write(f"ARB:TERM:LAST {format_bool(terminate_last)},{self._chan}")
-                self._write(f"VOLT:MODE ARB,{self._chan}")
-                self._check_transient_errors("voltage ARB")
-                level_readback = self._parse_csv_floats(
-                    self._query(f"ARB:VOLT:UDEF:LEV? {self._chan}"), "ARB voltage"
-                )
-                dwell_readback = self._parse_csv_floats(
-                    self._query(f"ARB:VOLT:UDEF:DWEL? {self._chan}"), "ARB dwell"
-                )
-                self._assert_profile_readback(levels, level_readback, "ARB voltage")
-                self._assert_dwell_readback(dwells, dwell_readback, "ARB dwell")
-                if sum(dwell_readback) * repeat > duration_limit:
-                    raise DriverOperationUncertainError(
-                        "quantized ARB duration exceeds maximum_duration_s"
-                    )
-                count_readback = self._parse_integer(
-                    self._query(f"ARB:COUN? {self._chan}"), "ARB repeat count"
-                )
-                terminate_readback = self._parse_boolean(
-                    self._query(f"ARB:TERM:LAST? {self._chan}"), "ARB termination"
-                )
-                function_readback = self._query(f"ARB:FUNC:TYPE? {self._chan}").strip().upper()
-                shape_readback = self._query(f"ARB:FUNC:SHAP? {self._chan}").strip().upper()
-                if count_readback != repeat:
-                    raise DriverOperationUncertainError("ARB repeat-count readback mismatch")
-                if terminate_readback != bool(terminate_last):
-                    raise DriverOperationUncertainError("ARB termination readback mismatch")
-                if not function_readback.startswith("VOLT") or not shape_readback.startswith(
-                    "UDEF"
-                ):
-                    raise DriverOperationUncertainError("ARB function/shape readback mismatch")
-                self._assert_fixed_current_mode()
-                if not self._query(f"VOLT:MODE? {self._chan}").strip().upper().startswith("ARB"):
-                    raise DriverOperationUncertainError("voltage mode did not enter ARB")
-            except BaseException:
-                self._configuration_failed()
-                raise
-            config = VoltageArbConfiguration(
+
+        def convert(config: ArbWaveformConfiguration) -> VoltageArbConfiguration:
+            readback = config.waveform
+            if not isinstance(readback, ArbUserDefined):
+                raise DriverOperationUncertainError("ARB shape readback mismatch")
+            return VoltageArbConfiguration(
                 channel=self.channel,
-                levels_v=level_readback,
+                levels_v=readback.levels,
+                dwell_s=readback.dwell_s,
+                repeat_count=config.repeat_count,
+                terminate_last=config.terminate_last,
+                minimum_voltage_v=config.minimum_level,
+                maximum_voltage_v=config.maximum_level,
+                begin_step_triggers=readback.begin_step_triggers,
+            )
+
+        return self._configure_single_arb(  # type: ignore[return-value]
+            "voltage",
+            waveform,
+            minimum=minimum_voltage_v,
+            maximum=maximum_voltage_v,
+            repeat_count=repeat_count,
+            terminate_last=terminate_last,
+            maximum_duration_s=maximum_duration_s,
+            convert=convert,
+        )
+
+    def configure_current_arb(
+        self,
+        levels_a: Sequence[float],
+        dwell_s: float | Sequence[float],
+        *,
+        maximum_current_a: float,
+        minimum_current_a: float = 0.0,
+        repeat_count: RepeatCount = 1,
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+        begin_step_triggers: bool | Sequence[bool] = False,
+    ) -> CurrentArbConfiguration:
+        """Configure a bounded user-defined current ARB; voltage stays FIXed."""
+        waveform = self._user_defined(
+            "current", levels_a, dwell_s, begin_step_triggers, minimum_current_a, maximum_current_a
+        )
+
+        def convert(config: ArbWaveformConfiguration) -> CurrentArbConfiguration:
+            readback = config.waveform
+            if not isinstance(readback, ArbUserDefined):
+                raise DriverOperationUncertainError("ARB shape readback mismatch")
+            return CurrentArbConfiguration(
+                channel=self.channel,
+                levels_a=readback.levels,
+                dwell_s=readback.dwell_s,
+                repeat_count=config.repeat_count,
+                terminate_last=config.terminate_last,
+                minimum_current_a=config.minimum_level,
+                maximum_current_a=config.maximum_level,
+                begin_step_triggers=readback.begin_step_triggers,
+            )
+
+        return self._configure_single_arb(  # type: ignore[return-value]
+            "current",
+            waveform,
+            minimum=minimum_current_a,
+            maximum=maximum_current_a,
+            repeat_count=repeat_count,
+            terminate_last=terminate_last,
+            maximum_duration_s=maximum_duration_s,
+            convert=convert,
+        )
+
+    def configure_voltage_arb_waveform(
+        self,
+        waveform: ArbShape,
+        *,
+        maximum_voltage_v: float,
+        minimum_voltage_v: float = 0.0,
+        repeat_count: RepeatCount = 1,
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+    ) -> ArbWaveformConfiguration:
+        """Configure a built-in voltage ARB shape (``ArbStep``, ``ArbRamp``, ...).
+
+        Every level the shape can reach must stay inside the approved
+        envelope; the shape is read back parameter by parameter.
+        """
+        return self._configure_single_arb(
+            "voltage",
+            waveform,
+            minimum=minimum_voltage_v,
+            maximum=maximum_voltage_v,
+            repeat_count=repeat_count,
+            terminate_last=terminate_last,
+            maximum_duration_s=maximum_duration_s,
+        )
+
+    def configure_current_arb_waveform(
+        self,
+        waveform: ArbShape,
+        *,
+        maximum_current_a: float,
+        minimum_current_a: float = 0.0,
+        repeat_count: RepeatCount = 1,
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+    ) -> ArbWaveformConfiguration:
+        """Configure a built-in current ARB shape; levels are amperes."""
+        return self._configure_single_arb(
+            "current",
+            waveform,
+            minimum=minimum_current_a,
+            maximum=maximum_current_a,
+            repeat_count=repeat_count,
+            terminate_last=terminate_last,
+            maximum_duration_s=maximum_duration_s,
+        )
+
+    # -- constant-dwell ARB ------------------------------------------------------
+
+    def _configure_constant_dwell(
+        self,
+        quantity: TransientQuantity,
+        levels: Sequence[float],
+        dwell_s: float,
+        *,
+        minimum: float,
+        maximum: float,
+        repeat_count: RepeatCount,
+        terminate_last: bool,
+        maximum_duration_s: float,
+    ) -> ConstantDwellArbConfiguration:
+        self._require_arb_support(quantity)
+        values, low, high = self._validate_profile(
+            quantity, levels, minimum=minimum, maximum=maximum, maximum_points=65_535
+        )
+        dwell = self._finite(dwell_s, "dwell_s")
+        if not self._CDW_MINIMUM_DWELL_S <= dwell <= self._CDW_MAXIMUM_DWELL_S:
+            raise DriverArgumentValueError(
+                f"constant-dwell dwell_s must be within {self._CDW_MINIMUM_DWELL_S:g}.."
+                f"{self._CDW_MAXIMUM_DWELL_S:g} s"
+            )
+        # "For constant-dwell Arbs only, the maximum count is limited to 256."
+        repeat = normalize_repeat_count(repeat_count, 256)
+        duration_limit = self._require_duration(dwell * len(values), repeat, maximum_duration_s)
+        scpi = self._QUANTITY_SCPI[quantity]
+
+        def program() -> None:
+            self._write(f"ARB:FUNC:TYPE {scpi},{self._chan}")
+            self._write(f"ARB:FUNC:SHAP CDW,{self._chan}")
+            self._write(f"ARB:{scpi}:CDW:DWEL {format_float(dwell)},{self._chan}")
+            self._write(f"ARB:{scpi}:CDW {self._csv(values)},{self._chan}")
+            self._write(f"ARB:COUN {repeat_scpi(repeat)},{self._chan}")
+            self._write(f"ARB:TERM:LAST {format_bool(terminate_last)},{self._chan}")
+            self._write(f"{scpi}:MODE ARB,{self._chan}")
+            self._check_transient_errors(f"{quantity} constant-dwell ARB")
+
+        def verify() -> ConstantDwellArbConfiguration:
+            level_readback = self._parse_csv_floats(
+                self._query(f"ARB:{scpi}:CDW? {self._chan}"), "constant-dwell level"
+            )
+            dwell_readback = self._parse_float(
+                self._query(f"ARB:{scpi}:CDW:DWEL? {self._chan}"), "constant-dwell dwell"
+            )
+            self._assert_profile_readback(values, level_readback, "constant-dwell level")
+            # Rounded to the nearest 10.24 microseconds.
+            if abs(dwell_readback - dwell) > self._CDW_MINIMUM_DWELL_S / 2 + 1e-12:
+                raise DriverOperationUncertainError(
+                    "constant-dwell dwell readback differs by more than half a 10.24 us quantum"
+                )
+            self._require_quantized_duration(
+                dwell_readback * len(level_readback), repeat, duration_limit, "constant-dwell ARB"
+            )
+            count_readback = self._parse_repeat(
+                self._query(f"ARB:COUN? {self._chan}"), "ARB repeat count"
+            )
+            terminate_readback = self._parse_boolean(
+                self._query(f"ARB:TERM:LAST? {self._chan}"), "ARB termination"
+            )
+            if count_readback != repeat:
+                raise DriverOperationUncertainError("ARB repeat-count readback mismatch")
+            if terminate_readback != bool(terminate_last):
+                raise DriverOperationUncertainError("ARB termination readback mismatch")
+            self._assert_arb_function(quantity, "CDW")
+            self._assert_source_modes(quantity, "ARB")
+            return ConstantDwellArbConfiguration(
+                channel=self.channel,
+                quantity=quantity,
+                levels=level_readback,
                 dwell_s=dwell_readback,
                 repeat_count=repeat,
                 terminate_last=bool(terminate_last),
-                minimum_voltage_v=float(minimum_voltage_v),
-                maximum_voltage_v=float(maximum_voltage_v),
+                minimum_level=low,
+                maximum_level=high,
             )
-            self._transient_config = config
-            self._transient_mode = "arb"
-            self._transient_state = "configured"
+
+        return self._run_configuration("arb", program, verify)
+
+    def configure_voltage_constant_dwell_arb(
+        self,
+        levels_v: Sequence[float],
+        dwell_s: float,
+        *,
+        maximum_voltage_v: float,
+        minimum_voltage_v: float = 0.0,
+        repeat_count: RepeatCount = 1,
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+    ) -> ConstantDwellArbConfiguration:
+        """Configure a constant-dwell voltage ARB (up to 65,535 points, one shared dwell)."""
+        return self._configure_constant_dwell(
+            "voltage",
+            levels_v,
+            dwell_s,
+            minimum=minimum_voltage_v,
+            maximum=maximum_voltage_v,
+            repeat_count=repeat_count,
+            terminate_last=terminate_last,
+            maximum_duration_s=maximum_duration_s,
+        )
+
+    def configure_current_constant_dwell_arb(
+        self,
+        levels_a: Sequence[float],
+        dwell_s: float,
+        *,
+        maximum_current_a: float,
+        minimum_current_a: float = 0.0,
+        repeat_count: RepeatCount = 1,
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+    ) -> ConstantDwellArbConfiguration:
+        """Configure a constant-dwell current ARB (up to 65,535 points, one shared dwell)."""
+        return self._configure_constant_dwell(
+            "current",
+            levels_a,
+            dwell_s,
+            minimum=minimum_current_a,
+            maximum=maximum_current_a,
+            repeat_count=repeat_count,
+            terminate_last=terminate_last,
+            maximum_duration_s=maximum_duration_s,
+        )
+
+    # -- ARB sequences -------------------------------------------------------------
+
+    def _detect_sequence_step_base(self, *, reset: bool) -> int:
+        """Resolve the manual's conflicting 0-based/1-based step documentation.
+
+        The user's-guide example and append rule use step 0, while the
+        programmer's-reference parameter table says 1..100.  Probe the
+        reset-created first step while the output is OFF, cache the result for
+        this session, and fail closed on anything other than the expected
+        ``-222`` out-of-range response from the unsupported candidate.
+        """
+        if reset:
+            self._write(f"ARB:SEQ:RES {self._chan}")
+            self._check_transient_errors("ARB sequence reset")
+        if self._sequence_step_base is not None:
+            return self._sequence_step_base
+
+        def probe(index: int) -> tuple[str, tuple[ScpiErrorRecord, ...]]:
+            response = self._query(f"ARB:SEQ:STEP:FUNC:SHAP? {index},{self._chan}")
+            return response, tuple(self._driver.drain_errors())
+
+        zero_response, zero_errors = probe(0)
+        if not zero_errors:
+            self._parse_shape_keyword(zero_response)
+            self._sequence_step_base = 0
+            return 0
+        if any(error.code != -222 for error in zero_errors):
+            raise DriverOperationUncertainError(
+                f"could not determine ARB sequence step numbering: {zero_errors!r}"
+            )
+
+        one_response, one_errors = probe(1)
+        if one_errors:
+            raise DriverOperationUncertainError(
+                "neither zero-based nor one-based ARB sequence step numbering was accepted: "
+                f"step 0={zero_errors!r}, step 1={one_errors!r}"
+            )
+        self._parse_shape_keyword(one_response)
+        self._sequence_step_base = 1
+        return 1
+
+    def _read_sequence_steps(
+        self, quantity: TransientQuantity, *, step_base: int
+    ) -> tuple[ArbSequenceStep, ...]:
+        length = self._parse_integer(
+            self._query(f"ARB:SEQ:LEN? {self._chan}"), "ARB sequence length"
+        )
+        if not 1 <= length <= self._MAXIMUM_SEQUENCE_STEPS:
+            raise DriverMalformedResponseError(f"invalid ARB sequence length readback: {length}")
+        steps = []
+        for logical_index in range(length):
+            index = logical_index + step_base
+            shape = self._parse_shape_keyword(
+                self._query(f"ARB:SEQ:STEP:FUNC:SHAP? {index},{self._chan}")
+            )
+            pacing_raw = self._query(f"ARB:SEQ:STEP:PAC? {index},{self._chan}").strip().upper()
+            if pacing_raw.startswith("DWEL"):
+                pacing: Literal["dwell", "trigger"] = "dwell"
+            elif pacing_raw.startswith("TRIG"):
+                pacing = "trigger"
+            else:
+                raise DriverMalformedResponseError(f"malformed sequence pacing readback: {pacing_raw!r}")
+            repeat = self._parse_repeat(
+                self._query(f"ARB:SEQ:STEP:COUN? {index},{self._chan}"),
+                f"ARB sequence step {logical_index} repeat count",
+            )
+            waveform = self._read_shape(quantity, shape, step=index)
+            try:
+                steps.append(ArbSequenceStep(waveform, repeat, pacing))
+            except DriverArgumentValueError as exc:
+                raise DriverMalformedResponseError(
+                    f"invalid ARB sequence step {logical_index} readback: {exc}"
+                ) from exc
+        return tuple(steps)
+
+    def _sequence_one_pass_s(self, steps: Sequence[ArbSequenceStep]) -> float:
+        # An 'infinite' trigger-paced step is counted once for the bound.
+        return sum(
+            step.waveform.duration_s * (1 if step.repeat_count == "infinite" else step.repeat_count)
+            for step in steps
+        )
+
+    def _validate_sequence(
+        self,
+        quantity: TransientQuantity,
+        steps: Sequence[ArbSequenceStep],
+        low: float,
+        high: float,
+    ) -> tuple[ArbSequenceStep, ...]:
+        if isinstance(steps, (str, bytes)) or not isinstance(steps, Sequence):
+            raise DriverArgumentValueError("steps must be a sequence of ArbSequenceStep")
+        result = tuple(steps)
+        if not 1 <= len(result) <= self._MAXIMUM_SEQUENCE_STEPS:
+            raise DriverArgumentValueError(
+                f"an ARB sequence has 1..{self._MAXIMUM_SEQUENCE_STEPS} steps"
+            )
+        for index, step in enumerate(result):
+            if not isinstance(step, ArbSequenceStep):
+                raise DriverArgumentValueError(f"steps[{index}] must be an ArbSequenceStep")
+            self._validate_waveform(quantity, step.waveform, low, high, f"steps[{index}]")
+        return result
+
+    def _assert_sequence_readback(
+        self,
+        quantity: TransientQuantity,
+        expected: Sequence[ArbSequenceStep],
+        actual: Sequence[ArbSequenceStep],
+    ) -> None:
+        if len(expected) != len(actual):
+            raise DriverOperationUncertainError("ARB sequence length readback mismatch")
+        for index, (wanted, got) in enumerate(zip(expected, actual, strict=True)):
+            name = f"ARB sequence step {index}"
+            if wanted.pacing != got.pacing:
+                raise DriverOperationUncertainError(f"{name} pacing readback mismatch")
+            if wanted.repeat_count != got.repeat_count:
+                raise DriverOperationUncertainError(f"{name} repeat-count readback mismatch")
+            self._assert_shape_readback(wanted.waveform, got.waveform, name)
+
+    def _sequence_configuration(
+        self,
+        quantity: TransientQuantity,
+        steps: tuple[ArbSequenceStep, ...],
+        low: float,
+        high: float,
+        duration_limit: float,
+    ) -> ArbSequenceConfiguration:
+        """Read back sequence-wide settings and check the envelope of ``steps``."""
+        for index, step in enumerate(steps):
+            self._require_readback_within(
+                quantity, step.waveform.level_bounds, low, high, f"ARB sequence step {index}"
+            )
+            if any(value > self._maximum_dwell_s for value in step.waveform.times_s):
+                raise DriverOperationUncertainError(
+                    f"ARB sequence step {index} time parameters exceed {self._maximum_dwell_s:g} s"
+                )
+        count = self._parse_repeat(
+            self._query(f"ARB:SEQ:COUN? {self._chan}"), "ARB sequence count"
+        )
+        terminate = self._parse_boolean(
+            self._query(f"ARB:SEQ:TERM:LAST? {self._chan}"), "ARB sequence termination"
+        )
+        self._require_quantized_duration(
+            self._sequence_one_pass_s(steps), count, duration_limit, "ARB sequence"
+        )
+        return ArbSequenceConfiguration(
+            channel=self.channel,
+            quantity=quantity,
+            steps=steps,
+            sequence_count=count,
+            terminate_last=terminate,
+            minimum_level=low,
+            maximum_level=high,
+        )
+
+    def _configure_sequence(
+        self,
+        quantity: TransientQuantity,
+        steps: Sequence[ArbSequenceStep],
+        *,
+        minimum: float,
+        maximum: float,
+        sequence_count: RepeatCount,
+        terminate_last: bool,
+        maximum_duration_s: float,
+    ) -> ArbSequenceConfiguration:
+        self._require_arb_support(quantity)
+        low, high = self._bounds(quantity, minimum, maximum)
+        requested = self._validate_sequence(quantity, steps, low, high)
+        count = normalize_repeat_count(sequence_count, 4096, "sequence_count")
+        duration_limit = self._require_duration(
+            self._sequence_one_pass_s(requested), count, maximum_duration_s
+        )
+        self._check_instrument_envelope(quantity, low, high)
+        scpi = self._QUANTITY_SCPI[quantity]
+        step_base: int | None = None
+
+        def program() -> None:
+            nonlocal step_base
+            self._write(f"ARB:FUNC:TYPE {scpi},{self._chan}")
+            self._write(f"ARB:FUNC:SHAP SEQ,{self._chan}")
+            step_base = self._detect_sequence_step_base(reset=True)
+            for logical_index, step in enumerate(requested):
+                index = logical_index + step_base
+                # Steps are created sequentially.  ARB:SEQ:RESet creates the
+                # first step; subsequent step numbers append to the sequence.
+                self._write(f"ARB:SEQ:STEP:FUNC:SHAP {step.waveform.shape},{index},{self._chan}")
+                pacing = "TRIG" if step.pacing == "trigger" else "DWEL"
+                self._write(f"ARB:SEQ:STEP:PAC {pacing},{index},{self._chan}")
+                self._write(
+                    f"ARB:SEQ:STEP:COUN {repeat_scpi(step.repeat_count)},{index},{self._chan}"
+                )
+                self._write_shape(quantity, step.waveform, step=index)
+            self._write(f"ARB:SEQ:COUN {repeat_scpi(count)},{self._chan}")
+            self._write(f"ARB:SEQ:TERM:LAST {format_bool(terminate_last)},{self._chan}")
+            self._write(f"{scpi}:MODE ARB,{self._chan}")
+            self._check_transient_errors(f"{quantity} ARB sequence")
+
+        def verify() -> ArbSequenceConfiguration:
+            if step_base is None:
+                raise DriverOperationUncertainError("ARB sequence step numbering was not resolved")
+            readback = self._read_sequence_steps(quantity, step_base=step_base)
+            self._assert_sequence_readback(quantity, requested, readback)
+            config = self._sequence_configuration(quantity, readback, low, high, duration_limit)
+            if config.sequence_count != count:
+                raise DriverOperationUncertainError("ARB sequence count readback mismatch")
+            if config.terminate_last != bool(terminate_last):
+                raise DriverOperationUncertainError("ARB sequence termination readback mismatch")
+            self._assert_arb_function(quantity, "SEQ")
+            self._assert_source_modes(quantity, "ARB")
             return config
 
-    def _assert_fixed_current_mode(self) -> None:
-        if not self._query(f"CURR:MODE? {self._chan}").strip().upper().startswith("FIX"):
-            raise DriverOperationUncertainError("current mode did not stay FIX")
+        return self._run_configuration("arb", program, verify)
+
+    def configure_voltage_arb_sequence(
+        self,
+        steps: Sequence[ArbSequenceStep],
+        *,
+        maximum_voltage_v: float,
+        minimum_voltage_v: float = 0.0,
+        sequence_count: RepeatCount = 1,
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+    ) -> ArbSequenceConfiguration:
+        """Configure a voltage ARB sequence of up to 100 shapes.
+
+        Trigger-paced steps need the ``'external'`` transient trigger source
+        and an explicit completion timeout.
+        """
+        return self._configure_sequence(
+            "voltage",
+            steps,
+            minimum=minimum_voltage_v,
+            maximum=maximum_voltage_v,
+            sequence_count=sequence_count,
+            terminate_last=terminate_last,
+            maximum_duration_s=maximum_duration_s,
+        )
+
+    def configure_current_arb_sequence(
+        self,
+        steps: Sequence[ArbSequenceStep],
+        *,
+        maximum_current_a: float,
+        minimum_current_a: float = 0.0,
+        sequence_count: RepeatCount = 1,
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+    ) -> ArbSequenceConfiguration:
+        """Configure a current ARB sequence of up to 100 shapes; levels are amperes."""
+        return self._configure_sequence(
+            "current",
+            steps,
+            minimum=minimum_current_a,
+            maximum=maximum_current_a,
+            sequence_count=sequence_count,
+            terminate_last=terminate_last,
+            maximum_duration_s=maximum_duration_s,
+        )
+
+    # -- ARB sequence files (MMEMory) -----------------------------------------------
+
+    @staticmethod
+    def _sequence_filename(filename: str) -> str:
+        if not isinstance(filename, str):
+            raise DriverArgumentValueError("filename must be a string")
+        value = filename.strip()
+        if not value or any(char in value for char in "\"'\r\n;"):
+            raise DriverArgumentValueError("filename must be non-empty without quotes, ';' or newlines")
+        lowered = value.lower()
+        if not lowered.startswith(("internal:", "external:", "int:", "ext:")):
+            raise DriverArgumentValueError(
+                r"filename must be a full instrument path such as 'internal:\seq\dip.seq'"
+            )
+        if not lowered.endswith(".seq"):
+            raise DriverArgumentValueError("ARB sequence files use the .seq extension")
+        return value
+
+    def store_arb_sequence(self, filename: str) -> None:
+        """Save this channel's ARB sequence to an instrument ``.seq`` file."""
+        self._require_arb_support("voltage")
+        path = self._sequence_filename(filename)
+        with self._transient_lock:
+            shape = self._parse_shape_keyword(self._query(f"ARB:FUNC:SHAP? {self._chan}"))
+            if shape != "SEQ":
+                raise DriverPreconditionError(
+                    "the channel ARB function is not a sequence; configure one first"
+                )
+            self._write(f'MMEM:STOR:ARB:SEQ "{path}",{self._chan}')
+            self._check_transient_errors("ARB sequence store")
+
+    def _load_sequence(
+        self,
+        quantity: TransientQuantity,
+        filename: str,
+        *,
+        minimum: float,
+        maximum: float,
+        maximum_duration_s: float,
+        allow_infinite: bool,
+    ) -> ArbSequenceConfiguration:
+        self._require_arb_support(quantity)
+        path = self._sequence_filename(filename)
+        low, high = self._bounds(quantity, minimum, maximum)
+        duration_limit = self._finite(maximum_duration_s, "maximum_duration_s")
+        if duration_limit <= 0:
+            raise DriverArgumentValueError("maximum_duration_s must be > 0")
+        self._check_instrument_envelope(quantity, low, high)
+        scpi = self._QUANTITY_SCPI[quantity]
+
+        def program() -> None:
+            self._write(f'MMEM:LOAD:ARB:SEQ "{path}",{self._chan}')
+            self._check_transient_errors("ARB sequence load")
+
+        def verify() -> ArbSequenceConfiguration:
+            # The file's content is unknown until read back: check its type
+            # and every step against the approved envelope before ARB mode.
+            function_readback = self._query(f"ARB:FUNC:TYPE? {self._chan}").strip().upper()
+            if not function_readback.startswith(scpi):
+                raise DriverPreconditionError(
+                    f"{path} holds a {function_readback or 'unknown'} sequence, not {quantity}"
+                )
+            self._write(f"ARB:FUNC:SHAP SEQ,{self._chan}")
+            step_base = self._detect_sequence_step_base(reset=False)
+            readback = self._read_sequence_steps(quantity, step_base=step_base)
+            try:
+                config = self._sequence_configuration(quantity, readback, low, high, duration_limit)
+            except DriverOperationUncertainError as exc:
+                raise DriverPreconditionError(f"loaded sequence {path} rejected: {exc}") from exc
+            if not allow_infinite and (
+                config.sequence_count == "infinite"
+                or any(step.repeat_count == "infinite" for step in config.steps)
+            ):
+                raise DriverPreconditionError(
+                    f"loaded sequence {path} repeats infinitely; pass allow_infinite=True to accept it"
+                )
+            self._write(f"{scpi}:MODE ARB,{self._chan}")
+            self._check_transient_errors(f"{quantity} ARB sequence")
+            self._assert_arb_function(quantity, "SEQ")
+            self._assert_source_modes(quantity, "ARB")
+            return config
+
+        return self._run_configuration("arb", program, verify)
+
+    def load_voltage_arb_sequence(
+        self,
+        filename: str,
+        *,
+        maximum_voltage_v: float,
+        minimum_voltage_v: float = 0.0,
+        maximum_duration_s: float = 60.0,
+        allow_infinite: bool = False,
+    ) -> ArbSequenceConfiguration:
+        """Load a ``.seq`` file and accept it only if it fits the voltage envelope."""
+        return self._load_sequence(
+            "voltage",
+            filename,
+            minimum=minimum_voltage_v,
+            maximum=maximum_voltage_v,
+            maximum_duration_s=maximum_duration_s,
+            allow_infinite=allow_infinite,
+        )
+
+    def load_current_arb_sequence(
+        self,
+        filename: str,
+        *,
+        maximum_current_a: float,
+        minimum_current_a: float = 0.0,
+        maximum_duration_s: float = 60.0,
+        allow_infinite: bool = False,
+    ) -> ArbSequenceConfiguration:
+        """Load a ``.seq`` file and accept it only if it fits the current envelope."""
+        return self._load_sequence(
+            "current",
+            filename,
+            minimum=minimum_current_a,
+            maximum=maximum_current_a,
+            maximum_duration_s=maximum_duration_s,
+            allow_infinite=allow_infinite,
+        )
+
+    # -- triggered step (VOLT:MODE STEP / CURR:MODE STEP) ---------------------------
+
+    def _configure_step(
+        self,
+        quantity: TransientQuantity,
+        triggered_level: float,
+        *,
+        minimum: float,
+        maximum: float,
+        trigger_output: bool,
+    ) -> StepTransientConfiguration:
+        self._require_transient_support(quantity)
+        low, high = self._bounds(quantity, minimum, maximum)
+        level = self._finite(triggered_level, f"triggered_{quantity}")
+        self._require_within(quantity, (level,), low, high)
+        self._check_instrument_envelope(quantity, low, high)
+        scpi = self._QUANTITY_SCPI[quantity]
+
+        def program() -> None:
+            self._write(f"{scpi}:TRIG {format_float(level)},{self._chan}")
+            self._write(f"STEP:TOUT {format_bool(trigger_output)},{self._chan}")
+            self._write(f"{scpi}:MODE STEP,{self._chan}")
+            self._check_transient_errors(f"{quantity} step")
+
+        def verify() -> StepTransientConfiguration:
+            level_readback = self._parse_float(
+                self._query(f"{scpi}:TRIG? {self._chan}"), f"triggered {quantity}"
+            )
+            self._assert_level_readback(level, level_readback, f"triggered {quantity}")
+            self._require_readback_within(quantity, (level_readback,), low, high, "triggered")
+            output_readback = self._parse_boolean(
+                self._query(f"STEP:TOUT? {self._chan}"), "step trigger output"
+            )
+            if output_readback != bool(trigger_output):
+                raise DriverOperationUncertainError("step trigger-output readback mismatch")
+            self._assert_source_modes(quantity, "STEP")
+            return StepTransientConfiguration(
+                channel=self.channel,
+                quantity=quantity,
+                triggered_level=level_readback,
+                trigger_output=bool(trigger_output),
+                minimum_level=low,
+                maximum_level=high,
+            )
+
+        return self._run_configuration("step", program, verify)
+
+    def configure_voltage_step(
+        self,
+        triggered_voltage_v: float,
+        *,
+        maximum_voltage_v: float,
+        minimum_voltage_v: float = 0.0,
+        trigger_output: bool = False,
+    ) -> StepTransientConfiguration:
+        """Program a triggered voltage step; the output stays at the new level.
+
+        ``trigger_output`` emits a trigger on the step (``STEP:TOUT``).
+        """
+        return self._configure_step(
+            "voltage",
+            triggered_voltage_v,
+            minimum=minimum_voltage_v,
+            maximum=maximum_voltage_v,
+            trigger_output=trigger_output,
+        )
+
+    def configure_current_step(
+        self,
+        triggered_current_a: float,
+        *,
+        maximum_current_a: float,
+        minimum_current_a: float = 0.0,
+        trigger_output: bool = False,
+    ) -> StepTransientConfiguration:
+        """Program a triggered current step; the output stays at the new level."""
+        return self._configure_step(
+            "current",
+            triggered_current_a,
+            minimum=minimum_current_a,
+            maximum=maximum_current_a,
+            trigger_output=trigger_output,
+        )
+
+    # -- transient trigger lifecycle -----------------------------------------------
 
     def configure_voltage_transient_trigger(
         self, source: Literal["bus", "external"] = "bus"
@@ -741,36 +1926,76 @@ class PowerSupplyChannel(BaseChannel):
         self._transient_trigger_source = source
         return source
 
-    def arm_voltage_transient(self) -> VoltageTransientToken:
+    @staticmethod
+    def _needs_external_triggers(config: SourceTransientConfiguration) -> str | None:
+        """Why one software trigger cannot run ``config``, or ``None``."""
+        # Each step needs its own trigger and triggers during a dwell are
+        # ignored, so one software trigger cannot run the profile.
+        if (
+            isinstance(config, (VoltageListConfiguration, CurrentListConfiguration))
+            and config.step_mode == "once"
+        ):
+            return "LIST step_mode 'once' requires the 'external' transient trigger source"
+        if isinstance(config, ArbSequenceConfiguration) and config.trigger_paced:
+            return "trigger-paced ARB sequence steps require the 'external' transient trigger source"
+        return None
+
+    def arm_voltage_transient(self, *, continuous: bool = False) -> VoltageTransientToken:
+        """Arm the configured source profile (voltage or current).
+
+        ``continuous=True`` uses ``INIT:CONT:TRAN ON``: the trigger system
+        re-arms after every run, so one token can be triggered repeatedly
+        until :meth:`abort_voltage_transient`.
+        """
         with self._transient_lock:
             config = self._transient_config
             if config is None or self._transient_state not in {
                 "configured", "complete", "aborted"
             }:
-                raise DriverPreconditionError("a verified voltage LIST/ARB must be configured first")
+                raise DriverPreconditionError("a verified source LIST/ARB/STEP must be configured first")
             if not self.get_output():
                 raise DriverPreconditionError("source output must be ON before arming a voltage transient")
             source = self._read_transient_trigger_source()
-            if (
-                isinstance(config, VoltageListConfiguration)
-                and config.step_mode == "once"
-                and source == "bus"
-            ):
-                # Each step needs its own trigger and triggers during a dwell
-                # are ignored, so one software trigger cannot run the list.
-                raise DriverPreconditionError(
-                    "LIST step_mode 'once' requires the 'external' transient trigger source"
-                )
+            reason = self._needs_external_triggers(config)
+            if reason is not None and source == "bus":
+                raise DriverPreconditionError(reason)
             self._invalidate_transient_tokens()
             token = VoltageTransientToken(self.channel, self._transient_generation)
             self._transient_state = "armed"
+            self._transient_triggered_at = None
             try:
-                self._write(f"INIT:TRAN {self._chan}")
+                if source == "external":
+                    self._clear_transient_event_latch()
+                if continuous:
+                    self._transient_continuous = True
+                    self._write(f"INIT:CONT:TRAN ON,{self._chan}")
+                else:
+                    self._write(f"INIT:TRAN {self._chan}")
                 self._driver.check_errors()
             except BaseException as primary:
                 self._cleanup_failed_voltage_transient(primary)
                 raise
             return token
+
+    def _read_operation_event(self) -> int:
+        # Reading the Operation Event register clears it.
+        return self._parse_integer(
+            self._query(f"STAT:OPER:EVEN? {self._chan}"), "operation event"
+        )
+
+    def _clear_transient_event_latch(self) -> None:
+        """Latch TRAN_active rising edges from a clean event register.
+
+        An external edge can start and finish the profile between two
+        condition polls; the latched edge then tells "already ran" apart
+        from "not initiated yet", which both read as idle.
+        """
+        ptr = self._parse_integer(
+            self._query(f"STAT:OPER:PTR? {self._chan}"), "operation PTR filter"
+        )
+        if not ptr & self._TRANSIENT_ACTIVE:
+            self._write(f"STAT:OPER:PTR {ptr | self._TRANSIENT_ACTIVE},{self._chan}")
+        self._read_operation_event()
 
     def _require_transient_token(self, token: VoltageTransientToken) -> None:
         if token.channel != self.channel or token.generation != self._transient_generation:
@@ -794,6 +2019,7 @@ class PowerSupplyChannel(BaseChannel):
         raw = self._parse_integer(
             self._query(f"STAT:OPER:COND? {self._chan}"), "operation status"
         )
+        config = self._transient_config
         return VoltageTransientStatus(
             channel=self.channel,
             mode=self._transient_mode,  # type: ignore[arg-type]
@@ -803,6 +2029,8 @@ class PowerSupplyChannel(BaseChannel):
             operation_status=raw,
             waiting_for_trigger=bool(raw & self._WTG_TRANSIENT),
             transient_active=bool(raw & self._TRANSIENT_ACTIVE),
+            quantity=config.quantity if config is not None else "voltage",
+            continuous=self._transient_continuous,
         )
 
     def _poll_transient(
@@ -840,9 +2068,11 @@ class PowerSupplyChannel(BaseChannel):
         """Wait until the armed transient accepts a trigger.
 
         With the ``'external'`` source the trigger may land between polls, so
-        TRAN_active without WTG (running) or an idle system after the
-        successful ``INIT:TRAN`` (already finished) also ends the wait, with
-        the state advanced to ``'triggered'``.
+        TRAN_active without WTG (running) also ends the wait, as does an idle
+        system whose TRAN_active edge was latched after ``INIT:TRAN``
+        (already finished); the state then advances to ``'triggered'``.  An
+        idle system without that latched edge has not initiated yet and is
+        never mistaken for a finished run.
         """
         with self._transient_lock:
             self._require_transient_token(token)
@@ -854,7 +2084,11 @@ class PowerSupplyChannel(BaseChannel):
         def predicate() -> bool:
             nonlocal last
             last = self._token_status(token)
-            return last.waiting_for_trigger or external
+            if last.waiting_for_trigger or not external:
+                return last.waiting_for_trigger
+            if last.transient_active:
+                return True
+            return bool(self._read_operation_event() & self._TRANSIENT_ACTIVE)
 
         self._poll_transient(
             token,
@@ -881,6 +2115,7 @@ class PowerSupplyChannel(BaseChannel):
                 raise DriverPreconditionError("software trigger requires trigger source 'bus'")
             self._write(f"TRIG:TRAN {self._chan}")
             self._driver.check_errors()
+            self._transient_triggered_at = monotonic()
             self._transient_state = "triggered"
 
     def _default_complete_timeout_s(self) -> float:
@@ -919,17 +2154,43 @@ class PowerSupplyChannel(BaseChannel):
         """Wait for a clean completion of the armed generation.
 
         ``timeout_s=None`` derives the bound from the configured profile
-        duration; pass an explicit value for externally paced step-once lists.
+        duration; pass an explicit value for externally paced step-once lists
+        and trigger-paced sequences.  A continuously armed BUS profile
+        completes when it is waiting for the next trigger again and its
+        duration has elapsed; its state then returns to ``'ready'``.
         """
         with self._transient_lock:
             self._require_transient_token(token)
+            config = self._transient_config
+            continuous = self._transient_continuous
             if self._transient_state not in {"ready", "triggered"}:
                 raise DriverPreconditionError("voltage transient is not armed/triggered")
+            if config is not None and math.isinf(config.duration_s):
+                raise DriverPreconditionError(
+                    "an infinitely repeating profile never completes; "
+                    "stop it with abort_voltage_transient()"
+                )
+            if continuous and (
+                self._transient_trigger_source != "bus" or self._transient_state != "triggered"
+            ):
+                raise DriverPreconditionError(
+                    "a continuous profile only reports completion of a software-triggered run"
+                )
             if timeout_s is None:
                 timeout_s = self._default_complete_timeout_s()
+            duration = config.duration_s if config is not None else 0.0
+            triggered_at = self._transient_triggered_at
 
         def predicate() -> bool:
             status = self._token_status(token)
+            if continuous:
+                # The system re-arms after each run, so "complete" is "waiting
+                # again" once the run could have finished.
+                return (
+                    status.waiting_for_trigger
+                    and triggered_at is not None
+                    and monotonic() - triggered_at >= duration
+                )
             return not status.waiting_for_trigger and not status.transient_active
 
         self._poll_transient(
@@ -948,15 +2209,14 @@ class PowerSupplyChannel(BaseChannel):
             except BaseException:
                 self._transient_state = "unknown"
                 raise
-            self._transient_state = "complete"
+            self._transient_state = "ready" if continuous else "complete"
         return self.get_voltage_transient_status()
 
     def abort_voltage_transient(self) -> None:
         with self._transient_lock:
             self._invalidate_transient_tokens()
             try:
-                self._write(f"ABOR:TRAN {self._chan}")
-                self._write(f"INIT:CONT:TRAN OFF,{self._chan}")
+                self._stop_transient_system()
                 self._driver.check_errors()
             except BaseException:
                 self._transient_state = "unknown"
@@ -964,18 +2224,23 @@ class PowerSupplyChannel(BaseChannel):
             self._transient_state = "aborted"
 
     def _emergency_abort_voltage_transient(self) -> None:
-        """Send only ``ABOR:TRAN`` for shutdown.
+        """Send only ``INIT:CONT:TRAN OFF`` and ``ABOR:TRAN`` for shutdown.
 
-        It is the one transient command a digitizer lease held by another
-        thread lets through, and it skips the lock so a long configure call
-        cannot delay shutdown.
+        They are the only transient commands a digitizer lease held by
+        another thread lets through, and this skips the lock so a long
+        configure call cannot delay shutdown.
         """
         self._invalidate_transient_tokens()
         try:
-            self._write(f"ABOR:TRAN {self._chan}")
+            try:
+                # ABOR:TRAN alone re-initiates a continuous trigger system.
+                self._write(f"INIT:CONT:TRAN OFF,{self._chan}")
+            finally:
+                self._write(f"ABOR:TRAN {self._chan}")
         except BaseException:
             self._transient_state = "unknown"
             raise
+        self._transient_continuous = False
         self._transient_state = "aborted"
 
 

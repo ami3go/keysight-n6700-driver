@@ -77,8 +77,8 @@ def test_voltage_list_programming_is_an_ordered_verified_transaction(driver) -> 
         1, [12.0, 6.0, 12.0], [0.01, 0.02, 0.01], maximum_voltage_v=18.0
     )
     expected = [
-        "ABOR:TRAN (@1)",
         "INIT:CONT:TRAN OFF,(@1)",
+        "ABOR:TRAN (@1)",
         "VOLT:MODE FIX,(@1)",
         "CURR:MODE FIX,(@1)",
         "LIST:VOLT 12,6,12,(@1)",

@@ -18,6 +18,7 @@ ModuleType = Literal["power_supply", "smu", "electronic_load", "unknown"]
 class ChannelCapabilities:
     model: str
     module_type: ModuleType
+    mainframe_model: str = ""
     options: tuple[str, ...] = ()
     supports_voltage_source: bool = False
     supports_current_source: bool = False
@@ -30,6 +31,15 @@ class ChannelCapabilities:
     supports_list_mode: bool = False
     supports_voltage_arb: bool = False
     supports_voltage_slew: bool = False
+    # Current LIST/STEP transients remain available independently of the
+    # N6705-only ARB subsystem.
+    supports_current_transient: bool = False
+    # Current ARB waveform support after combining module and mainframe.
+    supports_current_arb: bool = False
+    # Four-quadrant voltage sourcing is available only on the N6784A.
+    supports_bipolar_voltage: bool = False
+    # [SOURce:]CURRent:SLEW: "This command only applies to models N678xA SMU."
+    supports_current_slew: bool = False
     supports_aux_voltage_input: bool = False
     supports_smu_priority_mode: bool = False
     supports_smu_output_off_mode: bool = False
@@ -60,13 +70,25 @@ SMU_PREFIXES = ("N678",)
 LOAD_MODELS = frozenset({"N6791A", "N6792A"})
 
 
-def classify_module(model: str, options: list[str] | tuple[str, ...] | None = None) -> ChannelCapabilities:
+def classify_module(
+    model: str,
+    options: list[str] | tuple[str, ...] | None = None,
+    *,
+    mainframe_model: str | None = None,
+) -> ChannelCapabilities:
     model_clean = model.strip().upper()
+    mainframe_clean = (mainframe_model or "").strip().upper()
+    # The ARB command subsystem (including CDW, sequences, and MMEMory
+    # sequence files) belongs to the N6705 DC Power Analyzer mainframe.  LIST
+    # and triggered STEP remain module features on the other N6700-family
+    # mainframes, so keep those capabilities separate.
+    arb_available = not mainframe_clean or mainframe_clean.startswith("N6705")
     opts = tuple(options or ())
     if model_clean == "SIM_LOAD":
         return ChannelCapabilities(
             model=model_clean,
             module_type="electronic_load",
+            mainframe_model=mainframe_clean,
             options=opts,
             supports_load_cc=True,
             supports_load_cv=True,
@@ -79,6 +101,7 @@ def classify_module(model: str, options: list[str] | tuple[str, ...] | None = No
         return ChannelCapabilities(
             model=model_clean,
             module_type="electronic_load",
+            mainframe_model=mainframe_clean,
             options=opts,
             supports_load_cc=True,
             supports_load_cv=True,
@@ -98,14 +121,19 @@ def classify_module(model: str, options: list[str] | tuple[str, ...] | None = No
         return ChannelCapabilities(
             model=model_clean,
             module_type="smu",
+            mainframe_model=mainframe_clean,
             options=opts,
             supports_voltage_source=True,
             supports_current_source=True,
             supports_power_measurement=True,
             supports_array_measurement=True,
             supports_list_mode=True,
-            supports_voltage_arb=True,
+            supports_voltage_arb=arb_available,
             supports_voltage_slew=True,
+            supports_current_transient=True,
+            supports_current_arb=arb_available,
+            supports_bipolar_voltage=model_clean == "N6784A",
+            supports_current_slew=True,
             supports_aux_voltage_input=model_clean.startswith(("N6781", "N6785")),
             supports_smu_priority_mode=True,
             supports_smu_output_off_mode=True,
@@ -114,13 +142,21 @@ def classify_module(model: str, options: list[str] | tuple[str, ...] | None = No
         return ChannelCapabilities(
             model=model_clean,
             module_type="power_supply",
+            mainframe_model=mainframe_clean,
             options=opts,
             supports_voltage_source=True,
             supports_current_source=False,
             supports_power_measurement=model_clean.startswith("N676"),
             supports_array_measurement=model_clean.startswith("N676") or "054" in opts,
             supports_list_mode=True,
-            supports_voltage_arb=True,
+            supports_voltage_arb=arb_available,
             supports_voltage_slew=True,
+            supports_current_transient=True,
+            supports_current_arb=arb_available,
         )
-    return ChannelCapabilities(model=model_clean, module_type="unknown", options=opts)
+    return ChannelCapabilities(
+        model=model_clean,
+        module_type="unknown",
+        mainframe_model=mainframe_clean,
+        options=opts,
+    )

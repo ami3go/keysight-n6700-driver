@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import ClassVar, Literal
 
 from scpi_driver_core.models import Identity as _CoreIdentity
 
+from .waveforms import ArbSequenceStep, ArbShape, RepeatCount, repeated_duration
+
 RemoteState = Literal["local", "remote", "remote_lockout"]
-VoltageTransientMode = Literal["fixed", "list", "arb"]
+TransientQuantity = Literal["voltage", "current"]
+VoltageTransientMode = Literal["fixed", "list", "arb", "step"]
 VoltageTransientState = Literal[
     "idle", "configured", "armed", "ready", "triggered", "complete", "aborted", "unknown"
 ]
@@ -140,15 +143,42 @@ class VoltageListConfiguration:
     levels_v: tuple[float, ...]
     dwell_s: tuple[float, ...]
     current_limit_a: float
-    repeat_count: int
+    repeat_count: RepeatCount
     step_mode: Literal["auto", "once"]
     terminate_last: bool
     minimum_voltage_v: float
     maximum_voltage_v: float
+    begin_step_triggers: tuple[bool, ...] = ()  # LIST:TOUT:BOST; () means none
+    end_step_triggers: tuple[bool, ...] = ()  # LIST:TOUT:EOST; () means none
+
+    quantity: ClassVar[TransientQuantity] = "voltage"
 
     @property
     def duration_s(self) -> float:
-        return sum(self.dwell_s) * self.repeat_count
+        return repeated_duration(sum(self.dwell_s), self.repeat_count)
+
+
+@dataclass(frozen=True)
+class CurrentListConfiguration:
+    """Validated/read-back current LIST configuration; voltage stays FIXed."""
+
+    channel: int
+    levels_a: tuple[float, ...]
+    dwell_s: tuple[float, ...]
+    voltage_setpoint_v: float
+    repeat_count: RepeatCount
+    step_mode: Literal["auto", "once"]
+    terminate_last: bool
+    minimum_current_a: float
+    maximum_current_a: float
+    begin_step_triggers: tuple[bool, ...] = ()
+    end_step_triggers: tuple[bool, ...] = ()
+
+    quantity: ClassVar[TransientQuantity] = "current"
+
+    @property
+    def duration_s(self) -> float:
+        return repeated_duration(sum(self.dwell_s), self.repeat_count)
 
 
 @dataclass(frozen=True)
@@ -158,14 +188,128 @@ class VoltageArbConfiguration:
     channel: int
     levels_v: tuple[float, ...]
     dwell_s: tuple[float, ...]
-    repeat_count: int
+    repeat_count: RepeatCount
     terminate_last: bool
     minimum_voltage_v: float
     maximum_voltage_v: float
+    begin_step_triggers: tuple[bool, ...] = ()  # ARB:VOLT:UDEF:BOST; () means none
+
+    quantity: ClassVar[TransientQuantity] = "voltage"
 
     @property
     def duration_s(self) -> float:
-        return sum(self.dwell_s) * self.repeat_count
+        return repeated_duration(sum(self.dwell_s), self.repeat_count)
+
+
+@dataclass(frozen=True)
+class CurrentArbConfiguration:
+    """Validated/read-back user-defined current ARB configuration."""
+
+    channel: int
+    levels_a: tuple[float, ...]
+    dwell_s: tuple[float, ...]
+    repeat_count: RepeatCount
+    terminate_last: bool
+    minimum_current_a: float
+    maximum_current_a: float
+    begin_step_triggers: tuple[bool, ...] = ()
+
+    quantity: ClassVar[TransientQuantity] = "current"
+
+    @property
+    def duration_s(self) -> float:
+        return repeated_duration(sum(self.dwell_s), self.repeat_count)
+
+
+@dataclass(frozen=True)
+class ArbWaveformConfiguration:
+    """Validated/read-back built-in ARB shape (levels in V or A per ``quantity``)."""
+
+    channel: int
+    quantity: TransientQuantity
+    waveform: ArbShape
+    repeat_count: RepeatCount
+    terminate_last: bool
+    minimum_level: float
+    maximum_level: float
+
+    @property
+    def duration_s(self) -> float:
+        return repeated_duration(self.waveform.duration_s, self.repeat_count)
+
+
+@dataclass(frozen=True)
+class ConstantDwellArbConfiguration:
+    """Validated/read-back constant-dwell ARB: one dwell shared by every point."""
+
+    channel: int
+    quantity: TransientQuantity
+    levels: tuple[float, ...]
+    dwell_s: float
+    repeat_count: RepeatCount
+    terminate_last: bool
+    minimum_level: float
+    maximum_level: float
+
+    @property
+    def duration_s(self) -> float:
+        return repeated_duration(self.dwell_s * len(self.levels), self.repeat_count)
+
+
+@dataclass(frozen=True)
+class ArbSequenceConfiguration:
+    """Validated/read-back ARB sequence (levels in V or A per ``quantity``).
+
+    ``duration_s`` excludes time spent waiting for triggers on
+    trigger-paced steps.
+    """
+
+    channel: int
+    quantity: TransientQuantity
+    steps: tuple[ArbSequenceStep, ...]
+    sequence_count: RepeatCount
+    terminate_last: bool
+    minimum_level: float
+    maximum_level: float
+
+    @property
+    def trigger_paced(self) -> bool:
+        return any(step.pacing == "trigger" for step in self.steps)
+
+    @property
+    def duration_s(self) -> float:
+        return repeated_duration(sum(step.duration_s for step in self.steps), self.sequence_count)
+
+
+@dataclass(frozen=True)
+class StepTransientConfiguration:
+    """Validated/read-back triggered step (``VOLT:MODE STEP`` / ``CURR:MODE STEP``).
+
+    On the trigger the output moves to ``triggered_level`` and stays there.
+    """
+
+    channel: int
+    quantity: TransientQuantity
+    triggered_level: float
+    trigger_output: bool
+    minimum_level: float
+    maximum_level: float
+
+    @property
+    def duration_s(self) -> float:
+        return 0.0
+
+
+SourceTransientConfiguration = (
+    VoltageListConfiguration
+    | CurrentListConfiguration
+    | VoltageArbConfiguration
+    | CurrentArbConfiguration
+    | ArbWaveformConfiguration
+    | ConstantDwellArbConfiguration
+    | ArbSequenceConfiguration
+    | StepTransientConfiguration
+)
 
 
 @dataclass(frozen=True)
@@ -188,6 +332,8 @@ class VoltageTransientStatus:
     operation_status: int
     waiting_for_trigger: bool
     transient_active: bool
+    quantity: TransientQuantity = "voltage"  # which source quantity the profile drives
+    continuous: bool = False  # armed with INIT:CONT:TRAN ON
 
 
 @dataclass(frozen=True)
