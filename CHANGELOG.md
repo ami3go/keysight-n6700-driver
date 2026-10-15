@@ -28,6 +28,81 @@ whether installed firmware numbers steps from 0 or 1, resolving the conflict
 between Keysight's guide example and parameter table. The simulator and unit
 suite exercise both numbering conventions and N6700C/N6705C capability paths.
 
+## v0.7.8 — 2026-10-15
+
+Maintenance-only correction for generated AI-contract metadata: update
+`ai_contract.lock` SHA-256 to match the committed contract and release version.
+The mismatch was causing the existing `main` CI to fail before and during
+the SCPI core Arb compatibility comparison. No SCPI command implementation,
+hardware behavior, transport dependency pin or Arb functionality is changed.
+
+## v0.7.7 — 2026-10-15
+
+Documentation-only: created
+[ARB_DRIVER_IMPLEMENTATION_TASK.md](docs/ARB_DRIVER_IMPLEMENTATION_TASK.md),
+with nine phased PR packages: Option 054/mainframe capability fixes,
+error-preserving cleanup/session serialization, trigger-command verification,
+finite standard voltage/current Arbs, CDW, indexed sequences, pinned core
+integration and separately authorized DSO HIL. Includes source-based findings,
+code sketches, test matrices and explicit acceptance criteria; references the
+cross-repository [scpi-driver-core hardening task](https://github.com/ami3go/scpi-driver-core/blob/main/task/N6700_ARB_CORE_HARDENING_TASK.md).
+**No runtime changes or hardware operation; existing core pin unchanged.**
+
+## v0.7.6 — 2026-10-15
+
+Documentation-only Arb example expansion: added
+[ARB_WORKED_CODE_EXAMPLES.md](docs/ARB_WORKED_CODE_EXAMPLES.md), based on
+Keysight guides and reviewed SweepMe, pyVirtualLab, KK_Lab, VoltFraud,
+EIS_keysight and C++ sources. Includes a simulator-only example using the
+existing public voltage UDEF API; original offline PULSE, frequency/duty,
+Option 054 capability, current CDW, sequence and trigger planners;
+negative pytest examples; source mapping, limitations and review gates.
+All non-UDEF waveform features are explicitly marked as not implemented;
+no hardware control code changed, and no hardware was operated.
+
+## v0.7.5 — 2026-10-15
+
+Documentation-only source review: published
+[ARB_SOURCE_CODE_ANALYSIS.md](docs/ARB_SOURCE_CODE_ANALYSIS.md) with
+line-targeted comparisons of ten N6700/N6705 third-party examples, five
+current-driver static findings, confirmed Option 054/trigger/pulse SCPI
+semantics, reference implementation patterns, and 14 proposed
+simulator/HIL regression gates. Notably identified missing Option 054
+gating for N6700C N673x/N674x/N675x/N677x source LIST/ARB capability;
+this is recorded for a future code PR, **not fixed** by this release.
+No runtime code changed and no hardware operated.
+
+## v0.7.4 — 2026-10-15
+
+Documentation-only third-party software code review: inspected SweepMe N6705
+signal/SMU drivers, pyVirtualLab N6705C signal objects, KK_Lab N6705C, and
+other N67xx/C++ examples. Added 12 source-level portability/safety findings,
+recommended fixes, architectural patterns, typed planning example, and
+prioritized offline/HIL gates to
+[ARB_WAVEFORM_REFERENCE.md](docs/ARB_WAVEFORM_REFERENCE.md).
+Cross-checked that ARB:VOLT:PULS:FREQ is documented and coupled to pulse
+timing, and that ABOR:TRAN is a command (not a query). No driver code or
+hardware behavior changed.
+
+## v0.7.3 — 2026-10-15
+
+Documentation-only: added Stack Overflow and NI Community N6700/N6705
+discussions and Keysight engineering articles to
+[ARB_WAVEFORM_REFERENCE.md](docs/ARB_WAVEFORM_REFERENCE.md), with
+source-specific uncertainty notes, seven recurring engineering patterns,
+safety implications, and proposed simulator/HIL tests. Flagged the
+N6705C `TRIG:ARB:SOUR` versus existing `TRIG:TRAN:SOUR` command-path
+difference for model-specific verification. No runtime changes or
+physical hardware qualification.
+
+## v0.7.2 — 2026-10-15
+
+Documentation-only reference update: reviewed public N670x Arb Python source examples (PULSE, UDEF, CDW, sequencing and triggering), relevant SCPI transport projects and official Keysight documentation. Added pinned links, applicability qualifiers and explicit safety warnings to [ARB_WAVEFORM_REFERENCE.md](docs/ARB_WAVEFORM_REFERENCE.md). No verified GitLab Arb implementation found. No driver runtime or hardware qualification changes.
+
+## v0.7.1 — 2026-10-15
+
+Documentation-only: added [N6700 Arb waveform and SCPI function reference](docs/ARB_WAVEFORM_REFERENCE.md), covering supported shapes, type and model/Option 054 restrictions, step and sequence command inventory, distinct point/repeat limits, existing driver coverage, safety requirements and HIL gates. Linked it from the docs index and README. No driver functionality changed or was hardware-qualified.
+
 ## v0.7.0 — 2026-10-14
 
 Added bounded source-voltage transient generation for power-supply/SMU
