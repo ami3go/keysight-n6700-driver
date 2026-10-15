@@ -1,7 +1,7 @@
 # N6700 power-module arbitrary waveform generation (ARB): command and capability reference
 
-**Reference revision:** 1.2 (2026-10-15)  
-**Driver baseline:** keysight-n6700-driver v0.7.0; catalog published in documentation release v0.7.1; external code references updated in v0.7.2; forum/Stack Overflow research added in v0.7.3.  
+**Reference revision:** 1.3 (2026-10-15)  
+**Driver baseline:** keysight-n6700-driver v0.7.0; catalog published in documentation release v0.7.1; external code references updated in v0.7.2; forum/Stack Overflow research added in v0.7.3; third-party software design review added in v0.7.4.  
 **Purpose:** collect the documented hardware waveform functions, their SCPI command families, hardware gating, and the difference between vendor support and the Python driver's implemented surface.
 
 > **Critical status:** This is a **manufacturer-command inventory and implementation backlog**, not a declaration that every command below works on every installed module or is implemented by this driver. A SCPI command appearing in a common manual does not grant model capability. Never generate an energizing waveform without a reviewed module/option matrix, DUT voltage/current/power envelope, explicit output enable, readback verification, and a safe abort path.
@@ -87,7 +87,7 @@ For the following patterns substitute **T = VOLTage or CURRent** when targeting 
 | --- | --- | --- |
 | STEP | STEP:STARt; STEP:END; STEP:STARt:TIMe; STEP:END:TIMe | Before/after step levels and timing; check end-time availability on exact firmware |
 | RAMP | RAMP:STARt; RAMP:END; RAMP:STARt:TIMe; RAMP:RTIMe; RAMP:END:TIMe | Ramp endpoints, pre-delay, rise and post-delay |
-| PULSe | PULSe:STARt; PULSe:TOP; PULSe:STARt:TIMe; PULSe:TOP:TIMe; PULSe:END:TIMe | Start/top levels, pulse width and delays |
+| PULSe | PULSe:STARt; PULSe:TOP; PULSe:STARt:TIMe; PULSe:TOP:TIMe; PULSe:END:TIMe; PULSe:FREQuency | Start/top levels, pulse width, delays and **frequency (coupled to pulse timing)** |
 | TRAPezoid | TRAPezoid:STARt; TRAPezoid:TOP; TRAPezoid:STARt:TIMe; TRAPezoid:RTIMe; TRAPezoid:TOP:TIMe; TRAPezoid:FTIMe; TRAPezoid:END:TIMe | Start/top levels, rise/top/fall timing and holds |
 | STAircase | STAircase:STARt; STAircase:END; STAircase:NSTeps; STAircase:STARt:TIMe; STAircase:TIMe; STAircase:END:TIMe | Levels, step count, timing |
 | EXPonential | EXPonential:STARt; EXPonential:END; EXPonential:STARt:TIMe; EXPonential:TIMe; EXPonential:TCONstant | Start/end levels, delay, duration and time constant |
@@ -185,7 +185,7 @@ Future work should be separate reviewed pull requests: (A) model/option capabili
 - [Known risks](../review/known_risks.md)
 - [Current module capability model](../capability/capability_model.yaml)
 
-**Change scope:** reference documentation only. No Arb/driver command behavior or qualification status changes in v0.7.1–v0.7.3.
+**Change scope:** reference documentation only. No Arb/driver command behavior or qualification status changes in v0.7.1–v0.7.4.
 
 ## 11. Reviewed external code examples and references (2026-10-15)
 
@@ -278,3 +278,116 @@ Public GitLab-hosted N6700/N6705 **Arb source-code examples** were searched for 
 - Do **not** let an acquisition/query failure silently pass a waveform test, claim timing quality from SCPI readbacks alone, or use a forum anecdote to override the manufacturer command reference.
 
 **Search outcome:** Direct community discussions of all N6700-specific **standard waveform shape programming APIs** were sparse; the strongest code examples remain in [section 11](#11-reviewed-external-code-examples-and-references-2026-10-15). The forum evidence is most valuable for safety, transport, readback and test design.
+
+## 13. Third-party software design review: code patterns, pitfalls and solutions (2026-10-15)
+
+**Review method:** inspected the linked **source files**, not merely their READMEs or search snippets; compared their SCPI command examples against the Keysight N6700C/N6705 Programmer's Reference, and compared architectural patterns with the current driver's bounded finite LIST/UDEF implementation. A line of third-party source code is **evidence of what the code attempts**, not evidence that it works on the target mainframe/firmware. **No independent execution, physical HIL or defect report has been established for these third-party projects.**
+
+### 13.1 Reviewed implementations
+
+| ID | Software and pinned source | Concrete implementation pattern | Relevance |
+| --- | --- | --- | --- |
+| S01 | [SweepMe! N6705 Signal driver — Python](https://github.com/SweepMe/instrument-drivers/blob/f69a9a17cca86ef6d83788634aaedcab3cc0af89/src/Signal-Keysight_N6705/main.py) | Registry/dictionary of seven shapes (sine, step, ramp, staircase, pulse, trapezoid, exponential), each mapping GUI-friendly parameter names to SCPI suffixes; generic parameter writer and waveform-specific calculations. | **High** — scalable shape schema, GUI options and volts/seconds units |
+| S02 | [SweepMe! N6705 SMU driver — Python](https://github.com/SweepMe/instrument-drivers/blob/f69a9a17cca86ef6d83788634aaedcab3cc0af89/src/SMU-Keysight_N6705/main.py) | Distinguishes N678x SMU current/voltage compliance from standard power-source settings; generates voltage/current pulse using shared timing; treats synchronized measurement separately. | **High** — capability-specific mode/compliance handling |
+| S03 | [pyVirtualLab N6705C Signals — Python](https://github.com/Ben3094/pyVirtualLab/blob/221ba738ed9968ede3c44524f0504a8942ddd479/pyVirtualLab/Instruments/Keysight/KeysightN6705C/Signals.py) | Object model with SignalType enum and Step/Ramp/Staircase/Sinusoid/Pulse/Trapezoid/Exponential/CDW/Sequence/UDEF classes, query/set property decorators and channel-scoped transport. | **High** — typed object decomposition, but implementation is incomplete/uneven |
+| S04 | [KK_Lab N6705C — Python](https://github.com/KversKv/KK_Lab/blob/ec7e800cedbc939a49bb4dc71602c3bc110f2929/instruments/power/keysight/n6705c.py) | Dedicated methods for step/staircase/pulse/current slew, explicit channel numbers and pulse frequency setting. | **High** — shape-specific method signatures and coupled pulse-frequency behavior |
+| S05 | [MrBuslic SERVER — C++ pulse configuration](https://github.com/MrBuslic/SERVER/blob/a797986e16d07bece03aeacbedecc65711b410b5/src/Devices/PUOP/PowerSource/PSModule.cpp) | Constructs pulse timing fractions from requested frequency, programs voltage/current pulse parameters, then initiates a BUS-triggered waveform. | **Medium** — deterministic timing plan concept; global-trigger and infinite-loop hazards |
+| S06 | [tmbinc/random — Agilent n67xx notes](https://github.com/tmbinc/random/blob/81459d9bd0678243f8971a12b784327b55b0d5bb/agilent/n67xx/README.md) | Contrasts repeated host-side voltage writes with the module's stored waveform/LIST mechanism and discusses model-dependent analog slew/bandwidth. | **Medium** — architectural caution; not an Arb driver |
+
+### 13.2 Source-level findings with fixes
+
+Severity assesses **risk if the pattern were copied into this driver's safety-sensitive API**, not severity of a defect in the original author's intended application.
+
+| Finding | Priority | Source observation | Problem/risk when reused | Required design solution |
+| --- | --- | --- | --- | --- |
+| **TP01 — Reset/energize hidden in lifecycle** | **Blocker** | S01 \`initialize()\` issues \`*RST\`; \`poweron()\` selects Arb, \`ARB:COUNT INF\`, \`OUTP ON\`, and \`INIT:TRAN\`. S02 initializes with \`*RST\` and starts pulse output in \`poweron()\`. | A shared mainframe may have other active channels. Resetting or energizing as an implicit setup side effect can alter unrelated DUTs; infinite generation defeats a bounded test run. | Connection/initialization must be **read-only**. Separate \`configure_arb(...)\` (output verified OFF) from explicit, approved output enable/arm/trigger; default to **finite repetitions and bounded duration**. |
+| **TP02 — Dynamic parameter registry without safety schema** | **High** | S01 stores shape metadata as \`{"command": "TOP:TIME", "unit": "s"}\` and writes raw values via \`set_parameter\`. | The registry is extensible, but string-only metadata cannot enforce per-module amplitude/compliance, finite inputs, waveform extrema or shape-specific timing relationships. | Preserve the **declarative shape registry** but bind each field to a typed validator, unit, range rule, paired readback path, module gating and output-state prerequisite; validate the **complete planned waveform before writing**. |
+| **TP03 — Reconfigure while output is live** | **High** | S01 \`apply()\` sends \`ABORT:TRAN; *WAI\`, rewrites waveform parameters and sends \`INIT:TRAN\`; S02 uses the same pattern for pulse sweeps. | \`*WAI\` waits for device commands but does **not** prove analog output OFF, transient idle, restored setpoint, absent protection, or successful SCPI parameter acceptance. A partially updated profile could be rearmed. | Reject ordinary configuration while output ON. A separately reviewed **live-update** feature would require its own explicit authorization, atomic profile/ownership design, state readbacks, recovery and HIL qualification. |
+| **TP04 — Shape type silently hardcoded** | **High** | S03 has \`SignalType.Voltage\` and \`SignalType.Current\`, but \`UserDefinedSignal\` binds its \`BOST\`, \`DWEL\` and \`LEV\` paths to \`SOUR:ARB:CURR:UDEF:...\` regardless of selected type. | Voltage UDEF requests through this abstraction could target the **current** Arb command family, depending on caller usage. | Derive \`ARB:{type}:UDEF:* \` from an allowlisted enum and test **all supported type × shape × channel** combinations. Never interpolate untrusted SCPI tokens. |
+| **TP05 — Exact-float readback comparisons** | **Medium** | S03 pulse properties set a value, query it and compare with Python \`!=\`; UDEF list properties do exact list equality. | Firmware may quantize dwell, timing or levels. Binary floating-point representation and instrument resolution can make exact equality reject an otherwise valid profile; conversely, plain readback equality cannot prove analog accuracy. | Normalize returned settings to the documented instrument resolution, compare within a **documented programming tolerance**, retain requested and actual values, and require independent DSO characterization for analog claims. |
+| **TP06 — Abort command accidentally written as query** | **High** | S04 \`arb_off()\` calls \`write("ABOR:TRAN? (@n)")\`. | Keysight's N6705 Programmer's Reference defines \`ABORt:TRANsient (@<chanlist>)\` as a **command**, with no documented query syntax. The \`?\` spelling is inconsistent with the reference; using \`write()\` on a real query can also desynchronize the response stream. | Emit \`ABOR:TRAN (@n)\` **without \`?\`**, disable continuous transient initiation, then query \`STAT:OPER:COND? (@n)\` to confirm idle. Fault-inject invalid-query and missing-response cases. |
+| **TP07 — Pulse frequency is a coupled setter** | **High** | S04 programs \`ARB:VOLT:PULS:FREQ\` after writing start/top/end times; S05 instead derives those times from frequency explicitly. | The pulse-frequency SCPI command **is valid** (Keysight N6700C Operating and Service Guide, SCPI reference), but it is **coupled** to pulse time commands; command order can change the effective timing. | Provide **one authoritative timing mode** (explicit times **or** frequency/width specification), derive a consistent validated timing plan, program in documented order and query frequency/times afterward. Reject mutually inconsistent timing arguments. |
+| **TP08 — Mainframe-wide trigger in multi-channel system** | **Blocker** | S04 has \`trg()\` issuing global \`*TRG\`; S05 initiates with \`*TRG\` after pulse setup. | \`*TRG\` may trigger **every other armed BUS-trigger channel**, not merely the intended Arb. | Prefer scoped \`TRIG:TRAN (@n)\` where the confirmed model/firmware supports it; restrict global triggers to an explicitly reviewed synchronized multi-channel plan and test cross-channel isolation. |
+| **TP09 — Indefinite waveform count** | **High** | S01/S02/S05 use \`ARB:COUN INF\` for repetitive output. | Legitimate for an interactive signal generator, but **not safe by default** in a DUT verification driver if process abort, network loss or watchdog failure occurs. | Finite count/duration limits; infinite mode, if ever added, requires dedicated operator confirmation, hardware cutoff/watchdog and independently verified stop/fault recovery. |
+| **TP10 — Missing transport/error-policy separation** | **High** | S04 sends shape commands as a sequence of \`instr.write()\` calls and exposes broad SCPI methods; S01 uses \`parameter ...; *WAI\` and reinitializes without an explicit per-write error/readback transaction in the reviewed portion. | If a mid-profile write is rejected, later writes can leave stale/inconsistent settings. SCPI \`-113\` unknown command, transport timeout and protection faults require different recovery. | Use one serialized configure transaction, bounded write/query timeouts, per-shape readback, deferred error-queue examination and **fail-closed UNKNOWN state** on uncertain completion. Never automatically retry an ambiguous non-idempotent trigger or output command. |
+| **TP11 — Host loop is not hardware timing** | **Medium** | S06 describes repeated host-side \`set voltage\` writes as an Arb alternative; it separately notes hardware LIST capability. | Network/USB transport, Python scheduling and instrument parsing jitter make per-point host writes unsuitable for precisely timed dips, pulses and waveform edges. | Use hardware-timed LIST/ARB whenever DUT acceptance depends on dwell/edge timing; use host writes only for explicitly non-time-critical control, with performance evidence. |
+| **TP12 — Per-module compliance affects valid shape envelopes** | **High** | S02 handles N678x current limit differently from ordinary source modules and selects different voltage/current compliance paths. | Copying one generic compliance command to every source/SMU could silently reject programming or fail to limit energy as intended. | Define a model/option-specific capability and compliance matrix; validate **both** Arb extrema and limiting quadrants, and verify readback of actual limits before output enable. |
+
+**Discipline:** TP04 is a directly visible source/design mismatch; TP06 conflicts with the cited manufacturer command syntax. The remaining items are mostly **integration and safety risks**, not claims of observed failures on a real N6700 or negative assertions about the third-party maintainers' target use cases.
+
+### 13.3 Positive reusable architecture patterns
+
+1. **Declarative waveform descriptors (S01)** — represent shape, supported parameters, SCPI setter/query, label and unit in a registry so CLI/GUI/help can be generated from one contract. **Improve:** immutable typed parameter specifications, model-capability flags and validation, rather than raw strings passed to SCPI.
+2. **Mode-aware power-source and SMU controls (S02)** — retain per-module differences for compliance, sensing and current/voltage priority. **Improve:** explicit capability objects from discovered channel identity/options and negative tests for wrong family.
+3. **Shape classes and channel-scoped I/O (S03)** — reuse \`PulseArb\`, \`RampArb\`, \`StaircaseArb\` and \`UserDefinedArb\` across voltage/current types. **Improve:** ensure all commands derive from actual Arb type; avoid exact equality after quantized readback.
+4. **Shape-specific method signatures (S04)** — simplify operator code. **Improve:** reject conflicting frequency and individual timing parameters rather than writing both without a documented precedence rule.
+5. **Compute timing instead of relying on a host loop (S05/S06)** — compile requested frequency/duty cycle into a finite hardware profile, and verify the programmed timing **and** physical waveform.
+
+### 13.4 Implementation model and example
+
+**Illustrative typed planning model; NOT a tested public API or executable SCPI runner:**
+
+~~~python
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class VoltagePulseArb:
+    base_v: float
+    top_v: float
+    start_s: float
+    top_s: float
+    end_s: float
+    repeat_count: int = 1
+
+def validate_pulse(plan: VoltagePulseArb, *, min_v: float, max_v: float) -> None:
+    import math
+    values = (plan.base_v, plan.top_v, plan.start_s, plan.top_s, plan.end_s)
+    if not all(math.isfinite(v) for v in values):
+        raise ValueError("non-finite Arb parameter")
+    if not (min_v <= min(plan.base_v, plan.top_v)
+            and max(plan.base_v, plan.top_v) <= max_v):
+        raise ValueError("pulse exceeds reviewed output envelope")
+    if min(plan.start_s, plan.top_s, plan.end_s) < 0 or plan.top_s <= 0:
+        raise ValueError("invalid pulse timing")
+    if not 1 <= plan.repeat_count <= 1000:
+        raise ValueError("repeat count exceeds application limit")
+~~~
+
+The **real driver** must additionally enforce module/Option 054 capabilities, OVP/current/power/energy limits, instrument timing resolution and point budget, output OFF, channel ownership, finite maximum **total** duration, readback, error queue, state tokens, abort and physical qualification. The example's application repeat bound of 1000 is illustrative and **not** a manufacturer's ARB count limit.
+
+**Recommended command planner contract:**
+
+~~~text
+DISCOVER(model, options, firmware, output_state, limits)
+  -> VALIDATE(type, shape, all extrema, timing, repeats, DUT envelope)
+  -> PREPARE(output OFF; abort stale transient; continuous OFF)
+  -> PROGRAM(type + shape + shape fields + finite count + TERM:LAST OFF)
+  -> READBACK(fields, effective timing, SCPI errors)
+  -> READY_TO_ARM (configuration alone never enables output)
+  -> [separate approved output enable]
+  -> ARM -> WAIT WTG -> CHANNEL TRIGGER -> WAIT COMPLETE
+  -> VERIFY -> ABORT/CLEANUP -> OUTPUT OFF
+  -> on any unverified step: UNKNOWN + operator-required recovery
+~~~
+
+### 13.5 Tests and implementation priorities
+
+| PR proposal | Tests to add | Acceptance gate |
+| --- | --- | --- |
+| **A — Command truth and capability matrix** | Golden SCPI vectors per shape, \`ARB:VOLT:PULS:FREQ\` coupling/readbacks, unsupported module/option, \`ABOR:TRAN?\` rejection, \`TRIG:ARB:SOUR\` versus \`TRIG:TRAN:SOUR\` on documented models | No undocumented command assumed supported; no side effects during identity/discovery |
+| **B — Typed standard voltage shapes** | Table-driven \`shape × parameter × channel\`, limits/extrema, zero/negative/nonfinite timing, output-ON refusal, unknown shape, partial write rollback | Offline pass with explicit readback; not energized by configure |
+| **C — Current shapes and SMU compliance** | Voltage/current priority × model, OVP/OCP/quadrant behavior, wrong-current/voltage path, channel isolation | Verified safe limits before enable |
+| **D — Controlled runtime/trigger lifecycle** | Channel A armed while B idle, global \`*TRG\` refused by default, early/missed trigger, abort timeout, reconnect, stale generation token, continuous mode accidentally retained | WTG/active status and safe OFF independently verified |
+| **E — DSO hardware qualification** | Programmed vs measured pulse amplitude, width, frequency coupling, edges, overshoot, latency/jitter; at least one approved N677x/Option 054 + appropriate SMU matrix | Independently signed-off HIL evidence and uncertainty guard bands |
+
+**No runtime code was changed or executed by this research.** This section supplies issue hypotheses, suggested design constraints and test priorities; it is not an assertion that the repository currently has TP01–TP12.
+
+### 13.6 Manufacturer cross-checks and source provenance
+
+- [Keysight N6700C Operating and Service Guide](https://go.keysight.com/us/en/assets/9018-04957/service-manuals/9018-04957.pdf): **ARB:VOLT:PULS:FREQ** is documented and coupled to pulse timing; **ABOR:TRAN** is a command. Follow the installed module's option and firmware applicability tables.
+- [Keysight N6705 Programmer's Reference](https://www.keysight.com/zz/en/assets/9018-03616/programming-guides/9018-03616.pdf): \`ABORt:TRANsient (@<chanlist>)\` cancels pending actions but **does not turn off \`INIT:CONT:TRAN ON\`**. An abort alone is insufficient cleanup.
+- [Keysight N6700 modular power system official example programs](https://www.keysight.com/hk/en/lib/software-detail/programming-examples/example-programs-for-the-keysight-n6700-modular-power-system-family-of-products-394142.html): downloadable \`EZSample\`, \`Sequence\`, \`List\`, \`Digitizer\` examples (older N6700B/N6705A generations; **Sequence is sequenced power-on, not necessarily Arb sequence**). Useful as **manufacturer-style I/O examples**, with version/model restrictions and historical dependencies.
+- Community code referenced in [§11](#11-reviewed-external-code-examples-and-references-2026-10-15) and engineering discussion evidence in [§12](#12-forum-and-stack-overflow-research-2026-10-15) remain supplementary.
+
+**External software licenses:** do not copy third-party code verbatim into this repository without checking licensing and attribution. The review records concise behavioral observations and original improvement suggestions.
+

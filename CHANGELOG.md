@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.7.4 — 2026-10-15
+
+Documentation-only third-party software code review: inspected SweepMe N6705
+signal/SMU drivers, pyVirtualLab N6705C signal objects, KK_Lab N6705C, and
+other N67xx/C++ examples. Added 12 source-level portability/safety findings,
+recommended fixes, architectural patterns, typed planning example, and
+prioritized offline/HIL gates to
+[ARB_WAVEFORM_REFERENCE.md](docs/ARB_WAVEFORM_REFERENCE.md).
+Cross-checked that ARB:VOLT:PULS:FREQ is documented and coupled to pulse
+timing, and that ABOR:TRAN is a command (not a query). No driver code or
+hardware behavior changed.
+
 ## v0.7.3 — 2026-10-15
 
 Documentation-only: added Stack Overflow and NI Community N6700/N6705
