@@ -1,7 +1,7 @@
 # N6700 power-module arbitrary waveform generation (ARB): command and capability reference
 
-**Reference revision:** 1.0 (2026-10-15)  
-**Driver baseline:** keysight-n6700-driver v0.7.0; catalog published in documentation release v0.7.1.  
+**Reference revision:** 1.1 (2026-10-15)  
+**Driver baseline:** keysight-n6700-driver v0.7.0; catalog published in documentation release v0.7.1; external references updated in v0.7.2.  
 **Purpose:** collect the documented hardware waveform functions, their SCPI command families, hardware gating, and the difference between vendor support and the Python driver's implemented surface.
 
 > **Critical status:** This is a **manufacturer-command inventory and implementation backlog**, not a declaration that every command below works on every installed module or is implemented by this driver. A SCPI command appearing in a common manual does not grant model capability. Never generate an energizing waveform without a reviewed module/option matrix, DUT voltage/current/power envelope, explicit output enable, readback verification, and a safe abort path.
@@ -185,4 +185,51 @@ Future work should be separate reviewed pull requests: (A) model/option capabili
 - [Known risks](../review/known_risks.md)
 - [Current module capability model](../capability/capability_model.yaml)
 
-**Change scope:** reference documentation only. No Arb/driver command behavior or qualification status changes in v0.7.1.
+**Change scope:** reference documentation only. No Arb/driver command behavior or qualification status changes in v0.7.1–v0.7.2.
+
+## 11. Reviewed external code examples and references (2026-10-15)
+
+These are **inspected source-code examples** for implementation research, not certified software, validated Keysight SCPI instructions, or endorsements. **The official Keysight programming reference and exact installed module/firmware remain authoritative.** GitHub links are pinned to specific commits where available. Do not copy third-party implementations verbatim without checking their licenses.
+
+### 11.1 Direct N6700/N6705 waveform and transient code on GitHub
+
+| Source | Relevant functions and command pattern | Applicability and review notes |
+| --- | --- | --- |
+| [HarishKumarSedu/IVM6311ATE — \`Instruments/KeySight_N670x.py\`](https://github.com/HarishKumarSedu/IVM6311ATE/blob/4b41017d16d87b0050eeccc5588c850b9acd57bd/Instruments/KeySight_N670x.py) | An N670x-family Python adapter with \`arbFunction_Priority__Voltage\`, sequence shape/reset helpers and \`arb_Pulse__Voltage\` / \`arb_Pulse__Current\`. It writes \`ARB:VOLT:PULS:STAR\`, \`TOP\`, \`STAR:TIM\`, \`TOP:TIM\`, and \`END:TIM\` (and corresponding current commands). | **High relevance for proposed typed PULSE and sequence APIs.** The existence of a setter is not proof it works on all models/options. Validate output-OFF prerequisites, parameter ranges, readback and error handling independently. |
+| [PDSHan/VoltFraud — \`VoltFraud-sgx/lib/DCpower_ctr.py\`](https://github.com/PDSHan/VoltFraud/blob/20a9030a8dea9d59e481cf00a220c5f51c496068/VoltFraud-sgx/lib/DCpower_ctr.py) | Voltage \`UDEF\` Arb for fault injection: \`ARB:FUNC:TYPE VOLT\`, \`ARB:FUNC:SHAP UDEF\`, \`ARB:VOLT:UDEF:LEV\` / \`DWEL\`, external trigger selection and \`INIT:TRAN\`. | **High relevance for voltage dips/peaks and external triggering.** Contains \`OUTP ON\`, \`INIT:CONT:TRAN ON\` and polling; **not safe as a production driver template** without explicit authorization, finite counts, deadlines and fault cleanup. |
+| [CHENYU0112/PoL-GUI — \`pverifyDrivers/powsup.py\`](https://github.com/CHENYU0112/PoL-GUI/blob/71f13604baf9455518766981c029b92658adf6bc/pverifyDrivers/powsup.py) | Shape/type selection with \`ARB:FUNC:SHAP\` / \`TYPE\`; generic top/start/end levels, rise/fall/hold times and \`TRIG:TRAN:SOUR\`. | **Useful API coverage checklist** for standard shapes. Generic string interpolation should be replaced by validated per-shape parameter objects, a verified SCPI command map and model-specific support checks. |
+| [katzgo/EIS_keysight — \`Pruebas_EIS/EIS_GenerateARB_v7_clean.py\`](https://github.com/katzgo/EIS_keysight/blob/4a8912dc58d689e166d0d67dc519b252821569b0/Pruebas_EIS/EIS_GenerateARB_v7_clean.py) | Current \`CDW\` Arb: \`ARB:FUNC:TYPE CURR\`, \`ARB:FUNC:SHAP CDW\`, \`ARB:CURR:CDW:DWELL\`, and PyVISA \`write_ascii_values('ARB:CURR:CDW ', ...)\`. | **High relevance for constant-dwell bulk transfer.** This research script sets \`ARB:COUN INF\` and enables the output, so only borrow reviewed transfer concepts. Verify vector termination, channel lists and readback against real N6700 firmware. |
+| [katzgo/EIS_keysight — \`Pruebas_EIS/EIS_ELOG_GenerateARB_V1.py\`](https://github.com/katzgo/EIS_keysight/blob/4a8912dc58d689e166d0d67dc519b252821569b0/Pruebas_EIS/EIS_ELOG_GenerateARB_V1.py) | Voltage CDW setup, ASCII array writes, transient initiation and triggering. | **CDW waveform and acquisition workflow reference.** The example includes infinite repeat, explicit output-on and acquisition/logger operations that should not be mixed into a safe Arb configuration transaction. |
+
+**Implementation observations:** The public code demonstrates PULSE parameter grouping, UDEF level/dwell vectors, CDW ASCII transfer and channel-scoped initiation. Its trigger variants (including \`TRIG:ARB:SOUR\` in some projects versus \`TRIG:TRAN:SOUR\` in the current driver) **must not be assumed interchangeable**; the exact command tree and firmware behavior must be verified against the vendor guide and [existing implementation contract](VOLTAGE_TRANSIENT_IMPLEMENTATION.md).
+
+### 11.2 Related GitHub work — architecture only, not validated N6700 Arb
+
+| Source | What can be learned | What must **not** be inferred |
+| --- | --- | --- |
+| [catec/n6705_psu_ui — device adapter](https://github.com/catec/n6705_psu_ui/blob/main/n6705_ui/device/n6705.py) and [TCP SCPI client](https://github.com/catec/n6705_psu_ui/blob/main/n6705_ui/communication/scpi_client.py) | N6705-specific device abstraction and synchronized SCPI-over-TCP communications. | No reviewed Arb waveform implementation was identified in these files; they are **transport** references only. |
+| [ami3go/PS_N6700B-USB-Python — \`src/PS_N6700B_class.py\`](https://github.com/ami3go/PS_N6700B-USB-Python/blob/main/src/PS_N6700B_class.py) | Prior USB/PyVISA-style N6700B device access. | Do not transplant legacy structure, assume Arb capability, or bypass the current \`scpi-driver-core\` architecture. |
+| [Labber-software/Drivers — Keysight B2961A](https://github.com/Labber-software/Drivers/blob/24cc68e33dd9b6c2b28264b25e65a9255e7c1229/Keysight_B2961A/Keysight_B2961A.py) | Ramp Arb driver structure on **another Keysight source model**. | B2961A commands, voltage/current ranges and timing behavior are **not** an N6700 command/feature guarantee. |
+
+### 11.3 Manufacturer resources and programming examples
+
+- [Keysight N6700 family Programmer's Reference](https://www.keysight.com/nl/en/assets/9018-03617/programming-guides/9018-03617.pdf) — authoritative SCPI definitions, query responses and model restrictions. Use to independently validate every linked community example.
+- [Keysight N6705C User's Guide](https://www.keysight.com/us/en/assets/9018-01649/user-manuals/9018-01649.pdf), **Generating Arbitrary Waveforms** — operational examples for user-defined, pulse, staircase, constant-dwell and sequence waveforms, along with trigger/termination behavior. It is not an executable Python repository.
+- [Keysight N6700 series Specifications Guide](https://www.keysight.com/cd/en/assets/9018-04533/technical-specifications/9018-04533.pdf) — model/Option 054 applicability and analog capability ceilings; a syntactically valid SCPI command is not proof that a source module can generate the requested physical waveform.
+- [Local source-voltage LIST/UDEF driver code and test plan](VOLTAGE_TRANSIENT_IMPLEMENTATION.md) and [voltage-transient unit tests](../tests/unit/test_voltage_transient.py) — **preferred examples** for this project's state-machine, finite duration, DUT envelope, readback and cleanup requirements.
+
+### 11.4 GitLab research outcome
+
+Public GitLab-hosted N6700/N6705 **Arb source-code examples** were searched for using the device names and SCPI terms (including \`ARB:VOLT\` and \`ARB:FUNC:SHAP\`). **No independently verifiable relevant public GitLab file was identified**, so no GitLab implementation link is included. This is a search limitation, **not evidence that no such GitLab project exists**. [GitLab public project explorer](https://gitlab.com/explore/projects).
+
+### 11.5 Rules for reusing public sample ideas
+
+1. **Do not copy safety shortcuts:** \`OUTP ON\` in initialization, infinite \`ARB:COUN INF\`, continuous transient initiation, unbounded polling, unchecked \`*RST\`, broad \`clear()\` or ignored exceptions are not acceptable defaults.
+2. **Check device applicability:** power-source voltage/current Arb is not electronic-load power/resistance Arb; confirm exact module model, mainframe, firmware and Option 054.
+3. **Design typed APIs:** separate \`VoltagePulseArb\`, \`VoltageRampArb\`, \`CurrentConstantDwellArb\` and \`ArbSequence\` instead of a raw user-supplied shape/parameter string.
+4. **Validate the entire waveform before writing:** amplitude extrema, DUT limits, slew/current/OVP, dwell quantization, point-memory budget, per-step counts and maximum duration.
+5. **Preserve reviewed lifecycle:** output OFF at configuration, parameter/query readbacks, explicit output enable by the caller, generation token, wait-for-trigger verification, channel-targeted triggering, deadline, and abort plus verified safe shutdown.
+6. **Test offline and physically:** protocol tests cover exact SCPI and failure recovery; independent DSO measurement is required for analog amplitude, edge speed, timing and jitter qualification.
+
+**Evidence scope:** This review confirms the cited public files contain the noted examples. It does **not** claim that third-party code is correct, licensed for copying, successfully tested on the user's specific hardware, or approved for industrial use.
+

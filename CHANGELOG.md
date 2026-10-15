@@ -3,6 +3,10 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.7.2 — 2026-10-15
+
+Documentation-only reference update: reviewed public N670x Arb Python source examples (PULSE, UDEF, CDW, sequencing and triggering), relevant SCPI transport projects and official Keysight documentation. Added pinned links, applicability qualifiers and explicit safety warnings to [ARB_WAVEFORM_REFERENCE.md](docs/ARB_WAVEFORM_REFERENCE.md). No verified GitLab Arb implementation found. No driver runtime or hardware qualification changes.
+
 ## v0.7.1 — 2026-10-15
 
 Documentation-only: added [N6700 Arb waveform and SCPI function reference](docs/ARB_WAVEFORM_REFERENCE.md), covering supported shapes, type and model/Option 054 restrictions, step and sequence command inventory, distinct point/repeat limits, existing driver coverage, safety requirements and HIL gates. Linked it from the docs index and README. No driver functionality changed or was hardware-qualified.
