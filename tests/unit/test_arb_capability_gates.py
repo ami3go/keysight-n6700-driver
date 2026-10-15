@@ -11,9 +11,9 @@ from types import SimpleNamespace
 import pytest
 
 from keysight_n6700 import (
+    N6700,
     DriverPreconditionError,
     DriverUnsupportedOperationError,
-    N6700,
 )
 from keysight_n6700.module_capabilities import classify_module
 
