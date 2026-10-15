@@ -82,9 +82,8 @@ class BaseChannel:
     def _invalidate_discovery(self) -> None:
         """Revoke stale channel handles on rediscovery/disconnect."""
         self._discovery_valid = False
-        transient_lock = getattr(self, "_transient_lock", None)
-        if transient_lock is not None:
-            with transient_lock:
+        if isinstance(self, PowerSupplyChannel):
+            with self._transient_lock:
                 self._transient_generation += 1
                 self._transient_config = None
                 self._transient_state = "unknown"
