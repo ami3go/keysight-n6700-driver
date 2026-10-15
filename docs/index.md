@@ -11,6 +11,7 @@ power systems.
 - [Call/protocol conformance](call_protocol_conformance.md)
 - [Hardware acceptance tests](hardware_acceptance_tests.md)
 - [Voltage LIST/ARB and slew implementation](VOLTAGE_TRANSIENT_IMPLEMENTATION.md)
+- [Full N6700 Arb waveform and SCPI function reference](ARB_WAVEFORM_REFERENCE.md)
 - [Troubleshooting](troubleshooting.md)
 - [Release notes](release_notes.md)
 
