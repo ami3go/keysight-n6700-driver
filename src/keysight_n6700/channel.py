@@ -190,13 +190,6 @@ class PowerSupplyChannel(BaseChannel):
     _WTG_TRANSIENT = 16
     _TRANSIENT_ACTIVE = 64
 
-    def _invalidate_discovery(self) -> None:
-        super()._invalidate_discovery()
-        with self._transient_lock:
-            self._transient_generation += 1
-            self._transient_config = None
-            self._transient_state = "unknown"
-
     def __init__(self, driver: _DriverProtocol, channel: int, capabilities: ChannelCapabilities) -> None:
         super().__init__(driver, channel, capabilities)
         self._transient_lock = threading.RLock()
@@ -205,6 +198,13 @@ class PowerSupplyChannel(BaseChannel):
         self._transient_mode = "fixed"
         self._transient_trigger_source = "bus"
         self._transient_config: VoltageListConfiguration | VoltageArbConfiguration | None = None
+
+    def _invalidate_discovery(self) -> None:
+        super()._invalidate_discovery()
+        with self._transient_lock:
+            self._transient_generation += 1
+            self._transient_config = None
+            self._transient_state = "unknown"
 
     def output_on(self) -> None:
         self.set_output(True)
