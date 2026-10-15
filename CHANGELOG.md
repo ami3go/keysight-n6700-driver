@@ -3,6 +3,14 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.7.8 — 2026-10-15
+
+Maintenance-only correction for generated AI-contract metadata: update
+`ai_contract.lock` SHA-256 to match the committed contract and release version.
+The mismatch was causing the existing `main` CI to fail before and during
+the SCPI core Arb compatibility comparison. No SCPI command implementation,
+hardware behavior, transport dependency pin or Arb functionality is changed.
+
 ## v0.7.7 — 2026-10-15
 
 Documentation-only: created
