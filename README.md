@@ -71,7 +71,7 @@ the output. Analog amplitude, dwell, edges, overshoot, and trigger jitter are
 not claimed as physically qualified until the guarded N6775A and independent
 oscilloscope gates are completed.
 
-See the [third-party Arb source-code analysis](docs/ARB_SOURCE_CODE_ANALYSIS.md), the [complete vendor Arb waveform/SCPI catalog](docs/ARB_WAVEFORM_REFERENCE.md) and the [implementation and verification plan](docs/VOLTAGE_TRANSIENT_IMPLEMENTATION.md)
+See the [worked Arb code examples](docs/ARB_WORKED_CODE_EXAMPLES.md), [third-party Arb source-code analysis](docs/ARB_SOURCE_CODE_ANALYSIS.md), the [complete vendor Arb waveform/SCPI catalog](docs/ARB_WAVEFORM_REFERENCE.md) and the [implementation and verification plan](docs/VOLTAGE_TRANSIENT_IMPLEMENTATION.md)
 for the API example, SCPI mapping, safety contract, HIL gate, and DSO matrix.
 
 ## Robot Framework adapter

@@ -1,7 +1,7 @@
 # N6700 / N6705 Arb waveform software: comparative source-code analysis
 
 **Assessment date:** 2026-10-15  
-**Document revision:** 1.0; first published in `keysight-n6700-driver` **v0.7.5**.  
+**Document revision:** 1.1; code examples added in v0.7.6; first published in `keysight-n6700-driver` **v0.7.5**.  
 **Baseline inspected:** `keysight-n6700-driver` **v0.7.4**, as checked against GitHub `main`.  
 **Scope:** source-code inspection and vendor-reference cross-check only; **no third-party code executed, no physical equipment connected, and no instrument compliance or metrology claims**.
 
@@ -237,3 +237,7 @@ Do not independently program `FREQ` after an unreviewed set of times merely beca
 | EXT-10 N67xx engineering notes | https://github.com/tmbinc/random/blob/81459d9bd0678243f8971a12b784327b55b0d5bb/agilent/n67xx/README.md |
 
 Most third-party repositories have their own licenses (SweepMe!'s reviewed file explicitly contains MIT terms). Confirm the **actual source-path license** and attribution before any copying. This document links and paraphrases but **does not import third-party code**.
+
+## 8. Worked code examples and offline tests (v0.7.6)
+
+See [**ARB_WORKED_CODE_EXAMPLES.md**](ARB_WORKED_CODE_EXAMPLES.md), which converts the reviewed sources into an existing simulator-only UDEF execution example and six original, offline-only proposals: typed PULSE compiler, frequency/duty conversion, mainframe/Option 054 capability gating, CDW vector formatting, finite sequence compilation, and trigger-family selection. Includes explicit source links and seven negative/contract tests. Standard PULSE/CDW/sequence APIs are **not implemented** in the driver; no live instrument command sequences are provided.

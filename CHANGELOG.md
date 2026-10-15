@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.7.6 — 2026-10-15
+
+Documentation-only Arb example expansion: added
+[ARB_WORKED_CODE_EXAMPLES.md](docs/ARB_WORKED_CODE_EXAMPLES.md), based on
+Keysight guides and reviewed SweepMe, pyVirtualLab, KK_Lab, VoltFraud,
+EIS_keysight and C++ sources. Includes a simulator-only example using the
+existing public voltage UDEF API; original offline PULSE, frequency/duty,
+Option 054 capability, current CDW, sequence and trigger planners;
+negative pytest examples; source mapping, limitations and review gates.
+All non-UDEF waveform features are explicitly marked as not implemented;
+no hardware control code changed, and no hardware was operated.
+
 ## v0.7.5 — 2026-10-15
 
 Documentation-only source review: published
