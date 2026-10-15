@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 ModuleType = Literal["power_supply", "smu", "electronic_load", "unknown"]
@@ -77,7 +77,7 @@ _OPTION_054_MODELS = frozenset(
 _PRECISION_MODELS = frozenset(f"N676{n}A" for n in range(1, 7))
 _SMU_MODELS = frozenset({"N6781A", "N6782A", "N6783A", "N6784A", "N6785A", "N6786A"})
 _QUALIFIED_MAINFRAMES = frozenset({"N6700C", "N6705C"})
-_OPTION_PATTERN = re.compile(r"[A-Z0-9]{1,16}\\Z")
+_OPTION_PATTERN = re.compile(r"[A-Z0-9]{1,16}$")
 
 
 def classify_module(
@@ -105,8 +105,9 @@ def classify_module(
     fingerprint = hashlib.sha256(
         json.dumps(fingerprint_data, separators=(",", ":"), ensure_ascii=True).encode("ascii")
     ).hexdigest()
-    common = dict(
+    common = ChannelCapabilities(
         model=model_clean,
+        module_type="unknown",
         options=opts,
         mainframe_model=mainframe,
         firmware_version=firmware,
@@ -115,8 +116,8 @@ def classify_module(
     supported_context = mainframe in _QUALIFIED_MAINFRAMES and known_identity and options_known
 
     if model_clean == "SIM_LOAD":
-        return ChannelCapabilities(
-            **common,
+        return replace(
+            common,
             module_type="electronic_load",
             supports_load_cc=True,
             supports_load_cv=True,
@@ -126,8 +127,8 @@ def classify_module(
             verified_real_load_commands=False,
         )
     if model_clean in LOAD_MODELS:
-        return ChannelCapabilities(
-            **common,
+        return replace(
+            common,
             module_type="electronic_load",
             supports_load_cc=True,
             supports_load_cv=True,
@@ -142,8 +143,8 @@ def classify_module(
             digitize_min_interval_s=10.24e-6,
         )
     if model_clean in _SMU_MODELS:
-        return ChannelCapabilities(
-            **common,
+        return replace(
+            common,
             module_type="smu",
             supports_voltage_source=True,
             supports_current_source=True,
@@ -161,8 +162,8 @@ def classify_module(
         arb_allowed = supported_context and (
             not optioned or mainframe == "N6705C" or "054" in opts
         )
-        return ChannelCapabilities(
-            **common,
+        return replace(
+            common,
             module_type="power_supply",
             supports_voltage_source=True,
             supports_current_source=False,
@@ -172,4 +173,4 @@ def classify_module(
             supports_voltage_arb=arb_allowed,
             supports_voltage_slew=True,
         )
-    return ChannelCapabilities(**common, module_type="unknown")
+    return common
