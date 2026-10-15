@@ -192,6 +192,17 @@ jitter. Those require the independent oscilloscope matrix and retained
 evidence in `docs/VOLTAGE_TRANSIENT_IMPLEMENTATION.md`; unattended production
 use remains out of scope until those gates and fault/soak tests pass.
 
+**Update 2026-10-15 — waveform-generator review remediated in software:**
+continuous initiation is disabled before every abort/shutdown; external-trigger
+readiness uses the operation event latch; the expanded shapes, current
+profiles, sequences/files, constant-dwell and STEP APIs have deterministic
+coverage. Discovery now exposes ARB only on N6705 mainframes, N6784A alone is
+classified for bipolar voltage envelopes, and sequence programming probes the
+installed firmware's 0-based or 1-based step convention. These changes close
+the code-review findings, but not the hardware evidence gap: external trigger,
+continuous abort, both observed step-number conventions, N6784A bipolar output
+and each ARB family still require guarded real-hardware/DSO qualification.
+
 ## No `lpds-core` shared package exists yet
 
 LPDS-003 (`BaseInstrument`) describes a shared package most drivers in this

@@ -59,8 +59,13 @@ from .module_capabilities import ChannelCapabilities, classify_module
 from .scpi import SUPPORTED_MANUFACTURERS, format_channel_list, parse_error
 from .simulator import build_simulated_transport
 from .types import (
+    ArbSequenceConfiguration,
+    ArbWaveformConfiguration,
     ArrayMeasurement,
     AuditRecord,
+    ConstantDwellArbConfiguration,
+    CurrentArbConfiguration,
+    CurrentListConfiguration,
     InstrumentIdentity,
     Measurement,
     OperationStatus,
@@ -72,12 +77,14 @@ from .types import (
     SelfTestResult,
     ShutdownChannelResult,
     ShutdownResult,
+    StepTransientConfiguration,
     VoltageArbConfiguration,
     VoltageListConfiguration,
     VoltageTransientStatus,
     VoltageTransientToken,
 )
 from .version import __version__
+from .waveforms import ArbSequenceStep, ArbShape, RepeatCount
 
 _CONNECTED_STATES = frozenset(
     {SessionState.CONNECTED, SessionState.CONFIGURED, SessionState.BUSY, SessionState.WAITING}
@@ -278,7 +285,11 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
 
         transport: Transport
         if connection_type in {"sim", "simulation", "simulated"}:
-            transport = build_simulated_transport()
+            transport = build_simulated_transport(
+                models=options.pop("models", None),
+                mainframe_model=options.pop("mainframe_model", "N6705C"),
+                sequence_step_base=options.pop("sequence_step_base", 0),
+            )
         elif connection_type in {"visa", "usb"}:
             if not resource:
                 raise DriverArgumentValueError("resource must contain a VISA resource string")
@@ -373,6 +384,9 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
             protocol_trace_redactor: an optional ``scpi_driver_core.tracing.
                 redaction.Redactor`` (e.g. ``PatternRedactor``) applied to
                 traced payloads before they reach ``protocol_trace``.
+            models: simulator-only channel-to-module mapping.
+            mainframe_model: simulator-only mainframe identity (default ``N6705C``).
+            sequence_step_base: simulator-only ARB sequence convention, 0 or 1.
 
         Returns:
             The connection-state dict, see :meth:`get_connection_state`.
@@ -385,6 +399,15 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         replace = bool(options.pop("replace", False))
         protocol_trace = options.pop("protocol_trace", None)
         protocol_trace_redactor = options.pop("protocol_trace_redactor", None)
+        simulation_options = {
+            name: options.pop(name)
+            for name in ("models", "mainframe_model", "sequence_step_base")
+            if name in options
+        }
+        if simulation_options and connection_type not in {"sim", "simulation", "simulated"}:
+            raise DriverArgumentValueError(
+                "models, mainframe_model, and sequence_step_base are simulator-only options"
+            )
         if options:
             raise DriverArgumentValueError(f"unknown connect() options: {sorted(options)}")
 
@@ -400,6 +423,7 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
             port=port,
             protocol_trace=protocol_trace,
             protocol_trace_redactor=protocol_trace_redactor,
+            **simulation_options,
         )
         self._discovery[alias] = _AliasDiscovery()
         if reset_on_connect:
@@ -719,10 +743,11 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         discovery.capabilities.clear()
         discovery.channels.clear()
         facade = _AliasFacade(self, key)
+        mainframe_model = self.idn(alias=key, refresh=False).model
         for ch in range(1, count + 1):
             model = self.channel_model(ch, alias=key)
             options = self.channel_options(ch, alias=key)
-            caps = classify_module(model, options)
+            caps = classify_module(model, options, mainframe_model=mainframe_model)
             discovery.capabilities[ch] = caps
             if caps.module_type == "smu":
                 discovery.channels[ch] = SMUChannel(facade, ch, caps)
@@ -821,13 +846,15 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         *,
         maximum_voltage_v: float,
         minimum_voltage_v: float = 0.0,
-        repeat_count: int = 1,
+        repeat_count: RepeatCount = 1,
         step_mode: Literal["auto", "once"] = "auto",
         terminate_last: bool = False,
         maximum_duration_s: float = 60.0,
+        begin_step_triggers: bool | Sequence[bool] = False,
+        end_step_triggers: bool | Sequence[bool] = False,
         alias: str | None = None,
     ) -> VoltageListConfiguration:
-        """Configure and verify a finite voltage LIST without enabling the output."""
+        """Configure and verify a bounded voltage LIST without enabling the output."""
         return self.power_supply(channel, alias=alias).configure_voltage_list(
             levels_v,
             dwell_s,
@@ -837,6 +864,8 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
             step_mode=step_mode,
             terminate_last=terminate_last,
             maximum_duration_s=maximum_duration_s,
+            begin_step_triggers=begin_step_triggers,
+            end_step_triggers=end_step_triggers,
         )
 
     @capability(
@@ -855,12 +884,13 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         *,
         maximum_voltage_v: float,
         minimum_voltage_v: float = 0.0,
-        repeat_count: int = 1,
+        repeat_count: RepeatCount = 1,
         terminate_last: bool = False,
         maximum_duration_s: float = 60.0,
+        begin_step_triggers: bool | Sequence[bool] = False,
         alias: str | None = None,
     ) -> VoltageArbConfiguration:
-        """Configure and verify a finite user-defined voltage ARB."""
+        """Configure and verify a bounded user-defined voltage ARB."""
         return self.power_supply(channel, alias=alias).configure_voltage_arb(
             levels_v,
             dwell_s,
@@ -869,6 +899,7 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
             repeat_count=repeat_count,
             terminate_last=terminate_last,
             maximum_duration_s=maximum_duration_s,
+            begin_step_triggers=begin_step_triggers,
         )
 
     def configure_voltage_transient_trigger(
@@ -886,12 +917,13 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         mutating=True,
         canonical_method="arm_voltage_transient",
         may_energize_or_sink_power=True,
-        preconditions=("A verified LIST/ARB profile exists.", "The source output is already ON.",),
+        preconditions=("A verified LIST/ARB/STEP profile exists.", "The source output is already ON.",),
     )
     def arm_voltage_transient(
-        self, channel: int, alias: str | None = None
+        self, channel: int, alias: str | None = None, *, continuous: bool = False
     ) -> VoltageTransientToken:
-        return self.power_supply(channel, alias=alias).arm_voltage_transient()
+        """Arm the configured source profile; ``continuous`` re-arms after every run."""
+        return self.power_supply(channel, alias=alias).arm_voltage_transient(continuous=continuous)
 
     def wait_voltage_transient_ready(
         self,
@@ -925,10 +957,11 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         channel: int,
         token: VoltageTransientToken,
         *,
-        timeout_s: float = 10.0,
+        timeout_s: float | None = None,
         poll_interval_s: float = 0.01,
         alias: str | None = None,
     ) -> VoltageTransientStatus:
+        """Wait for clean completion; ``timeout_s=None`` derives it from the profile."""
         return self.power_supply(channel, alias=alias).wait_voltage_transient_complete(
             token, timeout_s=timeout_s, poll_interval_s=poll_interval_s
         )
@@ -947,6 +980,400 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         self, channel: int, alias: str | None = None
     ) -> VoltageTransientStatus:
         return self.power_supply(channel, alias=alias).get_voltage_transient_status()
+
+    # -- current slew, current/shape/sequence/step transients -----------------
+
+    @capability(
+        "source.current.slew.set",
+        category="source",
+        risk_level="medium",
+        mutating=True,
+        canonical_method="set_current_slew_rate",
+    )
+    def set_current_slew_rate(
+        self, channel: int, rate_a_per_s: float | str, alias: str | None = None
+    ) -> float:
+        """Set current slew rate in A/s (N678xA SMU) and return the readback."""
+        return self.power_supply(channel, alias=alias).set_current_slew_rate(rate_a_per_s)
+
+    def get_current_slew_rate(self, channel: int, alias: str | None = None) -> float:
+        return self.power_supply(channel, alias=alias).get_current_slew_rate()
+
+    @capability(
+        "source.current.transient.list.configure",
+        category="source",
+        risk_level="high",
+        mutating=True,
+        canonical_method="configure_current_list",
+        preconditions=("Target source output is OFF.", "Caller supplied an approved current envelope.",),
+    )
+    def configure_current_list(
+        self,
+        channel: int,
+        levels_a: Sequence[float],
+        dwell_s: float | Sequence[float],
+        *,
+        maximum_current_a: float,
+        minimum_current_a: float = 0.0,
+        repeat_count: RepeatCount = 1,
+        step_mode: Literal["auto", "once"] = "auto",
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+        begin_step_triggers: bool | Sequence[bool] = False,
+        end_step_triggers: bool | Sequence[bool] = False,
+        alias: str | None = None,
+    ) -> CurrentListConfiguration:
+        """Configure and verify a bounded current LIST without enabling the output."""
+        return self.power_supply(channel, alias=alias).configure_current_list(
+            levels_a,
+            dwell_s,
+            maximum_current_a=maximum_current_a,
+            minimum_current_a=minimum_current_a,
+            repeat_count=repeat_count,
+            step_mode=step_mode,
+            terminate_last=terminate_last,
+            maximum_duration_s=maximum_duration_s,
+            begin_step_triggers=begin_step_triggers,
+            end_step_triggers=end_step_triggers,
+        )
+
+    @capability(
+        "source.current.transient.arb.configure",
+        category="source",
+        risk_level="high",
+        mutating=True,
+        canonical_method="configure_current_arb",
+        preconditions=("Target source output is OFF.", "Caller supplied an approved current envelope.",),
+    )
+    def configure_current_arb(
+        self,
+        channel: int,
+        levels_a: Sequence[float],
+        dwell_s: float | Sequence[float],
+        *,
+        maximum_current_a: float,
+        minimum_current_a: float = 0.0,
+        repeat_count: RepeatCount = 1,
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+        begin_step_triggers: bool | Sequence[bool] = False,
+        alias: str | None = None,
+    ) -> CurrentArbConfiguration:
+        """Configure and verify a bounded user-defined current ARB."""
+        return self.power_supply(channel, alias=alias).configure_current_arb(
+            levels_a,
+            dwell_s,
+            maximum_current_a=maximum_current_a,
+            minimum_current_a=minimum_current_a,
+            repeat_count=repeat_count,
+            terminate_last=terminate_last,
+            maximum_duration_s=maximum_duration_s,
+            begin_step_triggers=begin_step_triggers,
+        )
+
+    @capability(
+        "source.voltage.transient.arb_waveform.configure",
+        category="source",
+        risk_level="high",
+        mutating=True,
+        canonical_method="configure_voltage_arb_waveform",
+        preconditions=("Target source output is OFF.", "Caller supplied an approved voltage envelope.",),
+    )
+    def configure_voltage_arb_waveform(
+        self,
+        channel: int,
+        waveform: ArbShape,
+        *,
+        maximum_voltage_v: float,
+        minimum_voltage_v: float = 0.0,
+        repeat_count: RepeatCount = 1,
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+        alias: str | None = None,
+    ) -> ArbWaveformConfiguration:
+        """Configure and verify a built-in voltage ARB shape (step, ramp, sine, ...)."""
+        return self.power_supply(channel, alias=alias).configure_voltage_arb_waveform(
+            waveform,
+            maximum_voltage_v=maximum_voltage_v,
+            minimum_voltage_v=minimum_voltage_v,
+            repeat_count=repeat_count,
+            terminate_last=terminate_last,
+            maximum_duration_s=maximum_duration_s,
+        )
+
+    @capability(
+        "source.current.transient.arb_waveform.configure",
+        category="source",
+        risk_level="high",
+        mutating=True,
+        canonical_method="configure_current_arb_waveform",
+        preconditions=("Target source output is OFF.", "Caller supplied an approved current envelope.",),
+    )
+    def configure_current_arb_waveform(
+        self,
+        channel: int,
+        waveform: ArbShape,
+        *,
+        maximum_current_a: float,
+        minimum_current_a: float = 0.0,
+        repeat_count: RepeatCount = 1,
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+        alias: str | None = None,
+    ) -> ArbWaveformConfiguration:
+        """Configure and verify a built-in current ARB shape (step, ramp, sine, ...)."""
+        return self.power_supply(channel, alias=alias).configure_current_arb_waveform(
+            waveform,
+            maximum_current_a=maximum_current_a,
+            minimum_current_a=minimum_current_a,
+            repeat_count=repeat_count,
+            terminate_last=terminate_last,
+            maximum_duration_s=maximum_duration_s,
+        )
+
+    @capability(
+        "source.voltage.transient.constant_dwell.configure",
+        category="source",
+        risk_level="high",
+        mutating=True,
+        canonical_method="configure_voltage_constant_dwell_arb",
+        preconditions=("Target source output is OFF.", "Caller supplied an approved voltage envelope.",),
+    )
+    def configure_voltage_constant_dwell_arb(
+        self,
+        channel: int,
+        levels_v: Sequence[float],
+        dwell_s: float,
+        *,
+        maximum_voltage_v: float,
+        minimum_voltage_v: float = 0.0,
+        repeat_count: RepeatCount = 1,
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+        alias: str | None = None,
+    ) -> ConstantDwellArbConfiguration:
+        """Configure and verify a constant-dwell voltage ARB (up to 65,535 points)."""
+        return self.power_supply(channel, alias=alias).configure_voltage_constant_dwell_arb(
+            levels_v,
+            dwell_s,
+            maximum_voltage_v=maximum_voltage_v,
+            minimum_voltage_v=minimum_voltage_v,
+            repeat_count=repeat_count,
+            terminate_last=terminate_last,
+            maximum_duration_s=maximum_duration_s,
+        )
+
+    @capability(
+        "source.current.transient.constant_dwell.configure",
+        category="source",
+        risk_level="high",
+        mutating=True,
+        canonical_method="configure_current_constant_dwell_arb",
+        preconditions=("Target source output is OFF.", "Caller supplied an approved current envelope.",),
+    )
+    def configure_current_constant_dwell_arb(
+        self,
+        channel: int,
+        levels_a: Sequence[float],
+        dwell_s: float,
+        *,
+        maximum_current_a: float,
+        minimum_current_a: float = 0.0,
+        repeat_count: RepeatCount = 1,
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+        alias: str | None = None,
+    ) -> ConstantDwellArbConfiguration:
+        """Configure and verify a constant-dwell current ARB (up to 65,535 points)."""
+        return self.power_supply(channel, alias=alias).configure_current_constant_dwell_arb(
+            levels_a,
+            dwell_s,
+            maximum_current_a=maximum_current_a,
+            minimum_current_a=minimum_current_a,
+            repeat_count=repeat_count,
+            terminate_last=terminate_last,
+            maximum_duration_s=maximum_duration_s,
+        )
+
+    @capability(
+        "source.voltage.transient.arb_sequence.configure",
+        category="source",
+        risk_level="high",
+        mutating=True,
+        canonical_method="configure_voltage_arb_sequence",
+        preconditions=("Target source output is OFF.", "Caller supplied an approved voltage envelope.",),
+    )
+    def configure_voltage_arb_sequence(
+        self,
+        channel: int,
+        steps: Sequence[ArbSequenceStep],
+        *,
+        maximum_voltage_v: float,
+        minimum_voltage_v: float = 0.0,
+        sequence_count: RepeatCount = 1,
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+        alias: str | None = None,
+    ) -> ArbSequenceConfiguration:
+        """Configure and verify a voltage ARB sequence of up to 100 shapes."""
+        return self.power_supply(channel, alias=alias).configure_voltage_arb_sequence(
+            steps,
+            maximum_voltage_v=maximum_voltage_v,
+            minimum_voltage_v=minimum_voltage_v,
+            sequence_count=sequence_count,
+            terminate_last=terminate_last,
+            maximum_duration_s=maximum_duration_s,
+        )
+
+    @capability(
+        "source.current.transient.arb_sequence.configure",
+        category="source",
+        risk_level="high",
+        mutating=True,
+        canonical_method="configure_current_arb_sequence",
+        preconditions=("Target source output is OFF.", "Caller supplied an approved current envelope.",),
+    )
+    def configure_current_arb_sequence(
+        self,
+        channel: int,
+        steps: Sequence[ArbSequenceStep],
+        *,
+        maximum_current_a: float,
+        minimum_current_a: float = 0.0,
+        sequence_count: RepeatCount = 1,
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+        alias: str | None = None,
+    ) -> ArbSequenceConfiguration:
+        """Configure and verify a current ARB sequence of up to 100 shapes."""
+        return self.power_supply(channel, alias=alias).configure_current_arb_sequence(
+            steps,
+            maximum_current_a=maximum_current_a,
+            minimum_current_a=minimum_current_a,
+            sequence_count=sequence_count,
+            terminate_last=terminate_last,
+            maximum_duration_s=maximum_duration_s,
+        )
+
+    @capability(
+        "source.transient.arb_sequence.store",
+        category="source",
+        risk_level="low",
+        mutating=True,
+        canonical_method="store_arb_sequence",
+        preconditions=("The channel ARB function is a sequence.",),
+    )
+    def store_arb_sequence(self, channel: int, filename: str, alias: str | None = None) -> None:
+        """Save the channel's ARB sequence to an instrument ``.seq`` file."""
+        self.power_supply(channel, alias=alias).store_arb_sequence(filename)
+
+    @capability(
+        "source.voltage.transient.arb_sequence.load",
+        category="source",
+        risk_level="high",
+        mutating=True,
+        canonical_method="load_voltage_arb_sequence",
+        preconditions=("Target source output is OFF.", "Caller supplied an approved voltage envelope.",),
+    )
+    def load_voltage_arb_sequence(
+        self,
+        channel: int,
+        filename: str,
+        *,
+        maximum_voltage_v: float,
+        minimum_voltage_v: float = 0.0,
+        maximum_duration_s: float = 60.0,
+        allow_infinite: bool = False,
+        alias: str | None = None,
+    ) -> ArbSequenceConfiguration:
+        """Load a ``.seq`` file and accept it only inside the voltage envelope."""
+        return self.power_supply(channel, alias=alias).load_voltage_arb_sequence(
+            filename,
+            maximum_voltage_v=maximum_voltage_v,
+            minimum_voltage_v=minimum_voltage_v,
+            maximum_duration_s=maximum_duration_s,
+            allow_infinite=allow_infinite,
+        )
+
+    @capability(
+        "source.current.transient.arb_sequence.load",
+        category="source",
+        risk_level="high",
+        mutating=True,
+        canonical_method="load_current_arb_sequence",
+        preconditions=("Target source output is OFF.", "Caller supplied an approved current envelope.",),
+    )
+    def load_current_arb_sequence(
+        self,
+        channel: int,
+        filename: str,
+        *,
+        maximum_current_a: float,
+        minimum_current_a: float = 0.0,
+        maximum_duration_s: float = 60.0,
+        allow_infinite: bool = False,
+        alias: str | None = None,
+    ) -> ArbSequenceConfiguration:
+        """Load a ``.seq`` file and accept it only inside the current envelope."""
+        return self.power_supply(channel, alias=alias).load_current_arb_sequence(
+            filename,
+            maximum_current_a=maximum_current_a,
+            minimum_current_a=minimum_current_a,
+            maximum_duration_s=maximum_duration_s,
+            allow_infinite=allow_infinite,
+        )
+
+    @capability(
+        "source.voltage.transient.step.configure",
+        category="source",
+        risk_level="high",
+        mutating=True,
+        canonical_method="configure_voltage_step",
+        preconditions=("Target source output is OFF.", "Caller supplied an approved voltage envelope.",),
+    )
+    def configure_voltage_step(
+        self,
+        channel: int,
+        triggered_voltage_v: float,
+        *,
+        maximum_voltage_v: float,
+        minimum_voltage_v: float = 0.0,
+        trigger_output: bool = False,
+        alias: str | None = None,
+    ) -> StepTransientConfiguration:
+        """Configure and verify a triggered voltage step (``VOLT:MODE STEP``)."""
+        return self.power_supply(channel, alias=alias).configure_voltage_step(
+            triggered_voltage_v,
+            maximum_voltage_v=maximum_voltage_v,
+            minimum_voltage_v=minimum_voltage_v,
+            trigger_output=trigger_output,
+        )
+
+    @capability(
+        "source.current.transient.step.configure",
+        category="source",
+        risk_level="high",
+        mutating=True,
+        canonical_method="configure_current_step",
+        preconditions=("Target source output is OFF.", "Caller supplied an approved current envelope.",),
+    )
+    def configure_current_step(
+        self,
+        channel: int,
+        triggered_current_a: float,
+        *,
+        maximum_current_a: float,
+        minimum_current_a: float = 0.0,
+        trigger_output: bool = False,
+        alias: str | None = None,
+    ) -> StepTransientConfiguration:
+        """Configure and verify a triggered current step (``CURR:MODE STEP``)."""
+        return self.power_supply(channel, alias=alias).configure_current_step(
+            triggered_current_a,
+            maximum_current_a=maximum_current_a,
+            minimum_current_a=minimum_current_a,
+            trigger_output=trigger_output,
+        )
 
     @capability(
         "source.current.set",
@@ -1392,7 +1819,7 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
                     ch.input_off()
                 elif isinstance(ch, PowerSupplyChannel):
                     try:
-                        ch.abort_voltage_transient()
+                        ch._emergency_abort_voltage_transient()
                     except Exception as exc:
                         errors.append(f"transient abort failed: {exc}")
                     finally:

@@ -7,6 +7,7 @@ the separate ``keysight_n6700_robotframework_adapter`` package
 """
 
 from .acquisition import AcquisitionSnapshot, AcquisitionState, DigitizeTiming
+from .arb_files import ArbCsvProfile, read_arb_csv, write_arb_csv
 from .channel import BaseChannel, ElectronicLoadChannel, PowerSupplyChannel, SMUChannel
 from .driver import N6700
 from .exceptions import (
@@ -27,7 +28,12 @@ from .exceptions import (
 from .module_capabilities import ChannelCapabilities, ModuleType, classify_module
 from .simulator import SimN6700Instrument
 from .types import (
+    ArbSequenceConfiguration,
+    ArbWaveformConfiguration,
     ArrayMeasurement,
+    ConstantDwellArbConfiguration,
+    CurrentArbConfiguration,
+    CurrentListConfiguration,
     InstrumentIdentity,
     Measurement,
     PowerMeasurement,
@@ -36,20 +42,48 @@ from .types import (
     RemoteState,
     ScpiErrorRecord,
     ShutdownResult,
+    StepTransientConfiguration,
     VoltageArbConfiguration,
     VoltageListConfiguration,
     VoltageTransientStatus,
     VoltageTransientToken,
 )
 from .version import __version__
+from .waveforms import (
+    ArbExponential,
+    ArbPulse,
+    ArbRamp,
+    ArbSequenceStep,
+    ArbSine,
+    ArbStaircase,
+    ArbStep,
+    ArbTrapezoid,
+    ArbUserDefined,
+    shape_from_name,
+)
 
 __all__ = [
     "N6700",
     "AcquisitionSnapshot",
     "AcquisitionState",
+    "ArbCsvProfile",
+    "ArbExponential",
+    "ArbPulse",
+    "ArbRamp",
+    "ArbSequenceConfiguration",
+    "ArbSequenceStep",
+    "ArbSine",
+    "ArbStaircase",
+    "ArbStep",
+    "ArbTrapezoid",
+    "ArbUserDefined",
+    "ArbWaveformConfiguration",
     "ArrayMeasurement",
     "BaseChannel",
     "ChannelCapabilities",
+    "ConstantDwellArbConfiguration",
+    "CurrentArbConfiguration",
+    "CurrentListConfiguration",
     "DigitizeTiming",
     "DriverArgumentValueError",
     "DriverCommandRejectedError",
@@ -77,10 +111,14 @@ __all__ = [
     "ScpiErrorRecord",
     "ShutdownResult",
     "SimN6700Instrument",
+    "StepTransientConfiguration",
     "VoltageArbConfiguration",
     "VoltageListConfiguration",
     "VoltageTransientStatus",
     "VoltageTransientToken",
     "__version__",
     "classify_module",
+    "read_arb_csv",
+    "shape_from_name",
+    "write_arb_csv",
 ]

@@ -225,7 +225,7 @@ capabilities:
     aliases: []
 - capability_id: source.voltage.transient.list.configure
   display_name: Configure Voltage List
-  description: Configure and verify a finite voltage LIST without enabling the output.
+  description: Configure and verify a bounded voltage LIST without enabling the output.
   category: source
   standard: true
   risk_level: high
@@ -245,7 +245,7 @@ capabilities:
     aliases: []
 - capability_id: source.voltage.transient.arb.configure
   display_name: Configure Voltage Arb
-  description: Configure and verify a finite user-defined voltage ARB.
+  description: Configure and verify a bounded user-defined voltage ARB.
   category: source
   standard: true
   risk_level: high
@@ -265,14 +265,14 @@ capabilities:
     aliases: []
 - capability_id: source.voltage.transient.arm
   display_name: Arm Voltage Transient
-  description: ''
+  description: Arm the configured source profile; ``continuous`` re-arms after every run.
   category: source
   standard: true
   risk_level: high
   mutating: true
   may_energize_or_sink_power: true
   preconditions:
-  - A verified LIST/ARB profile exists.
+  - A verified LIST/ARB/STEP profile exists.
   - The source output is already ON.
   postconditions: []
   side_effects: []
@@ -319,6 +319,283 @@ capabilities:
   binding:
     python_method: abort_voltage_transient
     canonical_method: abort_voltage_transient
+    aliases: []
+- capability_id: source.current.slew.set
+  display_name: Set Current Slew Rate
+  description: Set current slew rate in A/s (N678xA SMU) and return the readback.
+  category: source
+  standard: true
+  risk_level: medium
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions: []
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: set_current_slew_rate
+    canonical_method: set_current_slew_rate
+    aliases: []
+- capability_id: source.current.transient.list.configure
+  display_name: Configure Current List
+  description: Configure and verify a bounded current LIST without enabling the output.
+  category: source
+  standard: true
+  risk_level: high
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Target source output is OFF.
+  - Caller supplied an approved current envelope.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: configure_current_list
+    canonical_method: configure_current_list
+    aliases: []
+- capability_id: source.current.transient.arb.configure
+  display_name: Configure Current Arb
+  description: Configure and verify a bounded user-defined current ARB.
+  category: source
+  standard: true
+  risk_level: high
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Target source output is OFF.
+  - Caller supplied an approved current envelope.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: configure_current_arb
+    canonical_method: configure_current_arb
+    aliases: []
+- capability_id: source.voltage.transient.arb_waveform.configure
+  display_name: Configure Voltage Arb Waveform
+  description: Configure and verify a built-in voltage ARB shape (step, ramp, sine, ...).
+  category: source
+  standard: true
+  risk_level: high
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Target source output is OFF.
+  - Caller supplied an approved voltage envelope.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: configure_voltage_arb_waveform
+    canonical_method: configure_voltage_arb_waveform
+    aliases: []
+- capability_id: source.current.transient.arb_waveform.configure
+  display_name: Configure Current Arb Waveform
+  description: Configure and verify a built-in current ARB shape (step, ramp, sine, ...).
+  category: source
+  standard: true
+  risk_level: high
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Target source output is OFF.
+  - Caller supplied an approved current envelope.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: configure_current_arb_waveform
+    canonical_method: configure_current_arb_waveform
+    aliases: []
+- capability_id: source.voltage.transient.constant_dwell.configure
+  display_name: Configure Voltage Constant Dwell Arb
+  description: Configure and verify a constant-dwell voltage ARB (up to 65,535 points).
+  category: source
+  standard: true
+  risk_level: high
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Target source output is OFF.
+  - Caller supplied an approved voltage envelope.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: configure_voltage_constant_dwell_arb
+    canonical_method: configure_voltage_constant_dwell_arb
+    aliases: []
+- capability_id: source.current.transient.constant_dwell.configure
+  display_name: Configure Current Constant Dwell Arb
+  description: Configure and verify a constant-dwell current ARB (up to 65,535 points).
+  category: source
+  standard: true
+  risk_level: high
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Target source output is OFF.
+  - Caller supplied an approved current envelope.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: configure_current_constant_dwell_arb
+    canonical_method: configure_current_constant_dwell_arb
+    aliases: []
+- capability_id: source.voltage.transient.arb_sequence.configure
+  display_name: Configure Voltage Arb Sequence
+  description: Configure and verify a voltage ARB sequence of up to 100 shapes.
+  category: source
+  standard: true
+  risk_level: high
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Target source output is OFF.
+  - Caller supplied an approved voltage envelope.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: configure_voltage_arb_sequence
+    canonical_method: configure_voltage_arb_sequence
+    aliases: []
+- capability_id: source.current.transient.arb_sequence.configure
+  display_name: Configure Current Arb Sequence
+  description: Configure and verify a current ARB sequence of up to 100 shapes.
+  category: source
+  standard: true
+  risk_level: high
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Target source output is OFF.
+  - Caller supplied an approved current envelope.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: configure_current_arb_sequence
+    canonical_method: configure_current_arb_sequence
+    aliases: []
+- capability_id: source.transient.arb_sequence.store
+  display_name: Store Arb Sequence
+  description: Save the channel's ARB sequence to an instrument ``.seq`` file.
+  category: source
+  standard: true
+  risk_level: low
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - The channel ARB function is a sequence.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: store_arb_sequence
+    canonical_method: store_arb_sequence
+    aliases: []
+- capability_id: source.voltage.transient.arb_sequence.load
+  display_name: Load Voltage Arb Sequence
+  description: Load a ``.seq`` file and accept it only inside the voltage envelope.
+  category: source
+  standard: true
+  risk_level: high
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Target source output is OFF.
+  - Caller supplied an approved voltage envelope.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: load_voltage_arb_sequence
+    canonical_method: load_voltage_arb_sequence
+    aliases: []
+- capability_id: source.current.transient.arb_sequence.load
+  display_name: Load Current Arb Sequence
+  description: Load a ``.seq`` file and accept it only inside the current envelope.
+  category: source
+  standard: true
+  risk_level: high
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Target source output is OFF.
+  - Caller supplied an approved current envelope.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: load_current_arb_sequence
+    canonical_method: load_current_arb_sequence
+    aliases: []
+- capability_id: source.voltage.transient.step.configure
+  display_name: Configure Voltage Step
+  description: Configure and verify a triggered voltage step (``VOLT:MODE STEP``).
+  category: source
+  standard: true
+  risk_level: high
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Target source output is OFF.
+  - Caller supplied an approved voltage envelope.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: configure_voltage_step
+    canonical_method: configure_voltage_step
+    aliases: []
+- capability_id: source.current.transient.step.configure
+  display_name: Configure Current Step
+  description: Configure and verify a triggered current step (``CURR:MODE STEP``).
+  category: source
+  standard: true
+  risk_level: high
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - Target source output is OFF.
+  - Caller supplied an approved current envelope.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: configure_current_step
+    canonical_method: configure_current_step
     aliases: []
 - capability_id: source.current.set
   display_name: Set Dc Current

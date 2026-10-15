@@ -1,7 +1,7 @@
 # Worked Arb waveform code examples — N6700/N6705
 
-**Revision:** 1.0 · **2026-10-15** · documentation release **v0.7.6**  
-**Purpose:** source-linked, detailed Python designs and SCPI transcripts for extending this driver's arbitrary-waveform generator support.  
+**Revision:** 1.0 · **2026-10-15** · documentation release **v0.7.6**
+**Purpose:** source-linked, detailed Python designs and SCPI transcripts for extending this driver's arbitrary-waveform generator support.
 **Safety:** **Examples 2–7 are offline designs, not public driver APIs and not approved live-instrument scripts.** They compile or validate commands but never transmit them. Example 1 runs **only with the built-in simulator**. All real hardware operation requires a separately approved HIL plan, per-model capability checks and independent protection.
 
 This document complements the [source-code analysis](ARB_SOURCE_CODE_ANALYSIS.md), [manufacturer command inventory](ARB_WAVEFORM_REFERENCE.md) and the [implemented bounded voltage-transient API](VOLTAGE_TRANSIENT_IMPLEMENTATION.md). New code below is an **original adaptation of concepts**, not copied third-party source. Each section identifies exact sources, implemented status, dangers and tests.

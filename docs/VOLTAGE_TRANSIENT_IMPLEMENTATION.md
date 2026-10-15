@@ -1,22 +1,25 @@
-# Source-voltage LIST/ARB and slew implementation
+# Source LIST/ARB waveform-generator implementation
 
 **Implementation status:** software implemented; simulator/protocol verification required in CI; real N6775A HIL and oscilloscope qualification remain explicit release gates.
 
 ## Purpose
 
-Provide typed, bounded APIs for generating source-voltage dips and peaks with N6700 power-supply channels. The feature uses the instrument's hardware-timed output transient system instead of timing ordinary `VOLT` writes from Python.
+Provide typed, bounded APIs for generating voltage and current waveforms with N6700 power-supply and SMU channels. The feature uses the instrument's hardware-timed output transient system instead of timing ordinary setpoint writes from Python.
 
 The first supported scope is:
 
 - programmable voltage slew (`VOLT:SLEW`);
 - finite voltage LIST profiles, up to 512 points;
-- finite user-defined voltage ARB profiles, up to 511 points;
+- voltage/current LIST and user-defined ARB profiles;
+- built-in step, ramp, staircase, sine, pulse, trapezoid and exponential ARBs;
+- constant-dwell ARBs, multi-shape sequences and guarded `.seq` storage;
+- triggered STEP mode, finite or explicitly requested continuous initiation;
 - BUS or external transient trigger selection;
 - explicit configure, arm, ready, trigger, completion and abort lifecycle;
 - Python and Robot Framework APIs;
 - simulator, contract and guarded real-hardware verification.
 
-Infinite repetition, standard ARB shapes, ARB sequences, file import/export and implicit output enable are deliberately excluded. They can be added only after the bounded implementation is physically qualified.
+Configuration never implicitly enables an output. Infinite repetition is explicit and cannot use the ordinary completion wait; callers must retain an abort/watchdog path.
 
 ## Normative references
 
@@ -32,6 +35,9 @@ Important vendor constraints reflected in the API:
 - LIST voltage, current, dwell and trigger arrays must have a common length or a singleton length.
 - LIST supports at most 512 points and repeat count 1–256.
 - User-defined voltage ARB supports at most 511 points.
+- ARB waveform commands, constant-dwell ARBs, sequences and sequence files require an N6705 mainframe; discovery rejects them early on N6700B/C, N6701 and N6702 while leaving LIST/STEP available.
+- N6784A supports an explicitly approved negative-to-positive voltage envelope; other supported modules remain unipolar.
+- Firmware sequence-step numbering is probed after `ARB:SEQ:RES` because the user-guide example is zero-based while the programmer's-reference parameter table says 1–100.
 - General LIST/UDEF dwell range for N6775A is 0–262.144 s, with range-dependent quantization.
 - ARB repeat count is finite and at most 16,777,216 in this API.
 - The output trigger system must be initiated and report WTG_transient before a trigger; early triggers can be ignored.
@@ -71,11 +77,27 @@ configure_voltage_arb(
     maximum_duration_s=60.0,
 ) -> VoltageArbConfiguration
 
+# Parallel voltage/current methods are available for:
+# - built-in ArbStep/ArbRamp/ArbStaircase/ArbSine/ArbPulse/
+#   ArbTrapezoid/ArbExponential/ArbUserDefined shapes;
+# - constant-dwell ARBs;
+# - multi-shape ARB sequences and .seq store/load;
+# - triggered STEP and LIST profiles.
+configure_voltage_arb_waveform(channel, waveform, ...) -> ArbWaveformConfiguration
+configure_current_arb_waveform(channel, waveform, ...) -> ArbWaveformConfiguration
+configure_voltage_constant_dwell_arb(channel, levels_v, dwell_s, ...)
+configure_current_constant_dwell_arb(channel, levels_a, dwell_s, ...)
+configure_voltage_arb_sequence(channel, steps, ...)
+configure_current_arb_sequence(channel, steps, ...)
+store_arb_sequence(channel, filename)
+load_voltage_arb_sequence(channel, filename, ...)
+load_current_arb_sequence(channel, filename, ...)
+
 configure_voltage_transient_trigger(channel, source="bus")
 arm_voltage_transient(channel) -> VoltageTransientToken
 wait_voltage_transient_ready(channel, token, timeout_s=5.0)
 trigger_voltage_transient(channel, token)
-wait_voltage_transient_complete(channel, token, timeout_s=10.0)
+wait_voltage_transient_complete(channel, token, timeout_s=None)  # None: duration × 1.1 + 2 s
 abort_voltage_transient(channel)
 get_voltage_transient_status(channel) -> VoltageTransientStatus
 ```
@@ -127,22 +149,25 @@ For a user-defined ARB, replace `configure_voltage_list` with `configure_voltage
 2. LIST and ARB configuration is rejected if the selected output is ON. The check runs before any write, so a refused call never aborts or alters a profile that is already armed or running.
 3. Every number must be finite; boolean-as-number, NaN and infinity are rejected except the explicit string `"max"` for slew.
 4. Every voltage point must be within caller-supplied `minimum_voltage_v..maximum_voltage_v`.
-5. The caller's maximum may not exceed the lower of the selected instrument range and OVP readback.
-6. Point count, dwell, repeat count and calculated total duration are bounded before the first profile write.
-7. Infinite repeat is unavailable from the typed API.
-8. LIST writes an explicit singleton current-limit list and disabled BOST/EOST arrays so stale instrument arrays cannot invalidate the profile or emit unreviewed triggers.
+5. The caller's maximum may not exceed the selected instrument range, and must stay at least 5 % below the OVP readback so step overshoot cannot trip protection.
+   On N678xA SMU channels the channel must be in voltage priority (`FUNC VOLT`).
+6. Point count, dwell (262.144 s, or 268.435 s on N678xA), integer repeat count and calculated total duration are bounded before the first profile write.
+7. Infinite repeat requires an explicit value and is rejected by completion waits that cannot terminate naturally.
+8. Configuration pins `CURR:MODE FIX` (the fixed current limit applies to every step; no current list is programmed) and LIST writes disabled BOST/EOST arrays so stale instrument arrays cannot invalidate the profile or emit unreviewed triggers.
 9. Profile arrays and voltage mode are read back before configuration is reported successful.
 10. Partial configuration failure sends `ABOR:TRAN`, disables continuous transient initiation, selects FIXED voltage mode, and marks local state unknown.
+11. SCPI errors -113 (undefined header) or -241 (hardware missing) during configuration are reported as `DriverUnsupportedOperationError`: the module or mainframe lacks the feature.
 
 ### Execution
 
 1. Configuration never enables an output.
-2. Arming requires a verified profile and an already-enabled output.
+2. Arming requires a verified profile and an already-enabled output. It reads `TRIG:TRAN:SOUR?` from the instrument and refuses any source other than BUS or EXT.
+   LIST `step_mode="once"` needs one trigger per step (triggers during a dwell are ignored), so it is only accepted with the external source.
 3. Each arm returns a generation token. Stale or cross-channel tokens are rejected.
-4. Software trigger requires BUS mode and a successful WTG_transient readiness observation.
-5. Completion requires both WTG_transient and TRAN_active to be clear after the matching trigger generation.
+4. Software trigger requires BUS mode and a successful WTG_transient readiness observation. With the external source an edge can land between polls, so readiness also ends on TRAN_active or an idle system after `INIT:TRAN` and the state moves straight to `triggered`.
+5. Completion requires both WTG_transient and TRAN_active to be clear for the matching generation, followed by a clean `STAT:QUES:COND?` and output still ON. Every abort path bumps the generation, so an abort from another thread or a protection trip is reported as `DriverOperationUncertainError`, never as `complete`.
 6. Waits are bounded. Completion timeout attempts `ABOR:TRAN` before returning the timeout.
-7. `safe_shutdown()` attempts transient abort before commanding each source output OFF. `ABOR:TRAN` and output-OFF commands remain permitted from any thread during an active digitizer lease; `ABOR:ACQ` stays restricted to the lease owner.
+7. `safe_shutdown()` sends `INIT:CONT:TRAN OFF` and then `ABOR:TRAN` before commanding each source output OFF. Those emergency-stop commands and output-OFF remain permitted from any thread during an active digitizer lease; `ABOR:ACQ` stays restricted to the lease owner.
 
 The driver validates instrument and caller-supplied limits. It cannot discover the actual DUT, harness, capacitor energy, relay state or external interlock. The application/fixture remains responsible for those limits.
 
@@ -151,10 +176,12 @@ The driver validates instrument and caller-supplied limits. It cannot discover t
 | Typed operation | Commands/readbacks |
 |---|---|
 | Set slew | `VOLT:SLEW`, `VOLT:SLEW?` |
-| Prepare profile | `ABOR:TRAN`, `INIT:CONT:TRAN OFF`, `VOLT:MODE FIX` |
-| LIST arrays | `LIST:VOLT`, `LIST:CURR`, `LIST:DWEL`, `LIST:TOUT:BOST`, `LIST:TOUT:EOST` |
+| Prepare profile | `ABOR:TRAN`, `INIT:CONT:TRAN OFF`, `VOLT:MODE FIX`, `CURR:MODE FIX` |
+| LIST arrays | `LIST:VOLT`, `LIST:DWEL`, `LIST:TOUT:BOST`, `LIST:TOUT:EOST` |
 | LIST policy | `LIST:COUN`, `LIST:STEP`, `LIST:TERM:LAST`, `VOLT:MODE LIST` |
 | UDEF ARB | `ARB:FUNC:TYPE VOLT`, `ARB:FUNC:SHAP UDEF`, `ARB:VOLT:UDEF:LEV`, `ARB:VOLT:UDEF:DWEL`, `ARB:VOLT:UDEF:BOST` |
+| Built-in/CDW ARB | `ARB:<VOLT|CURR>:<shape>`, `ARB:<VOLT|CURR>:CDW`, parameter readbacks |
+| ARB sequence | `ARB:SEQ:RES`, runtime 0/1 step-base probe, `ARB:SEQ:STEP:*`, `MMEM:<STOR|LOAD>:ARB:SEQ` |
 | ARB policy | `ARB:COUN`, `ARB:TERM:LAST`, `VOLT:MODE ARB` |
 | Trigger source | `TRIG:TRAN:SOUR BUS|EXT` plus readback |
 | Arm/readiness | `INIT:TRAN`, `STAT:OPER:COND?` bit 4 / decimal 16 |
@@ -187,6 +214,9 @@ Required cases in `tests/unit/test_voltage_transient.py`:
 - WTG readiness and completion status;
 - missing trigger timeout followed by verified abort;
 - `safe_shutdown()` clearing transient status and disabling output.
+- N6700C early ARB rejection without losing LIST/STEP support;
+- N6784A bipolar envelopes and unipolar negative-level rejection;
+- both zero-based and one-based ARB sequence firmware conventions.
 
 Adapter translation tests cover engineering units, comma-separated Robot lists, serialization and generation-token forwarding.
 
@@ -244,7 +274,7 @@ Minimum matrix:
 
 | Axis | Values |
 |---|---|
-| Mode | LIST, UDEF ARB |
+| Mode | LIST, UDEF/built-in/CDW ARB, sequence, STEP, continuous |
 | Edge | dip, peak |
 | Slew | one slow characterized value, maximum |
 | Trigger | BUS, external |
@@ -271,5 +301,6 @@ Until the last two gates are complete, documentation and release notes must say 
 - Dwell values are returned by the instrument but may be quantized. Callers must use the returned configuration as the authoritative programmed profile.
 - Cross-process controllers are not coordinated. One mainframe must have one controlling process during a transient test.
 - External-trigger execution can be armed and observed, but the software-trigger method correctly refuses it. The fixture owns the external event.
-- Infinite profiles are intentionally unavailable; a future API needs a separate explicit hazard review and watchdog contract.
-- Standard step/ramp/sine/pulse/trapezoid/exponential/constant-dwell ARB shapes and multi-shape sequences remain future work.
+- Infinite/continuous profiles require an application-owned watchdog and explicit abort; they never produce a normal terminal completion result by themselves.
+- The sequence step-base probe handles both documented numbering conventions in software, but each supported firmware should still be recorded in HIL evidence.
+- ARB analog behavior, sequence timing, continuous retriggering and N6784A bipolar performance remain physically unqualified until the DSO/HIL matrix is executed.

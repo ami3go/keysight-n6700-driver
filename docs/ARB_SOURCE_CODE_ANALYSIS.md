@@ -1,8 +1,8 @@
 # N6700 / N6705 Arb waveform software: comparative source-code analysis
 
-**Assessment date:** 2026-10-15  
-**Document revision:** 1.1; code examples added in v0.7.6; first published in `keysight-n6700-driver` **v0.7.5**.  
-**Baseline inspected:** `keysight-n6700-driver` **v0.7.4**, as checked against GitHub `main`.  
+**Assessment date:** 2026-10-15
+**Document revision:** 1.1; code examples added in v0.7.6; first published in `keysight-n6700-driver` **v0.7.5**.
+**Baseline inspected:** `keysight-n6700-driver` **v0.7.4**, as checked against GitHub `main`.
 **Scope:** source-code inspection and vendor-reference cross-check only; **no third-party code executed, no physical equipment connected, and no instrument compliance or metrology claims**.
 
 See the [Arb waveform function inventory](ARB_WAVEFORM_REFERENCE.md), [existing finite voltage LIST/UDEF architecture](VOLTAGE_TRANSIENT_IMPLEMENTATION.md) and [hardware acceptance plan](hardware_acceptance_tests.md).

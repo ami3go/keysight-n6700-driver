@@ -20,7 +20,7 @@ def _profile() -> dict[str, Any]:
         "channel": 3,
         "expected_module": "N6791A",
         "expected_serial": "SIM0003",
-        "expected_idn": "N6700B",
+        "expected_idn": "N6705C",
         "operator": "verified-operator",
         "bench_review_id": "review-123",
         "max_voltage_v": 20.0,

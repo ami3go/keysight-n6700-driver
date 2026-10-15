@@ -1,7 +1,7 @@
 # N6700 power-module arbitrary waveform generation (ARB): command and capability reference
 
-**Reference revision:** 1.5 (2026-10-15)  
-**Driver baseline:** keysight-n6700-driver v0.7.0; catalog published in documentation release v0.7.1; external code references updated in v0.7.2; forum/Stack Overflow research added in v0.7.3; third-party software design review added in v0.7.4; expanded source-by-source analysis published in v0.7.5; worked code examples added in v0.7.6.  
+**Reference revision:** 1.5 (2026-10-15)
+**Driver baseline:** keysight-n6700-driver v0.7.0; catalog published in documentation release v0.7.1; external code references updated in v0.7.2; forum/Stack Overflow research added in v0.7.3; third-party software design review added in v0.7.4; expanded source-by-source analysis published in v0.7.5; worked code examples added in v0.7.6.
 **Purpose:** collect the documented hardware waveform functions, their SCPI command families, hardware gating, and the difference between vendor support and the Python driver's implemented surface.
 
 > **Critical status:** This is a **manufacturer-command inventory and implementation backlog**, not a declaration that every command below works on every installed module or is implemented by this driver. A SCPI command appearing in a common manual does not grant model capability. Never generate an energizing waveform without a reviewed module/option matrix, DUT voltage/current/power envelope, explicit output enable, readback verification, and a safe abort path.

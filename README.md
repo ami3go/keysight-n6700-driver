@@ -63,13 +63,14 @@ More examples: [`examples/python/`](examples/python/).
 
 ## Voltage dips, peaks, and controlled slew
 
-Power-supply and SMU channels now expose hardware-timed finite voltage LIST
-and user-defined ARB profiles, BUS/external triggering, bounded arm/wait/abort
-lifecycle methods, and `VOLT:SLEW` control. Configuration requires the output
-to be off and an explicit caller-approved voltage envelope; it never enables
-the output. Analog amplitude, dwell, edges, overshoot, and trigger jitter are
-not claimed as physically qualified until the guarded N6775A and independent
-oscilloscope gates are completed.
+Power-supply and SMU channels expose hardware-timed voltage/current LIST,
+triggered STEP and N6705-only ARB profiles (built-in shapes, user-defined,
+constant-dwell and sequences), BUS/external triggering, continuous initiation,
+bounded arm/wait/abort lifecycle methods, and slew control. N6784A voltage
+profiles may use an explicit bipolar safety envelope. Configuration requires
+the output to be off and never enables it. Analog amplitude, dwell, edges,
+overshoot, and trigger jitter are not claimed as physically qualified until
+the guarded hardware and independent-oscilloscope gates are completed.
 
 See the [coordinated Arb implementation task](docs/ARB_DRIVER_IMPLEMENTATION_TASK.md), [worked Arb code examples](docs/ARB_WORKED_CODE_EXAMPLES.md), [third-party Arb source-code analysis](docs/ARB_SOURCE_CODE_ANALYSIS.md), the [complete vendor Arb waveform/SCPI catalog](docs/ARB_WAVEFORM_REFERENCE.md) and the [implementation and verification plan](docs/VOLTAGE_TRANSIENT_IMPLEMENTATION.md)
 for the API example, SCPI mapping, safety contract, HIL gate, and DSO matrix.
