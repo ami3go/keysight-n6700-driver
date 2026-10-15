@@ -3,6 +3,17 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.7.3 — 2026-10-15
+
+Documentation-only: added Stack Overflow and NI Community N6700/N6705
+discussions and Keysight engineering articles to
+[ARB_WAVEFORM_REFERENCE.md](docs/ARB_WAVEFORM_REFERENCE.md), with
+source-specific uncertainty notes, seven recurring engineering patterns,
+safety implications, and proposed simulator/HIL tests. Flagged the
+N6705C `TRIG:ARB:SOUR` versus existing `TRIG:TRAN:SOUR` command-path
+difference for model-specific verification. No runtime changes or
+physical hardware qualification.
+
 ## v0.7.2 — 2026-10-15
 
 Documentation-only reference update: reviewed public N670x Arb Python source examples (PULSE, UDEF, CDW, sequencing and triggering), relevant SCPI transport projects and official Keysight documentation. Added pinned links, applicability qualifiers and explicit safety warnings to [ARB_WAVEFORM_REFERENCE.md](docs/ARB_WAVEFORM_REFERENCE.md). No verified GitLab Arb implementation found. No driver runtime or hardware qualification changes.

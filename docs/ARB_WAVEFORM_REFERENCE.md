@@ -1,7 +1,7 @@
 # N6700 power-module arbitrary waveform generation (ARB): command and capability reference
 
-**Reference revision:** 1.1 (2026-10-15)  
-**Driver baseline:** keysight-n6700-driver v0.7.0; catalog published in documentation release v0.7.1; external references updated in v0.7.2.  
+**Reference revision:** 1.2 (2026-10-15)  
+**Driver baseline:** keysight-n6700-driver v0.7.0; catalog published in documentation release v0.7.1; external code references updated in v0.7.2; forum/Stack Overflow research added in v0.7.3.  
 **Purpose:** collect the documented hardware waveform functions, their SCPI command families, hardware gating, and the difference between vendor support and the Python driver's implemented surface.
 
 > **Critical status:** This is a **manufacturer-command inventory and implementation backlog**, not a declaration that every command below works on every installed module or is implemented by this driver. A SCPI command appearing in a common manual does not grant model capability. Never generate an energizing waveform without a reviewed module/option matrix, DUT voltage/current/power envelope, explicit output enable, readback verification, and a safe abort path.
@@ -185,7 +185,7 @@ Future work should be separate reviewed pull requests: (A) model/option capabili
 - [Known risks](../review/known_risks.md)
 - [Current module capability model](../capability/capability_model.yaml)
 
-**Change scope:** reference documentation only. No Arb/driver command behavior or qualification status changes in v0.7.1–v0.7.2.
+**Change scope:** reference documentation only. No Arb/driver command behavior or qualification status changes in v0.7.1–v0.7.3.
 
 ## 11. Reviewed external code examples and references (2026-10-15)
 
@@ -233,3 +233,48 @@ Public GitLab-hosted N6700/N6705 **Arb source-code examples** were searched for 
 
 **Evidence scope:** This review confirms the cited public files contain the noted examples. It does **not** claim that third-party code is correct, licensed for copying, successfully tested on the user's specific hardware, or approved for industrial use.
 
+## 12. Forum and Stack Overflow research (2026-10-15)
+
+**Scope and evidence level.** This section catalogs first-hand reports on N6700/N6705 instrument control, measurement capture, triggering, channel selection, cross-channel protection, and communication reliability. Community posts are **not** manufacturer's capability statements or proof of Arb waveform performance. A forum post about digitized acquisition is not evidence about Arb generation: the two are separate instrument subsystems.
+
+### 12.1 Source-linked findings
+
+| ID | Public discussion | Verified observation | Engineering implication | Evidence strength |
+| --- | --- | --- | --- | --- |
+| F01 | [Stack Overflow: PyVISA timing out with a Keysight power generator](https://stackoverflow.com/questions/44119718/pyvisa-timing-out-with-a-keysight-power-generator) (22 May 2017) | An N6705 script could query identity and instantaneous measurements but timed out in a digitized acquisition workflow. The author later posted working code using `SENS:SWE:TINT .001`, `INIT:ACQ`, `TRIG:ACQ` and `FETC:ARR:VOLT? (@1)`, attributing the issue to spacing; the precise failed command was not conclusively identified. | Distinguish connection success from command support and acquisition readiness; verify documented SCPI syntax, readbacks, operation state, termination and error queue. Record actual outbound commands. | **First-hand report; specific root cause uncertain; relates to acquisition, not Arb.** |
+| F02 | [NI Community: N6705C invalid acquisition for voltage/power](https://forums.ni.com/t5/Instrument-Control-GPIB-Serial/Labview-Error-when-using-Keysight-N6705C/td-p/4453137) (15 Sep 2025) | A user reported `+303, "There is not a valid acquisition to fetch from"` for `FETC:ARR:VOLT? (@1)` and `FETC:ARR:POW? (@1)`, whereas `FETC:ARR:CURR? (@1)` succeeded. | Validate enabled measurement function **and** matching completed acquisition before fetch; reject wrong-function/stale-buffer reads; add `+303` fault-injection regression. | **First-hand unresolved report; not proof of a firmware defect or of the reporter's diagnosis.** |
+| F03 | [NI Community: N6700 active-channel requirement](https://forums.ni.com/t5/Instrument-Control-GPIB-Serial/n6700-query-voltage-current-settings-via-property-mode/td-p/2916518) (10 Jul 2014) | An IVI/LabVIEW voltage/current readback problem was resolved by supplying the correct **active channel** to the driver node. | Require explicit channel addressing and per-channel model/option checks for Arb setup, LIST arrays, readback, triggers and safety controls. Avoid ambient mutable active-channel state in concurrent applications. | **Author-reported resolution, but through IVI rather than direct Python Arb.** |
+| F04 | [NI Community: N6700 current-maximum query times out](https://forums.ni.com/t5/Instrument-Control-GPIB-Serial/n6700-query-max-current-is-timing-out/td-p/2916384) (10 Jul 2014) | An IVI driver returned `-101 Invalid character` and `-420 Query UNTERMINATED`; switching to a vendor-supplied Agilent driver resolved the issue. A reply recommended capturing the actual VISA I/O trace and comparing with the manual. | Classify SCPI errors separately from transport timeouts; log bounded, redacted command/reply traces and instrument-driver versions; verify termination, query sequencing and driver compatibility. | **Resolved operator report; not evidence that all NI VISA stacks are defective.** |
+| F05 | [NI Community: N6700 protection-fault coupling](https://forums.ni.com/t5/Instrument-Control-GPIB-Serial/SCPI-Command-for-PowerSupply-Agilent-N6700-to-disable-outputs-if/m-p/556805) (26–27 Jul 2007) | The author identified the documented `OUTPut:PROTection:COUPle` setting: with coupling enabled, a protection fault on one channel disables all channels. | Cross-channel protection state and coupling are important in multi-module Arb tests. Read/verify the approved coupling policy before energizing; never clear a protection latch automatically. | **Forum points to a documented instrument feature; verify exact mainframe/firmware behavior.** |
+| F06 | [NI Community: HiSLIP "instrument Not Present" — N6700 comment](https://forums.ni.com/t5/Instrument-Control-GPIB-Serial/HiSlip-instrument-Not-Present/m-p/3985054) (6 Nov 2019 comment) | A contributor reported intermittent mDNS resolution for an **N6700**, with connectivity disappearing during runs longer than about ten minutes; using a numeric IP or allowing mDNS fixed that setup. The opening question concerns an N9020A, **not** an N6700. | For long-running Arb sequences, pin and record the approved endpoint, distinguish name-resolution failures from SCPI errors, and enforce fail-safe recovery on lost connection. Prefer a stable validated IP when appropriate. | **Anecdotal N6700 comment in a different instrument's thread; environment-specific.** |
+
+### 12.2 Engineering articles and official cross-checks
+
+| Reference | Directly useful observation | Required design consequence |
+| --- | --- | --- |
+| [Keysight N6705C User's Guide — Running the Arbs](https://www.keysight.com/us/en/assets/9018-01649/user-manuals/9018-01649.pdf) | The N6705C operating-guide Arb example selects `TRIG:ARB:SOUR BUS`, `IMM` or `EXT`, then enables the matching `VOLT:MODE ARB`/`CURR:MODE ARB` mode. | **Command-tree review gate:** existing driver [voltage-transient contract](VOLTAGE_TRANSIENT_IMPLEMENTATION.md) uses `TRIG:TRAN:SOUR` for N6700-style transient initiation. Do not assume `TRIG:ARB:SOUR` and `TRIG:TRAN:SOUR` are aliases or universally supported; verify both command paths against exact instrument model, firmware, Options 054 and applicable source guide. |
+| [Watt's Up? — Extending the usable bandwidth of the DC source](https://wattsup-powersupply.blogspot.com/2014/07/extending-usable-bandwidth-of-dc-source.html) (14 Jul 2014) | The engineer describes increasing waveform amplitude to compensate for measured analog bandwidth roll-off and notes increased current demand from capacitive loads. His numeric example is on an **N7951A APS**, not an N6775A. | Treat programmed points, amplitude and sine frequency as **commands**, not guaranteed DUT-pin results. Independently measure attenuation, phase, overshoot, load capacitance and peak current; do **not** transpose APS compensation factors to N6700 modules. |
+| [Watt's Up? — Synchronize Your Measurements with Your List Transients](https://wattsup-powersupply.blogspot.com/search/label/APS) (28 Feb 2015; post under the APS archive) | A Keysight-oriented engineering example configures a finite output LIST and a digitizer with enough samples to cover the transient; common triggering is used to align data. The example uses an **N6762A**. | For a source Arb/LIST + measurement HIL run, arm source and acquisition independently, validate both waiting states, compute sample budget before start, and retain a physically verified common time origin. Do not assume one instrument's acquisition capability applies to every module. |
+
+### 12.3 Recurring patterns and proposed test coverage
+
+| Pattern | Community evidence | Recommended test or contract | Priority |
+| --- | --- | --- | --- |
+| **P01 — "IDN works" does not establish acquisition/Arb readiness** | F01, F02 | Fake device returns valid `*IDN?` yet rejects unsupported commands, times out on absent response, or returns `+303` for a non-existent acquisition. Assert typed error, bounded timeout and verified safe-state recovery. | High |
+| **P02 — Exact channel context must be explicit** | F03, F04 | Two- and four-channel SCPI trace matrix: every channel-capable command carries the intended `(@n)`; unrelated channels remain unaffected; reject wrong-channel token and module/option mismatch. | High |
+| **P03 — Status/trigger state machine beats sleep-based timing** | F01, F02, Keysight Arb guide | Test configure → arm → observe WTG → trigger → observe completion → fetch; inject early trigger, missing trigger, timeout and abort; do not perform fetch on stale/aborted acquisition. Distinguish `ACQ` from `TRAN` state machines. | High |
+| **P04 — Protocol and transport errors require separate diagnosis** | F01, F04, F06 | Inject `-101`, `-420`, `+303`, socket timeout and name-resolution loss. Preserve exact safe redacted SCPI trace and root exception. No automatic retry of non-idempotent triggers or `OUTP` writes. | High |
+| **P05 — Protection coupling changes other modules' behavior** | F05 | On a simulated four-channel mainframe, inject a trip on one channel for coupling OFF/ON; assert only documented channels disable; verify output OFF rather than clearing protection. | High |
+| **P06 — Programmed waveform differs from measured waveform** | Keysight bandwidth article | HIL/DSO matrix across frequency, amplitude, source current limit, load capacitance, lead impedance and settling. Record uncertainty and reject limits that cannot be resolved by the scope. | High for qualification |
+| **P07 — Shared trigger and acquisition must be synchronized** | Keysight LIST/digitizer article | Mixed transient/acquisition integration test: enough pre/post-trigger samples, independent arming, explicit channel targeting and timing alignment. | High for HIL |
+
+**Clarification on source authority:** P01–P07 are **engineering recommendations derived from multiple observations**, not previously confirmed bugs in this repository. The forums do not establish that a particular driver command is wrong on the user's firmware. Hardware changes or claims of pass/fail must be backed by local SCPI traces, official manual pages and guarded HIL evidence.
+
+### 12.4 Explicitly rejected patterns
+
+- Do **not** copy `*RST`, `OUTP ON`, infinite `ARB:COUN INF`, `INIT:CONT:TRAN ON`, or `OUTP:PROT:CLE` from sample scripts into connection/initialization paths.
+- Do **not** treat a timeout as permission to retry an output-energizing/triggering SCPI write: the original command may have executed.
+- Do **not** conflate digitizer `INIT:ACQ` / `FETC:ARR` state and Arb `INIT:TRAN` / output-trigger state.
+- Do **not** let an acquisition/query failure silently pass a waveform test, claim timing quality from SCPI readbacks alone, or use a forum anecdote to override the manufacturer command reference.
+
+**Search outcome:** Direct community discussions of all N6700-specific **standard waveform shape programming APIs** were sparse; the strongest code examples remain in [section 11](#11-reviewed-external-code-examples-and-references-2026-10-15). The forum evidence is most valuable for safety, transport, readback and test design.

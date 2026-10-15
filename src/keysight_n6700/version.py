@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DISPLAY_VERSION = "26.21"
 ARCHIVE_VERSION = "v26.21"
-PYTHON_VERSION = "0.7.2"
+PYTHON_VERSION = "0.7.3"
 RELEASE_KIND = "public"
 
 __version__ = PYTHON_VERSION
