@@ -82,11 +82,6 @@ class BaseChannel:
     def _invalidate_discovery(self) -> None:
         """Revoke stale channel handles on rediscovery/disconnect."""
         self._discovery_valid = False
-        if isinstance(self, PowerSupplyChannel):
-            with self._transient_lock:
-                self._transient_generation += 1
-                self._transient_config = None
-                self._transient_state = "unknown"
 
     def _assert_discovery_valid(self) -> None:
         if not getattr(self, "_discovery_valid", True):
@@ -194,6 +189,13 @@ class PowerSupplyChannel(BaseChannel):
 
     _WTG_TRANSIENT = 16
     _TRANSIENT_ACTIVE = 64
+
+    def _invalidate_discovery(self) -> None:
+        super()._invalidate_discovery()
+        with self._transient_lock:
+            self._transient_generation += 1
+            self._transient_config = None
+            self._transient_state = "unknown"
 
     def __init__(self, driver: _DriverProtocol, channel: int, capabilities: ChannelCapabilities) -> None:
         super().__init__(driver, channel, capabilities)
