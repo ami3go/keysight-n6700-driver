@@ -8,6 +8,9 @@ installed; that one describes what the *driver* can do.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import re
 from dataclasses import dataclass
 from typing import Literal
 
@@ -19,6 +22,9 @@ class ChannelCapabilities:
     model: str
     module_type: ModuleType
     options: tuple[str, ...] = ()
+    mainframe_model: str = ""
+    firmware_version: str = ""
+    capability_fingerprint: str = ""
     supports_voltage_source: bool = False
     supports_current_source: bool = False
     supports_load_cc: bool = False
@@ -60,14 +66,58 @@ SMU_PREFIXES = ("N678",)
 LOAD_MODELS = frozenset({"N6791A", "N6792A"})
 
 
-def classify_module(model: str, options: list[str] | tuple[str, ...] | None = None) -> ChannelCapabilities:
+# Exact source models in the Keysight N6700C Model Differences / specification
+# tables. Prefix matching can silently advertise Arb for nonexistent/unknown modules.
+_OPTION_054_MODELS = frozenset(
+    {f"N673{n}B" for n in range(1, 7)}
+    | {f"N674{n}B" for n in range(1, 7)}
+    | {f"N675{n}A" for n in range(1, 7)}
+    | {f"N677{n}A" for n in range(3, 8)}
+)
+_PRECISION_MODELS = frozenset(f"N676{n}A" for n in range(1, 7))
+_SMU_MODELS = frozenset({"N6781A", "N6782A", "N6783A", "N6784A", "N6785A", "N6786A"})
+_QUALIFIED_MAINFRAMES = frozenset({"N6700C", "N6705C"})
+_OPTION_PATTERN = re.compile(r"[A-Z0-9]{1,16}\\Z")
+
+
+def classify_module(
+    model: str,
+    options: list[str] | tuple[str, ...] | None = None,
+    *,
+    mainframe_model: str | None = None,
+    firmware_version: str | None = None,
+) -> ChannelCapabilities:
+    """Classify using a documented module/mainframe/option combination.
+
+    Unknown chassis, unrecognized models, absent/invalid option inventory and
+    unreviewed firmware identity *never* enable source LIST or voltage Arb.
+    The returned SHA-256 fingerprint is deterministic, not a proof of hardware
+    identity and not authorization for unattended energization.
+    """
     model_clean = model.strip().upper()
-    opts = tuple(options or ())
+    mainframe = (mainframe_model or "").strip().upper()
+    firmware = (firmware_version or "").strip().upper()
+    raw_options = tuple(str(item).strip().upper() for item in (options or ()))
+    opts = tuple(sorted({item for item in raw_options if item and item not in {"0", "+0"}}))
+    options_known = options is not None and all(_OPTION_PATTERN.fullmatch(item) for item in opts)
+    known_identity = bool(mainframe and firmware)
+    fingerprint_data = [mainframe, firmware, model_clean, list(opts), options_known]
+    fingerprint = hashlib.sha256(
+        json.dumps(fingerprint_data, separators=(",", ":"), ensure_ascii=True).encode("ascii")
+    ).hexdigest()
+    common = dict(
+        model=model_clean,
+        options=opts,
+        mainframe_model=mainframe,
+        firmware_version=firmware,
+        capability_fingerprint=fingerprint,
+    )
+    supported_context = mainframe in _QUALIFIED_MAINFRAMES and known_identity and options_known
+
     if model_clean == "SIM_LOAD":
         return ChannelCapabilities(
-            model=model_clean,
+            **common,
             module_type="electronic_load",
-            options=opts,
             supports_load_cc=True,
             supports_load_cv=True,
             supports_load_cr=True,
@@ -77,50 +127,49 @@ def classify_module(model: str, options: list[str] | tuple[str, ...] | None = No
         )
     if model_clean in LOAD_MODELS:
         return ChannelCapabilities(
-            model=model_clean,
+            **common,
             module_type="electronic_load",
-            options=opts,
             supports_load_cc=True,
             supports_load_cv=True,
             supports_load_cr=True,
             supports_load_cp=True,
             supports_power_measurement=True,
-            supports_list_mode=True,
+            supports_list_mode=supported_context,
             verified_real_load_commands=True,
-            # "1 or 2 parameters (all models): 10.24 microseconds" per the manual's
-            # sample-rate table; the 5.12 microsecond single-parameter rate is SMU-only.
             supports_digitizing=True,
             supports_array_measurement=True,
             digitize_qualification="vendor_declared",
             digitize_min_interval_s=10.24e-6,
         )
-    if model_clean.startswith(SMU_PREFIXES):
+    if model_clean in _SMU_MODELS:
         return ChannelCapabilities(
-            model=model_clean,
+            **common,
             module_type="smu",
-            options=opts,
             supports_voltage_source=True,
             supports_current_source=True,
             supports_power_measurement=True,
             supports_array_measurement=True,
-            supports_list_mode=True,
-            supports_voltage_arb=True,
+            supports_list_mode=supported_context,
+            supports_voltage_arb=supported_context,
             supports_voltage_slew=True,
-            supports_aux_voltage_input=model_clean.startswith(("N6781", "N6785")),
-            supports_smu_priority_mode=True,
+            supports_aux_voltage_input=model_clean in {"N6781A", "N6785A"},
+            supports_smu_priority_mode=model_clean != "N6783A",
             supports_smu_output_off_mode=True,
         )
-    if model_clean.startswith(POWER_PREFIXES):
+    if model_clean in _OPTION_054_MODELS or model_clean in _PRECISION_MODELS:
+        optioned = model_clean in _OPTION_054_MODELS
+        arb_allowed = supported_context and (
+            not optioned or mainframe == "N6705C" or "054" in opts
+        )
         return ChannelCapabilities(
-            model=model_clean,
+            **common,
             module_type="power_supply",
-            options=opts,
             supports_voltage_source=True,
             supports_current_source=False,
-            supports_power_measurement=model_clean.startswith("N676"),
-            supports_array_measurement=model_clean.startswith("N676") or "054" in opts,
-            supports_list_mode=True,
-            supports_voltage_arb=True,
+            supports_power_measurement=model_clean in _PRECISION_MODELS,
+            supports_array_measurement=arb_allowed,
+            supports_list_mode=arb_allowed,
+            supports_voltage_arb=arb_allowed,
             supports_voltage_slew=True,
         )
-    return ChannelCapabilities(model=model_clean, module_type="unknown", options=opts)
+    return ChannelCapabilities(**common, module_type="unknown")

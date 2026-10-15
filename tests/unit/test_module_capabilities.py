@@ -47,7 +47,9 @@ def test_n679x_family_is_recognized_case_insensitively() -> None:
 
 
 def test_n678x_still_classifies_as_smu() -> None:
-    caps = classify_module("N6781A")
+    caps = classify_module(
+        "N6781A", [], mainframe_model="N6700C", firmware_version="C.01.00"
+    )
     assert caps.module_type == "smu"
     assert caps.supports_smu_priority_mode is True
     assert caps.supports_aux_voltage_input is True
@@ -56,7 +58,9 @@ def test_n678x_still_classifies_as_smu() -> None:
 
 
 def test_n677x_supports_voltage_list_arb_and_slew() -> None:
-    caps = classify_module("N6775A")
+    caps = classify_module(
+        "N6775A", ["054"], mainframe_model="N6700C", firmware_version="C.01.00"
+    )
     assert caps.module_type == "power_supply"
     assert caps.supports_list_mode is True
     assert caps.supports_voltage_arb is True

@@ -3,6 +3,17 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.7.9 — 2026-10-15
+
+DRV-ARB-A: source LIST/UDEF Arb capability detection now uses an exact Keysight
+module-model matrix together with discovered mainframe ID, firmware and options.
+For N6700C, N673xB/N674xB/N675xA/N677xA require Option 054; N676xA,
+supported N678xA and N6705C are handled separately. Unknown hardware identities
+fail closed for source LIST/Arb. Channel rediscovery/disconnect revokes stale
+handles and transient tokens. The simulator identifies as N6705C, matching its
+integrated Arb behavior. New negative tests reject unsupported source LIST/Arb
+before any SCPI mutation. No physical waveform has been qualified.
+
 ## v0.7.8 — 2026-10-15
 
 Maintenance-only correction for generated AI-contract metadata: update

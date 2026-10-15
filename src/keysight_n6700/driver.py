@@ -313,6 +313,10 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         return entry[0] if entry is not None else None
 
     def _on_disconnected(self, alias: str) -> None:
+        discovery = self._discovery.pop(alias, None)
+        if discovery is not None:
+            for previous_channel in discovery.channels.values():
+                previous_channel._invalidate_discovery()
         entry = self._tracers.pop(alias, None)
         if entry is not None:
             _tracer, owned_sink = entry
@@ -715,24 +719,39 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         key = self._resolve_alias(alias)
         self._digitize_leases.require_idle(key, "discover_modules")
         discovery = self._discovery.setdefault(key, _AliasDiscovery())
-        count = self.channel_count(alias=key)
-        discovery.capabilities.clear()
+        # A stale channel handle must not outlive a discovery attempt, even
+        # when a model/option query times out part way through rediscovery.
+        for previous_channel in discovery.channels.values():
+            previous_channel._invalidate_discovery()
         discovery.channels.clear()
+        discovery.capabilities.clear()
+        identity = self.idn(alias=key, refresh=True)
+        count = self.channel_count(alias=key)
         facade = _AliasFacade(self, key)
+        new_capabilities: dict[int, ChannelCapabilities] = {}
+        new_channels: dict[int, BaseChannel] = {}
         for ch in range(1, count + 1):
             model = self.channel_model(ch, alias=key)
             options = self.channel_options(ch, alias=key)
-            caps = classify_module(model, options)
-            discovery.capabilities[ch] = caps
+            caps = classify_module(
+                model,
+                options,
+                mainframe_model=identity.model,
+                firmware_version=identity.firmware,
+            )
+            new_capabilities[ch] = caps
             if caps.module_type == "smu":
-                discovery.channels[ch] = SMUChannel(facade, ch, caps)
+                new_channels[ch] = SMUChannel(facade, ch, caps)
             elif caps.module_type == "power_supply":
-                discovery.channels[ch] = PowerSupplyChannel(facade, ch, caps)
+                new_channels[ch] = PowerSupplyChannel(facade, ch, caps)
             elif caps.module_type == "electronic_load":
-                discovery.channels[ch] = ElectronicLoadChannel(facade, ch, caps)
+                new_channels[ch] = ElectronicLoadChannel(facade, ch, caps)
             else:
-                discovery.channels[ch] = BaseChannel(facade, ch, caps)
-        return dict(discovery.capabilities)
+                new_channels[ch] = BaseChannel(facade, ch, caps)
+        discovery.channel_count = count
+        discovery.capabilities = new_capabilities
+        discovery.channels = new_channels
+        return dict(new_capabilities)
 
     @property
     def channels(self) -> Mapping[int, BaseChannel]:

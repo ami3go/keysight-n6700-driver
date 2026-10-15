@@ -96,7 +96,7 @@ class SimN6700Instrument:
         self.remote_state = "local"
         self.array_format = "ASC"
         self.array_border = "NORM"
-        self.idn = "KEYSIGHT TECHNOLOGIES,N6700B,SIM000001,B.00.00"
+        self.idn = "KEYSIGHT TECHNOLOGIES,N6705C,SIM000001,B.00.00"
 
     def clear(self) -> None:
         self.errors.clear()
