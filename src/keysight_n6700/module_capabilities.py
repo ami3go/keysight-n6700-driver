@@ -78,6 +78,8 @@ _PRECISION_MODELS = frozenset(f"N676{n}A" for n in range(1, 7))
 _SMU_MODELS = frozenset({"N6781A", "N6782A", "N6783A", "N6784A", "N6785A", "N6786A"})
 _QUALIFIED_MAINFRAMES = frozenset({"N6700C", "N6705C"})
 _OPTION_PATTERN = re.compile(r"[A-Z0-9]{1,16}$")
+_FIRMWARE_PATTERN = re.compile(r"[A-Z][A-Z0-9]*(?:[.][A-Z0-9]+){1,4}$")
+_INVALID_OPTION_REPLIES = frozenset({"UNKNOWN", "ERROR", "NONE", "NA", "UNAVAILABLE"})
 
 
 def classify_module(
@@ -99,8 +101,10 @@ def classify_module(
     firmware = (firmware_version or "").strip().upper()
     raw_options = tuple(str(item).strip().upper() for item in (options or ()))
     opts = tuple(sorted({item for item in raw_options if item and item not in {"0", "+0"}}))
-    options_known = options is not None and all(_OPTION_PATTERN.fullmatch(item) for item in opts)
-    known_identity = bool(mainframe and firmware)
+    options_known = options is not None and all(
+        _OPTION_PATTERN.fullmatch(item) and item not in _INVALID_OPTION_REPLIES for item in opts
+    )
+    known_identity = bool(mainframe and _FIRMWARE_PATTERN.fullmatch(firmware))
     fingerprint_data = [mainframe, firmware, model_clean, list(opts), options_known]
     fingerprint = hashlib.sha256(
         json.dumps(fingerprint_data, separators=(",", ":"), ensure_ascii=True).encode("ascii")
