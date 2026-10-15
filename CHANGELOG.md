@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## v0.7.5 — 2026-10-15
+
+Documentation-only source review: published
+[ARB_SOURCE_CODE_ANALYSIS.md](docs/ARB_SOURCE_CODE_ANALYSIS.md) with
+line-targeted comparisons of ten N6700/N6705 third-party examples, five
+current-driver static findings, confirmed Option 054/trigger/pulse SCPI
+semantics, reference implementation patterns, and 14 proposed
+simulator/HIL regression gates. Notably identified missing Option 054
+gating for N6700C N673x/N674x/N675x/N677x source LIST/ARB capability;
+this is recorded for a future code PR, **not fixed** by this release.
+No runtime code changed and no hardware operated.
+
 ## v0.7.4 — 2026-10-15
 
 Documentation-only third-party software code review: inspected SweepMe N6705

@@ -1,7 +1,7 @@
 # N6700 power-module arbitrary waveform generation (ARB): command and capability reference
 
-**Reference revision:** 1.3 (2026-10-15)  
-**Driver baseline:** keysight-n6700-driver v0.7.0; catalog published in documentation release v0.7.1; external code references updated in v0.7.2; forum/Stack Overflow research added in v0.7.3; third-party software design review added in v0.7.4.  
+**Reference revision:** 1.4 (2026-10-15)  
+**Driver baseline:** keysight-n6700-driver v0.7.0; catalog published in documentation release v0.7.1; external code references updated in v0.7.2; forum/Stack Overflow research added in v0.7.3; third-party software design review added in v0.7.4; expanded source-by-source analysis published in v0.7.5.  
 **Purpose:** collect the documented hardware waveform functions, their SCPI command families, hardware gating, and the difference between vendor support and the Python driver's implemented surface.
 
 > **Critical status:** This is a **manufacturer-command inventory and implementation backlog**, not a declaration that every command below works on every installed module or is implemented by this driver. A SCPI command appearing in a common manual does not grant model capability. Never generate an energizing waveform without a reviewed module/option matrix, DUT voltage/current/power envelope, explicit output enable, readback verification, and a safe abort path.
@@ -185,7 +185,7 @@ Future work should be separate reviewed pull requests: (A) model/option capabili
 - [Known risks](../review/known_risks.md)
 - [Current module capability model](../capability/capability_model.yaml)
 
-**Change scope:** reference documentation only. No Arb/driver command behavior or qualification status changes in v0.7.1–v0.7.4.
+**Change scope:** reference documentation only. No Arb/driver command behavior or qualification status changes in v0.7.1–v0.7.5.
 
 ## 11. Reviewed external code examples and references (2026-10-15)
 
@@ -391,3 +391,6 @@ DISCOVER(model, options, firmware, output_state, limits)
 
 **External software licenses:** do not copy third-party code verbatim into this repository without checking licensing and attribution. The review records concise behavioral observations and original improvement suggestions.
 
+## 14. Expanded cross-source analysis and prioritized findings (v0.7.5)
+
+See [**ARB_SOURCE_CODE_ANALYSIS.md**](ARB_SOURCE_CODE_ANALYSIS.md) for line-targeted analysis of ten third-party source files, five static findings in the current driver (including the N6700C Option 054 capability mismatch), confirmed vendor SCPI semantics, proposed safe APIs, and a 14-case regression/HIL matrix. This is an engineering analysis only; no implementation or physical qualification is implied.
