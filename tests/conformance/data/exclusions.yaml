@@ -549,3 +549,80 @@ exclusions:
     scope: v0.7.0
     review_date: "2026-10-14"
     covered_by: tests/unit/test_voltage_transient.py
+  - method: configure_load_list
+    reason: "A multi-command, safety-bounded load transaction (input OFF, priority mode, range, current limit) rather than one protocol shape. Ordered writes and readbacks are asserted at the transport boundary against an N6700C/N6791A simulator."
+    risk: high
+    approval: maintainer
+    scope: v0.8.0
+    review_date: "2026-10-16"
+    covered_by: tests/unit/test_load_profiles.py
+  - method: configure_load_arb
+    reason: "A multi-command, safety-bounded load UDEF ARB transaction; array writes/readbacks are asserted at the transport boundary in the load-profile unit suite."
+    risk: high
+    approval: maintainer
+    scope: v0.8.0
+    review_date: "2026-10-16"
+    covered_by: tests/unit/test_load_profiles.py
+  - method: configure_load_constant_dwell_arb
+    reason: "A multi-command, safety-bounded load CDW ARB transaction; writes, dwell quantization and readbacks are covered by the load-profile unit suite."
+    risk: high
+    approval: maintainer
+    scope: v0.8.0
+    review_date: "2026-10-16"
+    covered_by: tests/unit/test_load_profiles.py
+  - method: configure_load_transient_trigger
+    reason: "Requires a verified load profile; for ARB it also sets the mainframe-wide TRIG:ARB:SOUR. Exact command text is asserted in the load-profile unit suite. The conformance simulator has no real N679xA channel."
+    risk: medium
+    approval: maintainer
+    scope: v0.8.0
+    review_date: "2026-10-16"
+    covered_by: tests/unit/test_load_profiles.py
+  - method: arm_load_transient
+    reason: "Requires a verified profile, an enabled load input and a non-IMMediate trigger source; covered by the load-profile lifecycle tests rather than general protocol conformance."
+    risk: high
+    approval: maintainer
+    scope: v0.8.0
+    review_date: "2026-10-16"
+    covered_by: tests/unit/test_load_profiles.py
+  - method: wait_load_transient_ready
+    reason: "Polls status for a runtime generation token and adds no protocol shape beyond the status query covered by the load-profile unit suite."
+    risk: low
+    approval: maintainer
+    scope: v0.8.0
+    review_date: "2026-10-16"
+    covered_by: tests/unit/test_load_profiles.py
+  - method: trigger_load_transient
+    reason: "Requires a runtime generation token and observed WTG readiness. Channel-scoped TRIG:TRAN text (never *TRG) is asserted in the load-profile unit suite."
+    risk: critical
+    approval: maintainer
+    scope: v0.8.0
+    review_date: "2026-10-16"
+    covered_by: tests/unit/test_load_profiles.py
+  - method: wait_load_transient_complete
+    reason: "Polls WTG/active state for a runtime generation token; clean-completion checks are covered by the load-profile unit suite."
+    risk: low
+    approval: maintainer
+    scope: v0.8.0
+    review_date: "2026-10-16"
+    covered_by: tests/unit/test_load_profiles.py
+  - method: abort_load_transient
+    reason: "Emits the same INIT:CONT:TRAN OFF / ABOR:TRAN shape as the vectored source abort; the conformance simulator has no real N679xA channel."
+    risk: low
+    approval: maintainer
+    scope: v0.8.0
+    review_date: "2026-10-16"
+    covered_by: tests/unit/test_load_profiles.py
+  - method: clear_load_profile
+    reason: "Abort plus MODE FIX writes on a real N679xA channel; covered by the load-profile unit suite."
+    risk: low
+    approval: maintainer
+    scope: v0.8.0
+    review_date: "2026-10-16"
+    covered_by: tests/unit/test_load_profiles.py
+  - method: get_load_transient_status
+    reason: "Same STAT:OPER:COND? shape as the vectored source status; requires a real N679xA channel absent from the conformance simulator."
+    risk: low
+    approval: maintainer
+    scope: v0.8.0
+    review_date: "2026-10-16"
+    covered_by: tests/unit/test_load_profiles.py

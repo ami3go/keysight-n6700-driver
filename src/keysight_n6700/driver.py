@@ -67,6 +67,10 @@ from .types import (
     CurrentArbConfiguration,
     CurrentListConfiguration,
     InstrumentIdentity,
+    LoadProfileConfiguration,
+    LoadProfileMode,
+    LoadTransientStatus,
+    LoadTransientToken,
     Measurement,
     OperationStatus,
     PowerMeasurement,
@@ -1002,6 +1006,231 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
     ) -> VoltageTransientStatus:
         return self.power_supply(channel, alias=alias).get_voltage_transient_status()
 
+    # -- electronic-load LIST/ARB profiles (N679xA) ---------------------------
+
+    @capability(
+        "load.transient.list.configure",
+        category="load",
+        risk_level="high",
+        mutating=True,
+        canonical_method="configure_load_list",
+        preconditions=(
+            "Target load input is OFF.",
+            "Load priority mode matches the profile mode.",
+            "Caller supplied an approved level envelope (and maximum_current_a for cv/cr/cp).",
+        ),
+    )
+    def configure_load_list(
+        self,
+        channel: int,
+        mode: LoadProfileMode,
+        levels: Sequence[float],
+        dwell_s: float | Sequence[float],
+        *,
+        maximum_level: float,
+        minimum_level: float = 0.0,
+        maximum_current_a: float | None = None,
+        repeat_count: RepeatCount = 1,
+        step_mode: Literal["auto", "once"] = "auto",
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+        begin_step_triggers: bool | Sequence[bool] = False,
+        end_step_triggers: bool | Sequence[bool] = False,
+        alias: str | None = None,
+    ) -> LoadProfileConfiguration:
+        """Configure and verify a bounded N679xA load LIST without enabling the input."""
+        return self.load(channel, alias=alias).configure_load_list(
+            mode,
+            levels,
+            dwell_s,
+            maximum_level=maximum_level,
+            minimum_level=minimum_level,
+            maximum_current_a=maximum_current_a,
+            repeat_count=repeat_count,
+            step_mode=step_mode,
+            terminate_last=terminate_last,
+            maximum_duration_s=maximum_duration_s,
+            begin_step_triggers=begin_step_triggers,
+            end_step_triggers=end_step_triggers,
+        )
+
+    @capability(
+        "load.transient.arb.configure",
+        category="load",
+        risk_level="high",
+        mutating=True,
+        canonical_method="configure_load_arb",
+        preconditions=(
+            "Target load input is OFF.",
+            "Load priority mode matches the profile mode.",
+            "Caller supplied an approved level envelope (and maximum_current_a for cv/cr/cp).",
+        ),
+    )
+    def configure_load_arb(
+        self,
+        channel: int,
+        mode: LoadProfileMode,
+        levels: Sequence[float],
+        dwell_s: float | Sequence[float],
+        *,
+        maximum_level: float,
+        minimum_level: float = 0.0,
+        maximum_current_a: float | None = None,
+        repeat_count: RepeatCount = 1,
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+        begin_step_triggers: bool | Sequence[bool] = False,
+        alias: str | None = None,
+    ) -> LoadProfileConfiguration:
+        """Configure and verify a user-defined N679xA load ARB without enabling the input."""
+        return self.load(channel, alias=alias).configure_load_arb(
+            mode,
+            levels,
+            dwell_s,
+            maximum_level=maximum_level,
+            minimum_level=minimum_level,
+            maximum_current_a=maximum_current_a,
+            repeat_count=repeat_count,
+            terminate_last=terminate_last,
+            maximum_duration_s=maximum_duration_s,
+            begin_step_triggers=begin_step_triggers,
+        )
+
+    @capability(
+        "load.transient.cdw_arb.configure",
+        category="load",
+        risk_level="high",
+        mutating=True,
+        canonical_method="configure_load_constant_dwell_arb",
+        preconditions=(
+            "Target load input is OFF.",
+            "Load priority mode matches the profile mode.",
+            "Caller supplied an approved level envelope (and maximum_current_a for cv/cr/cp).",
+        ),
+    )
+    def configure_load_constant_dwell_arb(
+        self,
+        channel: int,
+        mode: LoadProfileMode,
+        levels: Sequence[float],
+        dwell_s: float,
+        *,
+        maximum_level: float,
+        minimum_level: float = 0.0,
+        maximum_current_a: float | None = None,
+        repeat_count: RepeatCount = 1,
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+        alias: str | None = None,
+    ) -> LoadProfileConfiguration:
+        """Configure and verify a constant-dwell N679xA load ARB without enabling the input."""
+        return self.load(channel, alias=alias).configure_load_constant_dwell_arb(
+            mode,
+            levels,
+            dwell_s,
+            maximum_level=maximum_level,
+            minimum_level=minimum_level,
+            maximum_current_a=maximum_current_a,
+            repeat_count=repeat_count,
+            terminate_last=terminate_last,
+            maximum_duration_s=maximum_duration_s,
+        )
+
+    @capability(
+        "load.transient.trigger.configure",
+        category="load",
+        risk_level="medium",
+        mutating=True,
+        canonical_method="configure_load_transient_trigger",
+        preconditions=("A verified load profile exists and is not armed.",),
+        side_effects=("An ARB profile also sets the mainframe-wide TRIG:ARB:SOUR.",),
+    )
+    def configure_load_transient_trigger(
+        self,
+        channel: int,
+        source: Literal["bus", "external"] = "bus",
+        alias: str | None = None,
+    ) -> None:
+        self.load(channel, alias=alias).configure_load_transient_trigger(source)
+
+    @capability(
+        "load.transient.arm",
+        category="load",
+        risk_level="high",
+        mutating=True,
+        canonical_method="arm_load_transient",
+        may_energize_or_sink_power=True,
+        preconditions=("A verified load profile exists.", "The load input is already ON.",),
+    )
+    def arm_load_transient(self, channel: int, alias: str | None = None) -> LoadTransientToken:
+        """Arm the configured load profile."""
+        return self.load(channel, alias=alias).arm_load_transient()
+
+    def wait_load_transient_ready(
+        self,
+        channel: int,
+        token: LoadTransientToken,
+        *,
+        timeout_s: float = 5.0,
+        poll_interval_s: float = 0.01,
+        alias: str | None = None,
+    ) -> LoadTransientStatus:
+        return self.load(channel, alias=alias).wait_load_transient_ready(
+            token, timeout_s=timeout_s, poll_interval_s=poll_interval_s
+        )
+
+    @capability(
+        "load.transient.trigger",
+        category="load",
+        risk_level="critical",
+        mutating=True,
+        canonical_method="trigger_load_transient",
+        may_energize_or_sink_power=True,
+        preconditions=("The matching generation is armed and reports WTG_transient.",),
+    )
+    def trigger_load_transient(
+        self, channel: int, token: LoadTransientToken, alias: str | None = None
+    ) -> None:
+        self.load(channel, alias=alias).trigger_load_transient(token)
+
+    def wait_load_transient_complete(
+        self,
+        channel: int,
+        token: LoadTransientToken,
+        *,
+        timeout_s: float | None = None,
+        poll_interval_s: float = 0.01,
+        alias: str | None = None,
+    ) -> LoadTransientStatus:
+        """Wait for clean completion; ``timeout_s=None`` derives it from the profile."""
+        return self.load(channel, alias=alias).wait_load_transient_complete(
+            token, timeout_s=timeout_s, poll_interval_s=poll_interval_s
+        )
+
+    @capability(
+        "load.transient.abort",
+        category="load",
+        risk_level="low",
+        mutating=True,
+        canonical_method="abort_load_transient",
+    )
+    def abort_load_transient(self, channel: int, alias: str | None = None) -> None:
+        self.load(channel, alias=alias).abort_load_transient()
+
+    @capability(
+        "load.transient.clear",
+        category="load",
+        risk_level="low",
+        mutating=True,
+        canonical_method="clear_load_profile",
+    )
+    def clear_load_profile(self, channel: int, alias: str | None = None) -> None:
+        """Abort and return every load quantity to FIX."""
+        self.load(channel, alias=alias).clear_load_profile()
+
+    def get_load_transient_status(self, channel: int, alias: str | None = None) -> LoadTransientStatus:
+        return self.load(channel, alias=alias).get_load_transient_status()
+
     # -- current slew, current/shape/sequence/step transients -----------------
 
     @capability(
@@ -1837,7 +2066,12 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
             try:
                 ch = self.channel(ch_num, alias=key)
                 if isinstance(ch, ElectronicLoadChannel):
-                    ch.input_off()
+                    try:
+                        ch._emergency_abort_load_transient()
+                    except Exception as exc:
+                        errors.append(f"load transient abort failed: {exc}")
+                    finally:
+                        ch.input_off()
                 elif isinstance(ch, PowerSupplyChannel):
                     try:
                         ch._emergency_abort_voltage_transient()

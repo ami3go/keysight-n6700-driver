@@ -15,7 +15,10 @@ from dataclasses import dataclass, replace
 from typing import Literal
 
 ModuleType = Literal["power_supply", "smu", "electronic_load", "unknown"]
-ArbTriggerDialect = Literal["unsupported", "channel_scoped"]
+# ``mainframe_global``: one ``TRIG:ARB:SOUR`` without a channel list gates every
+# ARB start (N6705 Programmer's Reference p.533 syntax; on N6700C E.02.09 the
+# channel-scoped form returns -108 "Parameter not allowed").
+ArbTriggerDialect = Literal["unsupported", "channel_scoped", "mainframe_global"]
 CurrentProgrammingRole = Literal["unsupported", "current_limit", "current_source"]
 
 
@@ -156,6 +159,7 @@ def classify_module(
             supports_load_cp=True,
             supports_power_measurement=True,
             supports_list_mode=supported_context,
+            arb_trigger_dialect="mainframe_global" if supported_context else "unsupported",
             verified_real_load_commands=True,
             supports_digitizing=True,
             supports_array_measurement=True,

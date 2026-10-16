@@ -40,6 +40,11 @@ from .types import (
     ConstantDwellArbConfiguration,
     CurrentArbConfiguration,
     CurrentListConfiguration,
+    LoadProfileConfiguration,
+    LoadProfileKind,
+    LoadProfileMode,
+    LoadTransientStatus,
+    LoadTransientToken,
     Measurement,
     PowerMeasurement,
     ProtectionClearResult,
@@ -106,6 +111,198 @@ class _DriverProtocol(Protocol):
     def _query_binary_scpi(self, command: str, *, max_bytes: int) -> bytes: ...
 
     def _channel_supports_digitizing(self, channel: int) -> bool: ...
+
+
+class _ProfileCodec:
+    """Pure LIST/ARB validation and SCPI readback helpers shared by profile-capable channels."""
+
+    capabilities: ChannelCapabilities
+
+    # Repeat-count queries report INFinity as 9.9E37.
+    _INFINITE_REPEAT = 9.9e37
+    # Single-value parameter queries reply in NR3 with 7 significant digits.
+    _NR3_REL_TOL = 1e-6
+
+    @staticmethod
+    def _finite(value: float, name: str) -> float:
+        if isinstance(value, bool):
+            raise DriverArgumentValueError(f"{name} must be numeric, not boolean")
+        result = float(value)
+        if not math.isfinite(result):
+            raise DriverArgumentValueError(f"{name} must be finite")
+        return result
+
+    @classmethod
+    def _finite_values(cls, values: Sequence[float], name: str) -> tuple[float, ...]:
+        if isinstance(values, (str, bytes)):
+            raise DriverArgumentValueError(f"{name} must be a numeric sequence")
+        result = tuple(cls._finite(value, f"{name}[{index}]") for index, value in enumerate(values))
+        if not result:
+            raise DriverArgumentValueError(f"{name} must not be empty")
+        return result
+
+    @classmethod
+    def _normalize_dwells(
+        cls, dwell_s: float | Sequence[float], points: int, *, maximum_s: float
+    ) -> tuple[float, ...]:
+        if isinstance(dwell_s, Sequence) and not isinstance(dwell_s, (str, bytes)):
+            values = cls._finite_values(dwell_s, "dwell_s")
+            if len(values) not in {1, points}:
+                raise DriverArgumentValueError(
+                    "dwell_s must contain one value or one value per point"
+                )
+            values = values * points if len(values) == 1 else values
+        else:
+            values = (cls._finite(dwell_s, "dwell_s"),) * points  # type: ignore[arg-type]
+        if any(value < 0 or value > maximum_s for value in values):
+            raise DriverArgumentValueError(f"dwell_s values must be within 0..{maximum_s:g} s")
+        return values
+
+    @staticmethod
+    def _require_duration(one_pass_s: float, repeat: RepeatCount, maximum_duration_s: float) -> float:
+        """Bound a finite run, or one pass of an ``'infinite'`` profile."""
+        limit = _ProfileCodec._finite(maximum_duration_s, "maximum_duration_s")
+        duration = one_pass_s if repeat == "infinite" else one_pass_s * repeat
+        if limit <= 0 or duration > limit:
+            raise DriverArgumentValueError(
+                f"profile duration {duration:g} s exceeds maximum_duration_s {limit:g} s"
+            )
+        return limit
+
+    @staticmethod
+    def _require_quantized_duration(
+        one_pass_s: float, repeat: RepeatCount, limit: float, feature: str
+    ) -> None:
+        duration = one_pass_s if repeat == "infinite" else one_pass_s * repeat
+        if duration > limit:
+            raise DriverOperationUncertainError(
+                f"quantized {feature} duration exceeds maximum_duration_s"
+            )
+
+    @property
+    def _smu_dwell_timebase(self) -> bool:
+        return self.capabilities.model.startswith("N678")
+
+    @property
+    def _maximum_dwell_s(self) -> float:
+        # Programmer's Reference, [SOURce:]ARB/LIST dwell: 268.435 s on N678xA.
+        return 268.435 if self._smu_dwell_timebase else 262.144
+
+    # -- SCPI formatting and readback parsing --------------------------------
+
+    @staticmethod
+    def _csv(values: Sequence[float]) -> str:
+        return ",".join(format_float(value) for value in values)
+
+    @staticmethod
+    def _flags_csv(flags: Sequence[bool]) -> str:
+        return ",".join("1" if flag else "0" for flag in flags) if flags else "0"
+
+    @staticmethod
+    def _parse_csv_floats(raw: str, name: str) -> tuple[float, ...]:
+        try:
+            values = tuple(float(item.strip()) for item in raw.strip().split(",") if item.strip())
+        except ValueError as exc:
+            raise DriverMalformedResponseError(f"malformed {name} readback: {raw!r}") from exc
+        if not values or any(not math.isfinite(value) for value in values):
+            raise DriverMalformedResponseError(f"malformed {name} readback: {raw!r}")
+        return values
+
+    @classmethod
+    def _parse_float(cls, raw: str, name: str) -> float:
+        values = cls._parse_csv_floats(raw, name)
+        if len(values) != 1:
+            raise DriverMalformedResponseError(f"malformed {name} readback: {raw!r}")
+        return values[0]
+
+    @staticmethod
+    def _parse_integer(raw: str, name: str) -> int:
+        try:
+            value = float(raw.strip())
+        except ValueError as exc:
+            raise DriverMalformedResponseError(f"malformed {name} readback: {raw!r}") from exc
+        if not math.isfinite(value) or not value.is_integer():
+            raise DriverMalformedResponseError(f"malformed {name} readback: {raw!r}")
+        return int(value)
+
+    @classmethod
+    def _parse_repeat(cls, raw: str, name: str) -> RepeatCount:
+        try:
+            value = float(raw.strip())
+        except ValueError as exc:
+            raise DriverMalformedResponseError(f"malformed {name} readback: {raw!r}") from exc
+        # The instrument reports INFinity as 9.9E37.
+        if value >= cls._INFINITE_REPEAT:
+            return "infinite"
+        return cls._parse_integer(raw, name)
+
+    @classmethod
+    def _parse_boolean(cls, raw: str, name: str) -> bool:
+        value = cls._parse_integer(raw, name)
+        if value not in {0, 1}:
+            raise DriverMalformedResponseError(f"malformed {name} readback: {raw!r}")
+        return bool(value)
+
+    @classmethod
+    def _parse_flags(cls, raw: str, name: str) -> tuple[bool, ...]:
+        return tuple(cls._parse_boolean(item, name) for item in raw.strip().split(",") if item.strip())
+
+    @staticmethod
+    def _assert_profile_readback(
+        expected: Sequence[float], actual: Sequence[float], name: str
+    ) -> None:
+        if len(expected) != len(actual) or any(
+            not math.isclose(left, right, rel_tol=1e-9, abs_tol=1e-12)
+            for left, right in zip(expected, actual, strict=True)
+        ):
+            raise DriverOperationUncertainError(
+                f"{name} readback does not match the requested profile"
+            )
+
+    @classmethod
+    def _assert_level_readback(cls, expected: float, actual: float, name: str) -> None:
+        # Single-value parameter queries reply in NR3 (+n.nnnnnnE+nn).
+        if not math.isclose(expected, actual, rel_tol=cls._NR3_REL_TOL, abs_tol=1e-9):
+            raise DriverOperationUncertainError(
+                f"{name} readback does not match the requested value"
+            )
+
+    def _assert_dwell_readback(
+        self, expected: Sequence[float], actual: Sequence[float], name: str
+    ) -> None:
+        """Accept only the range-dependent dwell quantization documented by Keysight."""
+        if len(expected) != len(actual):
+            raise DriverOperationUncertainError(
+                f"{name} readback does not match the requested profile"
+            )
+        limits = (0.268435, 2.68435, 26.8435)
+        resolutions = (1.024e-6, 10.24e-6, 102.4e-6, 1.024e-3)
+        if not self._smu_dwell_timebase:
+            limits = (0.262144, 2.62144, 26.2144)
+            resolutions = (1e-6, 10e-6, 100e-6, 1e-3)
+        for requested, returned in zip(expected, actual, strict=True):
+            resolution = next(
+                (value for limit, value in zip(limits, resolutions, strict=False) if requested <= limit),
+                resolutions[-1],
+            )
+            if abs(requested - returned) > resolution + 1e-12:
+                raise DriverOperationUncertainError(
+                    f"{name} readback differs by more than one documented dwell quantum"
+                )
+
+    @staticmethod
+    def _assert_flags_readback(
+        expected: Sequence[bool], actual: Sequence[bool], name: str
+    ) -> None:
+        # A singleton reply applies to every point; () expects no trigger at all.
+        if not expected:
+            matches = not any(actual)
+        elif len(actual) == 1:
+            matches = all(flag == actual[0] for flag in expected)
+        else:
+            matches = tuple(actual) == tuple(expected)
+        if not matches:
+            raise DriverOperationUncertainError(f"{name} readback mismatch")
 
 
 class BaseChannel:
@@ -225,7 +422,7 @@ class BaseChannel:
         )
 
 
-class PowerSupplyChannel(BaseChannel):
+class PowerSupplyChannel(_ProfileCodec, BaseChannel):
     """Power supply channel API."""
 
     _WTG_TRANSIENT = 16
@@ -244,10 +441,6 @@ class PowerSupplyChannel(BaseChannel):
         "voltage": ("minimum_voltage_v", "maximum_voltage_v"),
         "current": ("minimum_current_a", "maximum_current_a"),
     }
-    # Repeat-count queries report INFinity as 9.9E37.
-    _INFINITE_REPEAT = 9.9e37
-    # Single-value parameter queries reply in NR3 with 7 significant digits.
-    _NR3_REL_TOL = 1e-6
     # [SOURce:]ARB:<VOLT|CURR>:CDWell:DWELl range, in 10.24 us steps.
     _CDW_MINIMUM_DWELL_S = 10.24e-6
     _CDW_MAXIMUM_DWELL_S = 0.30
@@ -340,41 +533,6 @@ class PowerSupplyChannel(BaseChannel):
 
     def get_ocp(self) -> bool:
         return self._query(f"CURR:PROT:STAT? {self._chan}").strip() not in {"0", "+0"}
-
-    @staticmethod
-    def _finite(value: float, name: str) -> float:
-        if isinstance(value, bool):
-            raise DriverArgumentValueError(f"{name} must be numeric, not boolean")
-        result = float(value)
-        if not math.isfinite(result):
-            raise DriverArgumentValueError(f"{name} must be finite")
-        return result
-
-    @classmethod
-    def _finite_values(cls, values: Sequence[float], name: str) -> tuple[float, ...]:
-        if isinstance(values, (str, bytes)):
-            raise DriverArgumentValueError(f"{name} must be a numeric sequence")
-        result = tuple(cls._finite(value, f"{name}[{index}]") for index, value in enumerate(values))
-        if not result:
-            raise DriverArgumentValueError(f"{name} must not be empty")
-        return result
-
-    @classmethod
-    def _normalize_dwells(
-        cls, dwell_s: float | Sequence[float], points: int, *, maximum_s: float
-    ) -> tuple[float, ...]:
-        if isinstance(dwell_s, Sequence) and not isinstance(dwell_s, (str, bytes)):
-            values = cls._finite_values(dwell_s, "dwell_s")
-            if len(values) not in {1, points}:
-                raise DriverArgumentValueError(
-                    "dwell_s must contain one value or one value per point"
-                )
-            values = values * points if len(values) == 1 else values
-        else:
-            values = (cls._finite(dwell_s, "dwell_s"),) * points  # type: ignore[arg-type]
-        if any(value < 0 or value > maximum_s for value in values):
-            raise DriverArgumentValueError(f"dwell_s values must be within 0..{maximum_s:g} s")
-        return values
 
     # -- source-transient validation helpers ---------------------------------
 
@@ -579,36 +737,6 @@ class PowerSupplyChannel(BaseChannel):
                 f"{name} time parameters must be within 0..{maximum_s:g} s"
             )
 
-    @staticmethod
-    def _require_duration(one_pass_s: float, repeat: RepeatCount, maximum_duration_s: float) -> float:
-        """Bound a finite run, or one pass of an ``'infinite'`` profile."""
-        limit = PowerSupplyChannel._finite(maximum_duration_s, "maximum_duration_s")
-        duration = one_pass_s if repeat == "infinite" else one_pass_s * repeat
-        if limit <= 0 or duration > limit:
-            raise DriverArgumentValueError(
-                f"profile duration {duration:g} s exceeds maximum_duration_s {limit:g} s"
-            )
-        return limit
-
-    @staticmethod
-    def _require_quantized_duration(
-        one_pass_s: float, repeat: RepeatCount, limit: float, feature: str
-    ) -> None:
-        duration = one_pass_s if repeat == "infinite" else one_pass_s * repeat
-        if duration > limit:
-            raise DriverOperationUncertainError(
-                f"quantized {feature} duration exceeds maximum_duration_s"
-            )
-
-    @property
-    def _smu_dwell_timebase(self) -> bool:
-        return self.capabilities.model.startswith("N678")
-
-    @property
-    def _maximum_dwell_s(self) -> float:
-        # Programmer's Reference, [SOURce:]ARB/LIST dwell: 268.435 s on N678xA.
-        return 268.435 if self._smu_dwell_timebase else 262.144
-
     def _check_transient_errors(self, feature: str) -> None:
         """Map "feature absent" SCPI errors to a clean unsupported-operation error."""
         try:
@@ -621,122 +749,6 @@ class PowerSupplyChannel(BaseChannel):
                     f"commands as unsupported: {list(exc.scpi_errors)}"
                 ) from exc
             raise
-
-    # -- SCPI formatting and readback parsing --------------------------------
-
-    @staticmethod
-    def _csv(values: Sequence[float]) -> str:
-        return ",".join(format_float(value) for value in values)
-
-    @staticmethod
-    def _flags_csv(flags: Sequence[bool]) -> str:
-        return ",".join("1" if flag else "0" for flag in flags) if flags else "0"
-
-    @staticmethod
-    def _parse_csv_floats(raw: str, name: str) -> tuple[float, ...]:
-        try:
-            values = tuple(float(item.strip()) for item in raw.strip().split(",") if item.strip())
-        except ValueError as exc:
-            raise DriverMalformedResponseError(f"malformed {name} readback: {raw!r}") from exc
-        if not values or any(not math.isfinite(value) for value in values):
-            raise DriverMalformedResponseError(f"malformed {name} readback: {raw!r}")
-        return values
-
-    @classmethod
-    def _parse_float(cls, raw: str, name: str) -> float:
-        values = cls._parse_csv_floats(raw, name)
-        if len(values) != 1:
-            raise DriverMalformedResponseError(f"malformed {name} readback: {raw!r}")
-        return values[0]
-
-    @staticmethod
-    def _parse_integer(raw: str, name: str) -> int:
-        try:
-            value = float(raw.strip())
-        except ValueError as exc:
-            raise DriverMalformedResponseError(f"malformed {name} readback: {raw!r}") from exc
-        if not math.isfinite(value) or not value.is_integer():
-            raise DriverMalformedResponseError(f"malformed {name} readback: {raw!r}")
-        return int(value)
-
-    @classmethod
-    def _parse_repeat(cls, raw: str, name: str) -> RepeatCount:
-        try:
-            value = float(raw.strip())
-        except ValueError as exc:
-            raise DriverMalformedResponseError(f"malformed {name} readback: {raw!r}") from exc
-        # The instrument reports INFinity as 9.9E37.
-        if value >= cls._INFINITE_REPEAT:
-            return "infinite"
-        return cls._parse_integer(raw, name)
-
-    @classmethod
-    def _parse_boolean(cls, raw: str, name: str) -> bool:
-        value = cls._parse_integer(raw, name)
-        if value not in {0, 1}:
-            raise DriverMalformedResponseError(f"malformed {name} readback: {raw!r}")
-        return bool(value)
-
-    @classmethod
-    def _parse_flags(cls, raw: str, name: str) -> tuple[bool, ...]:
-        return tuple(cls._parse_boolean(item, name) for item in raw.strip().split(",") if item.strip())
-
-    @staticmethod
-    def _assert_profile_readback(
-        expected: Sequence[float], actual: Sequence[float], name: str
-    ) -> None:
-        if len(expected) != len(actual) or any(
-            not math.isclose(left, right, rel_tol=1e-9, abs_tol=1e-12)
-            for left, right in zip(expected, actual, strict=True)
-        ):
-            raise DriverOperationUncertainError(
-                f"{name} readback does not match the requested profile"
-            )
-
-    @classmethod
-    def _assert_level_readback(cls, expected: float, actual: float, name: str) -> None:
-        # Single-value parameter queries reply in NR3 (+n.nnnnnnE+nn).
-        if not math.isclose(expected, actual, rel_tol=cls._NR3_REL_TOL, abs_tol=1e-9):
-            raise DriverOperationUncertainError(
-                f"{name} readback does not match the requested value"
-            )
-
-    def _assert_dwell_readback(
-        self, expected: Sequence[float], actual: Sequence[float], name: str
-    ) -> None:
-        """Accept only the range-dependent dwell quantization documented by Keysight."""
-        if len(expected) != len(actual):
-            raise DriverOperationUncertainError(
-                f"{name} readback does not match the requested profile"
-            )
-        limits = (0.268435, 2.68435, 26.8435)
-        resolutions = (1.024e-6, 10.24e-6, 102.4e-6, 1.024e-3)
-        if not self._smu_dwell_timebase:
-            limits = (0.262144, 2.62144, 26.2144)
-            resolutions = (1e-6, 10e-6, 100e-6, 1e-3)
-        for requested, returned in zip(expected, actual, strict=True):
-            resolution = next(
-                (value for limit, value in zip(limits, resolutions, strict=False) if requested <= limit),
-                resolutions[-1],
-            )
-            if abs(requested - returned) > resolution + 1e-12:
-                raise DriverOperationUncertainError(
-                    f"{name} readback differs by more than one documented dwell quantum"
-                )
-
-    @staticmethod
-    def _assert_flags_readback(
-        expected: Sequence[bool], actual: Sequence[bool], name: str
-    ) -> None:
-        # A singleton reply applies to every point; () expects no trigger at all.
-        if not expected:
-            matches = not any(actual)
-        elif len(actual) == 1:
-            matches = all(flag == actual[0] for flag in expected)
-        else:
-            matches = tuple(actual) == tuple(expected)
-        if not matches:
-            raise DriverOperationUncertainError(f"{name} readback mismatch")
 
     def _assert_source_modes(self, quantity: TransientQuantity, mode: str) -> None:
         """The driven quantity is in ``mode``; the other one stayed FIX."""
@@ -2513,7 +2525,7 @@ class SMUChannel(PowerSupplyChannel):
         return "low_z" if "LOW" in resp else "high_z"
 
 
-class ElectronicLoadChannel(BaseChannel):
+class ElectronicLoadChannel(_ProfileCodec, BaseChannel):
     """Electronic-load channel API for Keysight N679xA Electronic Load Modules.
 
     Real commands follow the official Keysight N6705C User's Guide /
@@ -2554,6 +2566,19 @@ class ElectronicLoadChannel(BaseChannel):
         self._digitize_timing: DigitizeTiming | None = None
         self._digitize_previous_format: str | None = None
         self._acquisition = AcquisitionTracker()
+        self._profile_lock = threading.RLock()
+        self._profile_generation = 0
+        self._profile_state = "idle"
+        self._profile_config: LoadProfileConfiguration | None = None
+        self._profile_trigger_source = "bus"
+        self._profile_triggered_at: float | None = None
+
+    def _invalidate_discovery(self) -> None:
+        super()._invalidate_discovery()
+        with self._profile_lock:
+            self._profile_generation += 1
+            self._profile_config = None
+            self._profile_state = "unknown"
 
     @property
     def digitize_status(self) -> AcquisitionSnapshot:
@@ -2758,6 +2783,843 @@ class ElectronicLoadChannel(BaseChannel):
     # waveform twin for this — SIM_LOAD raises, the same precedent
     # set_load_current_limit uses for real-hardware-only behavior the
     # simulator cannot meaningfully model.
+
+    # -- LIST / ARB load profiles --------------------------------------------
+    #
+    # Commands follow the N6705 Programmer's Reference [SOURce:]LIST and ARB
+    # subsystems, which mark POWer/RESistance as N679xA-only. Behaviour on an
+    # N6700C (E.02.09) with an N6791A was confirmed on hardware with the input
+    # OFF: every LIST and ARB type is accepted with exact readback, a LIST is
+    # started by its channel's TRIG:TRAN:SOUR, and an ARB by the mainframe-wide
+    # TRIG:ARB:SOUR, whose IMMediate default starts the ARB at INIT:TRAN.
+
+    _PROFILE_SCPI: ClassVar[tuple[str, ...]] = ("CURR", "VOLT", "RES", "POW")
+    # The ARB data node is spelled :RESISTANCE with no short form; ARB:RES:...
+    # returns -113 on N6700C E.02.09, while ARB:FUNC:TYPE accepts/returns RES.
+    _ARB_NODE: ClassVar[dict[str, str]] = {
+        "CURR": "CURR",
+        "VOLT": "VOLT",
+        "RES": "RESISTANCE",
+        "POW": "POW",
+    }
+    _PROFILE_UNITS: ClassVar[dict[str, str]] = {"cc": "A", "cv": "V", "cr": "ohm", "cp": "W"}
+    _LIST_MAXIMUM_POINTS = 512
+    _CDW_MINIMUM_DWELL_S = 10.24e-6
+    _CDW_MAXIMUM_DWELL_S = 0.30
+    _MAXIMUM_CDW_ASCII_COMMAND_BYTES = 65_536
+    _WTG_TRANSIENT = 16
+    _TRANSIENT_ACTIVE = 64
+    _UNSUPPORTED_SCPI_CODES = frozenset({-113, -241})
+    _COMPLETE_TIMEOUT_MARGIN_S = 2.0
+    _COMPLETE_TIMEOUT_MARGIN_FRACTION = 0.1
+
+    def _require_profile_support(self, kind: LoadProfileKind) -> None:
+        self._require_verified_or_sim()
+        if self._is_sim or not self.capabilities.supports_list_mode:
+            raise DriverUnsupportedOperationError(
+                f"{self.capabilities.model} does not advertise load LIST/ARB support"
+            )
+        if kind != "list" and self.capabilities.arb_trigger_dialect != "mainframe_global":
+            raise DriverUnsupportedOperationError(
+                f"{self.capabilities.model} in {self.capabilities.mainframe_model or 'unknown mainframe'} "
+                "has no approved load ARB trigger dialect"
+            )
+
+    def _profile_scpi(self, mode: LoadProfileMode) -> str:
+        if mode not in self._MODE_TO_SCPI:
+            raise DriverArgumentValueError(f"mode must be one of cc, cv, cr, cp; got {mode!r}")
+        return self._MODE_TO_SCPI[mode]
+
+    def _validate_load_profile(
+        self,
+        kind: LoadProfileKind,
+        mode: LoadProfileMode,
+        levels: Sequence[float],
+        *,
+        minimum: float,
+        maximum: float,
+        maximum_points: int,
+        maximum_current_a: float | None,
+    ) -> tuple[tuple[float, ...], float, float]:
+        """Offline checks: mode, envelope ordering, points and current bound."""
+        self._require_profile_support(kind)
+        self._profile_scpi(mode)
+        unit = self._PROFILE_UNITS[mode]
+        low = self._finite(minimum, "minimum_level")
+        high = self._finite(maximum, "maximum_level")
+        if low < 0 or high <= low:
+            raise DriverArgumentValueError(
+                "load profile bounds require 0 <= minimum_level < maximum_level"
+            )
+        if mode == "cr" and low <= 0:
+            # Zero ohms is a short circuit across the source under test.
+            raise DriverArgumentValueError("resistance profiles require minimum_level > 0 ohm")
+        values = self._finite_values(levels, "levels")
+        if len(values) > maximum_points:
+            raise DriverArgumentValueError(f"levels exceeds {maximum_points} points")
+        if any(value < low or value > high for value in values):
+            raise DriverArgumentValueError(
+                f"every level must stay within the approved {low:g}..{high:g} {unit} envelope"
+            )
+        if mode == "cc":
+            if maximum_current_a is not None:
+                raise DriverArgumentValueError(
+                    "maximum_current_a applies to cv/cr/cp profiles; in cc mode "
+                    "maximum_level is the current bound"
+                )
+        elif maximum_current_a is None or self._finite(maximum_current_a, "maximum_current_a") <= 0:
+            raise DriverArgumentValueError(
+                f"{mode} profiles require maximum_current_a > 0: the sinking current is "
+                "not the programmed quantity"
+            )
+        return values, low, high
+
+    def get_load_range(self, mode: LoadProfileMode) -> float:
+        """Live range of ``mode``'s quantity: A (cc), V (cv), ohm (cr) or W (cp)."""
+        self._require_verified_or_sim()
+        if self._is_sim:
+            raise DriverUnsupportedOperationError("load ranges are not modeled by the simulator")
+        scpi = self._profile_scpi(mode)
+        return self._parse_float(self._query(f"{scpi}:RANG? {self._chan}"), f"{scpi} range")
+
+    def _check_load_envelope(
+        self, mode: LoadProfileMode, low: float, high: float, maximum_current_a: float | None
+    ) -> float | None:
+        """Live checks: priority mode, range, protection and current limit."""
+        scpi = self._MODE_TO_SCPI[mode]
+        function = self._query(f"FUNC? {self._chan}").strip().upper()
+        if not function.startswith(scpi):
+            raise DriverPreconditionError(
+                f"{mode} load profile requires priority mode FUNC {scpi}; "
+                f"the load is in {function!r} (call set_load_mode() first)"
+            )
+        live_range = self.get_load_range(mode)
+        if high > live_range:
+            raise DriverArgumentValueError(
+                f"approved maximum {high:g} {self._PROFILE_UNITS[mode]} exceeds the "
+                f"instrument range {live_range:g}"
+            )
+        protection = self.get_protection_status()
+        if protection.active:
+            raise DriverPreconditionError(
+                f"load profiles require cleared protection; STAT:QUES:COND={protection.raw_status}"
+            )
+        if mode == "cc":
+            return None
+        # Worst-case sinking current from instrument-enforced settings only.
+        # CURR:LIM applies in voltage priority alone (+315 otherwise).
+        if mode == "cv":
+            bound = self._parse_float(self._query(f"CURR:LIM? {self._chan}"), "load current limit")
+            remedy = "lower it with set_load_current_limit()"
+        elif mode == "cp":
+            # I = P/V, and the load does not sink below the voltage-on level.
+            von = self._parse_float(
+                self._query(f"VOLT:INH:VON? {self._chan}"), "load voltage-on level"
+            )
+            if von <= 0:
+                raise DriverPreconditionError(
+                    "power profiles require a positive voltage-on level (VOLT:INH:VON) to bound current"
+                )
+            bound = high / von
+            remedy = f"raise VOLT:INH:VON above {von:g} V or lower maximum_level"
+        else:
+            # I = V/R, and the input cannot exceed the live voltage range.
+            voltage_range = self.get_load_range("cv")
+            bound = voltage_range / low
+            remedy = f"raise minimum_level or select a voltage range below {voltage_range:g} V"
+        if maximum_current_a is None or bound > maximum_current_a:
+            raise DriverPreconditionError(
+                f"worst-case {mode} sinking current {bound:g} A exceeds maximum_current_a "
+                f"{maximum_current_a} A; {remedy}"
+            )
+        return bound
+
+    def _check_profile_errors(self, feature: str) -> None:
+        """Map "feature absent" SCPI errors to a clean unsupported-operation error."""
+        try:
+            self._driver.check_errors()
+        except DriverCommandRejectedError as exc:
+            codes = {code for code, _ in exc.scpi_errors}
+            if codes & self._UNSUPPORTED_SCPI_CODES:
+                raise DriverUnsupportedOperationError(
+                    f"{self.capabilities.model} channel {self.channel} rejected {feature} "
+                    f"commands as unsupported: {list(exc.scpi_errors)}"
+                ) from exc
+            raise
+
+    def _assert_load_modes(self, mode: LoadProfileMode, expected: str) -> None:
+        """The driven quantity is in ``expected``; the other three stayed FIX."""
+        driven = self._MODE_TO_SCPI[mode]
+        for scpi in self._PROFILE_SCPI:
+            want = expected if scpi == driven else "FIX"
+            if not self._query(f"{scpi}:MODE? {self._chan}").strip().upper().startswith(want):
+                raise DriverOperationUncertainError(f"{scpi} mode did not read back {want}")
+
+    def _stop_profile_system(self, *, timeout_s: float = 2.0) -> None:
+        # ABORt does not stop continuous initiation, so turn that off first.
+        self._write(f"INIT:CONT:TRAN OFF,{self._chan}")
+        self._write(f"ABOR:TRAN {self._chan}")
+        # ABOR:TRAN settles asynchronously (~0.2 s for an armed N6791A ARB);
+        # MODE changes before idle are refused with +308.
+        deadline = monotonic() + timeout_s
+        while True:
+            raw = self._parse_integer(self._query(f"STAT:OPER:COND? {self._chan}"), "operation status")
+            if not raw & (self._WTG_TRANSIENT | self._TRANSIENT_ACTIVE):
+                return
+            if monotonic() >= deadline:
+                raise DriverOperationUncertainError(
+                    f"channel {self.channel} transient system did not return to idle after ABOR:TRAN",
+                    details={"operation_status": raw},
+                )
+            sleep(0.01)
+
+    def _profile_configuration_failed(self, primary: BaseException) -> None:
+        """Best-effort return to FIX without ever replacing ``primary``."""
+        failures: list[str] = []
+        try:
+            self._stop_profile_system()
+        except BaseException as cleanup_error:
+            failures.append(f"abort: {type(cleanup_error).__name__}: {cleanup_error}")
+        for command in [f"{scpi}:MODE FIX,{self._chan}" for scpi in self._PROFILE_SCPI]:
+            try:
+                self._write(command)
+            except BaseException as cleanup_error:
+                failures.append(f"{command}: {type(cleanup_error).__name__}: {cleanup_error}")
+        self._profile_generation += 1
+        self._profile_state = "unknown"
+        self._profile_config = None
+        outcome = "cleanup completed" if not failures else "cleanup failures: " + "; ".join(failures)
+        if isinstance(primary, DriverError):
+            primary.details["load_profile_configuration_cleanup"] = outcome
+        if hasattr(primary, "add_note"):
+            primary.add_note(f"load profile configuration {outcome}")
+
+    def _run_profile_configuration(
+        self,
+        mode: LoadProfileMode,
+        low: float,
+        high: float,
+        maximum_current_a: float | None,
+        program: Callable[[], None],
+        verify: Callable[[float | None], LoadProfileConfiguration],
+    ) -> LoadProfileConfiguration:
+        """Input-OFF guarded program/verify transaction with cleanup on failure."""
+        with self._profile_lock:
+            with self._driver.operation_lock():
+                # Checked before any write: a refused call must not abort a
+                # profile that is already running on an energized input.
+                if self.get_input():
+                    raise DriverPreconditionError(
+                        "load profiles must be configured while the input is OFF"
+                    )
+                limit = self._check_load_envelope(mode, low, high, maximum_current_a)
+                try:
+                    self._profile_generation += 1
+                    self._stop_profile_system()
+                    for scpi in self._PROFILE_SCPI:
+                        self._write(f"{scpi}:MODE FIX,{self._chan}")
+                    program()
+                    config = verify(limit)
+                except BaseException as primary:
+                    self._profile_configuration_failed(primary)
+                    raise
+            self._profile_config = config
+            self._profile_state = "configured"
+            return config
+
+    def configure_load_list(
+        self,
+        mode: LoadProfileMode,
+        levels: Sequence[float],
+        dwell_s: float | Sequence[float],
+        *,
+        maximum_level: float,
+        minimum_level: float = 0.0,
+        maximum_current_a: float | None = None,
+        repeat_count: RepeatCount = 1,
+        step_mode: Literal["auto", "once"] = "auto",
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+        begin_step_triggers: bool | Sequence[bool] = False,
+        end_step_triggers: bool | Sequence[bool] = False,
+    ) -> LoadProfileConfiguration:
+        """Configure and verify a bounded LIST (up to 512 steps) without enabling the input.
+
+        ``mode`` selects the listed quantity and must match the load's priority
+        mode. ``maximum_current_a`` is required for cv/cr/cp and must cover the
+        worst-case sinking current: ``CURR:LIM`` (cv), ``maximum_level / VOLT:INH:VON``
+        (cp) or ``VOLT:RANG / minimum_level`` (cr).
+        """
+        values, low, high = self._validate_load_profile(
+            "list",
+            mode,
+            levels,
+            minimum=minimum_level,
+            maximum=maximum_level,
+            maximum_points=self._LIST_MAXIMUM_POINTS,
+            maximum_current_a=maximum_current_a,
+        )
+        dwells = self._normalize_dwells(dwell_s, len(values), maximum_s=self._maximum_dwell_s)
+        repeat = normalize_repeat_count(repeat_count, 256)
+        if step_mode not in {"auto", "once"}:
+            raise DriverArgumentValueError("step_mode must be 'auto' or 'once'")
+        begin = normalize_trigger_flags(begin_step_triggers, len(values), "begin_step_triggers")
+        end = normalize_trigger_flags(end_step_triggers, len(values), "end_step_triggers")
+        duration_limit = self._require_duration(sum(dwells), repeat, maximum_duration_s)
+        scpi = self._MODE_TO_SCPI[mode]
+        label = f"LIST {scpi}"
+
+        def program() -> None:
+            self._write(f"LIST:{scpi} {self._csv(values)},{self._chan}")
+            self._write(f"LIST:DWEL {self._csv(dwells)},{self._chan}")
+            self._write(f"LIST:TOUT:BOST {self._flags_csv(begin)},{self._chan}")
+            self._write(f"LIST:TOUT:EOST {self._flags_csv(end)},{self._chan}")
+            self._write(f"LIST:COUN {repeat_scpi(repeat)},{self._chan}")
+            self._write(f"LIST:STEP {step_mode.upper()},{self._chan}")
+            self._write(f"LIST:TERM:LAST {format_bool(terminate_last)},{self._chan}")
+            self._write(f"{scpi}:MODE LIST,{self._chan}")
+            self._check_profile_errors(f"load {mode} LIST")
+
+        def verify(limit: float | None) -> LoadProfileConfiguration:
+            level_readback = self._parse_csv_floats(self._query(f"LIST:{scpi}? {self._chan}"), label)
+            dwell_readback = self._parse_csv_floats(
+                self._query(f"LIST:DWEL? {self._chan}"), "LIST dwell"
+            )
+            self._assert_profile_readback(values, level_readback, label)
+            self._assert_dwell_readback(dwells, dwell_readback, "LIST dwell")
+            self._require_quantized_duration(sum(dwell_readback), repeat, duration_limit, "LIST")
+            if self._parse_repeat(self._query(f"LIST:COUN? {self._chan}"), "LIST repeat count") != repeat:
+                raise DriverOperationUncertainError("LIST repeat-count readback mismatch")
+            if not self._query(f"LIST:STEP? {self._chan}").strip().upper().startswith(step_mode.upper()):
+                raise DriverOperationUncertainError("LIST step-mode readback mismatch")
+            if self._parse_boolean(
+                self._query(f"LIST:TERM:LAST? {self._chan}"), "LIST termination"
+            ) != bool(terminate_last):
+                raise DriverOperationUncertainError("LIST termination readback mismatch")
+            self._assert_flags_readback(
+                begin,
+                self._parse_flags(self._query(f"LIST:TOUT:BOST? {self._chan}"), "LIST BOST"),
+                "LIST begin-of-step trigger",
+            )
+            self._assert_flags_readback(
+                end,
+                self._parse_flags(self._query(f"LIST:TOUT:EOST? {self._chan}"), "LIST EOST"),
+                "LIST end-of-step trigger",
+            )
+            self._assert_load_modes(mode, "LIST")
+            return LoadProfileConfiguration(
+                channel=self.channel,
+                kind="list",
+                mode=mode,
+                levels=level_readback,
+                dwell_s=dwell_readback,
+                repeat_count=repeat,
+                terminate_last=bool(terminate_last),
+                minimum_level=low,
+                maximum_level=high,
+                worst_case_current_a=limit,
+                step_mode=step_mode,
+                begin_step_triggers=begin,
+                end_step_triggers=end,
+            )
+
+        return self._run_profile_configuration(mode, low, high, maximum_current_a, program, verify)
+
+    def _verify_arb_common(
+        self, mode: LoadProfileMode, shape: str, repeat: RepeatCount, terminate_last: bool
+    ) -> None:
+        if self._parse_repeat(self._query(f"ARB:COUN? {self._chan}"), "ARB repeat count") != repeat:
+            raise DriverOperationUncertainError("ARB repeat-count readback mismatch")
+        if self._parse_boolean(
+            self._query(f"ARB:TERM:LAST? {self._chan}"), "ARB termination"
+        ) != bool(terminate_last):
+            raise DriverOperationUncertainError("ARB termination readback mismatch")
+        function = self._query(f"ARB:FUNC:TYPE? {self._chan}").strip().upper()
+        shape_readback = self._query(f"ARB:FUNC:SHAP? {self._chan}").strip().upper()
+        if not function.startswith(self._MODE_TO_SCPI[mode]) or not shape_readback.startswith(shape):
+            raise DriverOperationUncertainError("ARB function/shape readback mismatch")
+        self._assert_load_modes(mode, "ARB")
+
+    def configure_load_arb(
+        self,
+        mode: LoadProfileMode,
+        levels: Sequence[float],
+        dwell_s: float | Sequence[float],
+        *,
+        maximum_level: float,
+        minimum_level: float = 0.0,
+        maximum_current_a: float | None = None,
+        repeat_count: RepeatCount = 1,
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+        begin_step_triggers: bool | Sequence[bool] = False,
+    ) -> LoadProfileConfiguration:
+        """Configure and verify a user-defined ARB (up to 511 points, one dwell per point).
+
+        Same envelope rules as :meth:`configure_load_list`; ``mode`` may also
+        be ``'cr'`` or ``'cp'``, the N679xA-only resistance and power ARB types.
+        """
+        values, low, high = self._validate_load_profile(
+            "arb",
+            mode,
+            levels,
+            minimum=minimum_level,
+            maximum=maximum_level,
+            maximum_points=USER_DEFINED_MAXIMUM_POINTS,
+            maximum_current_a=maximum_current_a,
+        )
+        dwells = self._normalize_dwells(dwell_s, len(values), maximum_s=self._maximum_dwell_s)
+        repeat = normalize_repeat_count(repeat_count, 16_777_216)
+        begin = normalize_trigger_flags(begin_step_triggers, len(values), "begin_step_triggers")
+        duration_limit = self._require_duration(sum(dwells), repeat, maximum_duration_s)
+        scpi = self._MODE_TO_SCPI[mode]
+        node = self._ARB_NODE[scpi]
+        label = f"ARB {scpi} UDEF level"
+
+        def program() -> None:
+            self._write(f"ARB:FUNC:TYPE {scpi},{self._chan}")
+            self._write(f"ARB:FUNC:SHAP UDEF,{self._chan}")
+            self._write(f"ARB:{node}:UDEF:LEV {self._csv(values)},{self._chan}")
+            self._write(f"ARB:{node}:UDEF:DWEL {self._csv(dwells)},{self._chan}")
+            self._write(f"ARB:{node}:UDEF:BOST {self._flags_csv(begin)},{self._chan}")
+            self._write(f"ARB:COUN {repeat_scpi(repeat)},{self._chan}")
+            self._write(f"ARB:TERM:LAST {format_bool(terminate_last)},{self._chan}")
+            self._write(f"{scpi}:MODE ARB,{self._chan}")
+            self._check_profile_errors(f"load {mode} ARB")
+
+        def verify(limit: float | None) -> LoadProfileConfiguration:
+            level_readback = self._parse_csv_floats(
+                self._query(f"ARB:{node}:UDEF:LEV? {self._chan}"), label
+            )
+            dwell_readback = self._parse_csv_floats(
+                self._query(f"ARB:{node}:UDEF:DWEL? {self._chan}"), "ARB UDEF dwell"
+            )
+            self._assert_profile_readback(values, level_readback, label)
+            self._assert_dwell_readback(dwells, dwell_readback, "ARB UDEF dwell")
+            self._require_quantized_duration(sum(dwell_readback), repeat, duration_limit, "ARB")
+            self._assert_flags_readback(
+                begin,
+                self._parse_flags(self._query(f"ARB:{node}:UDEF:BOST? {self._chan}"), "ARB BOST"),
+                "ARB begin-of-step trigger",
+            )
+            self._verify_arb_common(mode, "UDEF", repeat, terminate_last)
+            return LoadProfileConfiguration(
+                channel=self.channel,
+                kind="arb",
+                mode=mode,
+                levels=level_readback,
+                dwell_s=dwell_readback,
+                repeat_count=repeat,
+                terminate_last=bool(terminate_last),
+                minimum_level=low,
+                maximum_level=high,
+                worst_case_current_a=limit,
+                begin_step_triggers=begin,
+            )
+
+        return self._run_profile_configuration(mode, low, high, maximum_current_a, program, verify)
+
+    def configure_load_constant_dwell_arb(
+        self,
+        mode: LoadProfileMode,
+        levels: Sequence[float],
+        dwell_s: float,
+        *,
+        maximum_level: float,
+        minimum_level: float = 0.0,
+        maximum_current_a: float | None = None,
+        repeat_count: RepeatCount = 1,
+        terminate_last: bool = False,
+        maximum_duration_s: float = 60.0,
+    ) -> LoadProfileConfiguration:
+        """Configure and verify a constant-dwell ARB (up to 65,535 points, one shared dwell)."""
+        values, low, high = self._validate_load_profile(
+            "constant_dwell_arb",
+            mode,
+            levels,
+            minimum=minimum_level,
+            maximum=maximum_level,
+            maximum_points=65_535,
+            maximum_current_a=maximum_current_a,
+        )
+        dwell = self._finite(dwell_s, "dwell_s")
+        if not self._CDW_MINIMUM_DWELL_S <= dwell <= self._CDW_MAXIMUM_DWELL_S:
+            raise DriverArgumentValueError(
+                f"constant-dwell dwell_s must be within {self._CDW_MINIMUM_DWELL_S:g}.."
+                f"{self._CDW_MAXIMUM_DWELL_S:g} s"
+            )
+        # "For constant-dwell Arbs only, the maximum count is limited to 256."
+        repeat = normalize_repeat_count(repeat_count, 256)
+        duration_limit = self._require_duration(dwell * len(values), repeat, maximum_duration_s)
+        scpi = self._MODE_TO_SCPI[mode]
+        node = self._ARB_NODE[scpi]
+        level_command = f"ARB:{node}:CDW {self._csv(values)},{self._chan}"
+        encoded_bytes = len(level_command.encode("ascii")) + 1
+        if encoded_bytes > self._MAXIMUM_CDW_ASCII_COMMAND_BYTES:
+            raise DriverArgumentValueError(
+                f"constant-dwell ASCII command is {encoded_bytes} bytes; maximum is "
+                f"{self._MAXIMUM_CDW_ASCII_COMMAND_BYTES} bytes"
+            )
+
+        def program() -> None:
+            self._write(f"ARB:FUNC:TYPE {scpi},{self._chan}")
+            self._write(f"ARB:FUNC:SHAP CDW,{self._chan}")
+            self._write(f"ARB:{node}:CDW:DWEL {format_float(dwell)},{self._chan}")
+            self._write(level_command)
+            self._write(f"ARB:COUN {repeat_scpi(repeat)},{self._chan}")
+            self._write(f"ARB:TERM:LAST {format_bool(terminate_last)},{self._chan}")
+            self._write(f"{scpi}:MODE ARB,{self._chan}")
+            self._check_profile_errors(f"load {mode} constant-dwell ARB")
+
+        def verify(limit: float | None) -> LoadProfileConfiguration:
+            level_readback = self._parse_csv_floats(
+                self._query(f"ARB:{node}:CDW? {self._chan}"), "constant-dwell level"
+            )
+            if self._parse_integer(
+                self._query(f"ARB:{node}:CDW:POIN? {self._chan}"), "constant-dwell point count"
+            ) != len(values):
+                raise DriverOperationUncertainError("constant-dwell point-count readback mismatch")
+            dwell_readback = self._parse_float(
+                self._query(f"ARB:{node}:CDW:DWEL? {self._chan}"), "constant-dwell dwell"
+            )
+            self._assert_profile_readback(values, level_readback, "constant-dwell level")
+            # Rounded to the nearest 10.24 microseconds.
+            if abs(dwell_readback - dwell) > self._CDW_MINIMUM_DWELL_S / 2 + 1e-12:
+                raise DriverOperationUncertainError(
+                    "constant-dwell dwell readback differs by more than half a 10.24 us quantum"
+                )
+            self._require_quantized_duration(
+                dwell_readback * len(level_readback), repeat, duration_limit, "constant-dwell ARB"
+            )
+            self._verify_arb_common(mode, "CDW", repeat, terminate_last)
+            return LoadProfileConfiguration(
+                channel=self.channel,
+                kind="constant_dwell_arb",
+                mode=mode,
+                levels=level_readback,
+                dwell_s=(dwell_readback,),
+                repeat_count=repeat,
+                terminate_last=bool(terminate_last),
+                minimum_level=low,
+                maximum_level=high,
+                worst_case_current_a=limit,
+            )
+
+        return self._run_profile_configuration(mode, low, high, maximum_current_a, program, verify)
+
+    # -- load-profile trigger lifecycle ----------------------------------------
+
+    def _profile_trigger_commands(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        """Source queries for the configured kind: LIST per channel, ARB also mainframe-wide."""
+        config = self._profile_config
+        channel_query = f"TRIG:TRAN:SOUR? {self._chan}"
+        if config is not None and config.kind != "list":
+            return ("TRIG:TRAN:SOUR", "TRIG:ARB:SOUR"), (channel_query, "TRIG:ARB:SOUR?")
+        return ("TRIG:TRAN:SOUR",), (channel_query,)
+
+    def configure_load_transient_trigger(self, source: Literal["bus", "external"] = "bus") -> None:
+        """Select what starts the configured profile.
+
+        An ARB start is gated by the mainframe-wide ``TRIG:ARB:SOUR``, which
+        this also sets: it applies to every channel's ARB and the instrument
+        refuses the change (+308) while any channel's transient is initiated.
+        """
+        if source not in {"bus", "external"}:
+            raise DriverArgumentValueError("source must be 'bus' or 'external'")
+        with self._profile_lock:
+            if self._profile_config is None:
+                raise DriverPreconditionError("configure a load LIST/ARB profile first")
+            if self._profile_state in {"armed", "ready", "triggered"}:
+                raise DriverPreconditionError(
+                    "load transient trigger source cannot change while a profile is armed"
+                )
+            expected = "BUS" if source == "bus" else "EXT"
+            setters, queries = self._profile_trigger_commands()
+            for setter in setters:
+                suffix = f",{self._chan}" if setter == "TRIG:TRAN:SOUR" else ""
+                self._write(f"{setter} {expected}{suffix}")
+            self._driver.check_errors()
+            for query in queries:
+                if not self._query(query).strip().upper().startswith(expected):
+                    raise DriverOperationUncertainError(f"{query} readback mismatch")
+            self._profile_trigger_source = source
+
+    def _read_profile_trigger_source(self) -> Literal["bus", "external"]:
+        # The instrument, not the cached default, decides what INIT:TRAN waits for.
+        _, queries = self._profile_trigger_commands()
+        readbacks = {self._query(query).strip().upper()[:3] for query in queries}
+        if readbacks == {"BUS"}:
+            source: Literal["bus", "external"] = "bus"
+        elif readbacks == {"EXT"}:
+            source = "external"
+        else:
+            # IMMediate would start an ARB at INIT:TRAN without any trigger.
+            raise DriverPreconditionError(
+                f"load profile trigger sources read {sorted(readbacks)}; "
+                "call configure_load_transient_trigger() first"
+            )
+        self._profile_trigger_source = source
+        return source
+
+    def arm_load_transient(self) -> LoadTransientToken:
+        """Arm the configured profile with ``INIT:TRAN``; the input must already be ON."""
+        with self._profile_lock:
+            config = self._profile_config
+            if config is None or self._profile_state not in {"configured", "complete", "aborted"}:
+                raise DriverPreconditionError("a verified load LIST/ARB must be configured first")
+            if not self.get_input():
+                raise DriverPreconditionError("load input must be ON before arming a profile")
+            source = self._read_profile_trigger_source()
+            if config.kind == "list" and config.step_mode == "once" and source == "bus":
+                raise DriverPreconditionError(
+                    "LIST step_mode 'once' requires the 'external' transient trigger source"
+                )
+            self._profile_generation += 1
+            token = LoadTransientToken(self.channel, self._profile_generation)
+            self._profile_state = "armed"
+            self._profile_triggered_at = None
+            try:
+                if source == "external":
+                    self._clear_profile_event_latch()
+                self._write(f"INIT:TRAN {self._chan}")
+                self._driver.check_errors()
+            except BaseException as primary:
+                self._cleanup_failed_load_transient(primary)
+                raise
+            return token
+
+    def _read_operation_event(self) -> int:
+        # Reading the Operation Event register clears it.
+        return self._parse_integer(self._query(f"STAT:OPER:EVEN? {self._chan}"), "operation event")
+
+    def _clear_profile_event_latch(self) -> None:
+        """Latch TRAN_active rising edges so a fast external run is not missed."""
+        ptr = self._parse_integer(self._query(f"STAT:OPER:PTR? {self._chan}"), "operation PTR filter")
+        if not ptr & self._TRANSIENT_ACTIVE:
+            self._write(f"STAT:OPER:PTR {ptr | self._TRANSIENT_ACTIVE},{self._chan}")
+        self._read_operation_event()
+
+    def _require_profile_token(self, token: LoadTransientToken) -> None:
+        if token.channel != self.channel or token.generation != self._profile_generation:
+            raise DriverPreconditionError("stale or foreign load-transient token")
+
+    def _require_profile_not_superseded(self, token: LoadTransientToken) -> None:
+        if token.generation != self._profile_generation:
+            raise DriverOperationUncertainError(
+                "load transient was aborted or reconfigured while waiting",
+                details={
+                    "load_transient_generation": token.generation,
+                    "current_generation": self._profile_generation,
+                },
+            )
+
+    def get_load_transient_status(self) -> LoadTransientStatus:
+        raw = self._parse_integer(self._query(f"STAT:OPER:COND? {self._chan}"), "operation status")
+        config = self._profile_config
+        return LoadTransientStatus(
+            channel=self.channel,
+            kind=config.kind if config is not None else None,
+            mode=config.mode if config is not None else None,
+            state=self._profile_state,  # type: ignore[arg-type]
+            generation=self._profile_generation,
+            trigger_source=self._profile_trigger_source,  # type: ignore[arg-type]
+            operation_status=raw,
+            waiting_for_trigger=bool(raw & self._WTG_TRANSIENT),
+            transient_active=bool(raw & self._TRANSIENT_ACTIVE),
+        )
+
+    def _cleanup_failed_load_transient(self, primary: BaseException) -> None:
+        """Preserve a wait failure while recording best-effort abort outcome."""
+        try:
+            self.abort_load_transient()
+        except Exception as cleanup_error:
+            self._profile_state = "unknown"
+            outcome = f"abort_failed: {type(cleanup_error).__name__}: {cleanup_error}"
+        else:
+            outcome = "aborted"
+        if isinstance(primary, DriverError):
+            primary.details["load_transient_cleanup"] = outcome
+            primary.details["load_transient_generation"] = self._profile_generation
+        if hasattr(primary, "add_note"):
+            primary.add_note(f"load transient cleanup: {outcome}")
+
+    def _poll_profile(
+        self,
+        token: LoadTransientToken,
+        predicate: Callable[[], bool],
+        *,
+        operation: str,
+        description: str,
+        timeout_s: float,
+        poll_interval_s: float,
+    ) -> None:
+        try:
+            with translated(operation=operation):
+                poll_until(predicate, timeout_s=timeout_s, interval_s=poll_interval_s, description=description)
+        except BaseException as primary:
+            # A superseded generation was already aborted; aborting again
+            # could cancel a newer arm.
+            if token.generation == self._profile_generation:
+                self._cleanup_failed_load_transient(primary)
+            raise
+
+    def wait_load_transient_ready(
+        self,
+        token: LoadTransientToken,
+        *,
+        timeout_s: float = 5.0,
+        poll_interval_s: float = 0.01,
+    ) -> LoadTransientStatus:
+        """Wait until the armed profile accepts a trigger.
+
+        With the ``'external'`` source the trigger may land between polls, so a
+        running profile or a latched TRAN_active edge also ends the wait and
+        the state advances to ``'triggered'``.
+        """
+        with self._profile_lock:
+            self._require_profile_token(token)
+            if self._profile_state != "armed":
+                raise DriverPreconditionError("load transient is not armed")
+            external = self._profile_trigger_source == "external"
+        last: LoadTransientStatus | None = None
+
+        def predicate() -> bool:
+            nonlocal last
+            self._require_profile_not_superseded(token)
+            last = self.get_load_transient_status()
+            if last.waiting_for_trigger or not external:
+                return last.waiting_for_trigger
+            if last.transient_active:
+                return True
+            return bool(self._read_operation_event() & self._TRANSIENT_ACTIVE)
+
+        self._poll_profile(
+            token,
+            predicate,
+            operation="wait_load_transient_ready",
+            description=f"channel {self.channel} load transient trigger ready",
+            timeout_s=timeout_s,
+            poll_interval_s=poll_interval_s,
+        )
+        with self._profile_lock:
+            self._require_profile_not_superseded(token)
+            waiting = last is not None and last.waiting_for_trigger
+            self._profile_state = "ready" if waiting else "triggered"
+        return self.get_load_transient_status()
+
+    def trigger_load_transient(self, token: LoadTransientToken) -> None:
+        """Send the channel-scoped software trigger ``TRIG:TRAN``, never ``*TRG``."""
+        with self._profile_lock:
+            self._require_profile_token(token)
+            if self._profile_state != "ready":
+                raise DriverPreconditionError("wait_load_transient_ready() must succeed before triggering")
+            if self._profile_trigger_source != "bus":
+                raise DriverPreconditionError("software trigger requires trigger source 'bus'")
+            self._write(f"TRIG:TRAN {self._chan}")
+            self._driver.check_errors()
+            self._profile_triggered_at = monotonic()
+            self._profile_state = "triggered"
+
+    def _default_profile_timeout_s(self) -> float:
+        config = self._profile_config
+        duration = config.duration_s if config is not None else 0.0
+        return duration * (1.0 + self._COMPLETE_TIMEOUT_MARGIN_FRACTION) + self._COMPLETE_TIMEOUT_MARGIN_S
+
+    def wait_load_transient_complete(
+        self,
+        token: LoadTransientToken,
+        *,
+        timeout_s: float | None = None,
+        poll_interval_s: float = 0.01,
+    ) -> LoadTransientStatus:
+        """Wait for a clean completion; the idle bits also follow protection or input OFF."""
+        with self._profile_lock:
+            self._require_profile_token(token)
+            config = self._profile_config
+            if self._profile_state not in {"ready", "triggered"}:
+                raise DriverPreconditionError("load transient is not armed/triggered")
+            if config is not None and math.isinf(config.duration_s):
+                raise DriverPreconditionError(
+                    "an infinitely repeating profile never completes; stop it with abort_load_transient()"
+                )
+            if timeout_s is None:
+                timeout_s = self._default_profile_timeout_s()
+
+        def predicate() -> bool:
+            self._require_profile_not_superseded(token)
+            status = self.get_load_transient_status()
+            return not status.waiting_for_trigger and not status.transient_active
+
+        self._poll_profile(
+            token,
+            predicate,
+            operation="wait_load_transient_complete",
+            description=f"channel {self.channel} load transient complete",
+            timeout_s=timeout_s,
+            poll_interval_s=poll_interval_s,
+        )
+        with self._profile_lock:
+            self._require_profile_not_superseded(token)
+            try:
+                self._driver.check_errors()
+                protection = self.get_protection_status()
+                input_on = self.get_input()
+                if protection.active or not input_on:
+                    reason = (
+                        f"protection fault active (STAT:QUES:COND {protection.raw_status})"
+                        if protection.active
+                        else "input is OFF"
+                    )
+                    raise DriverOperationUncertainError(
+                        f"load transient ended without a clean completion: {reason}",
+                        details={"protection_raw_status": protection.raw_status, "input_on": input_on},
+                    )
+            except BaseException:
+                self._profile_state = "unknown"
+                raise
+            self._profile_state = "complete"
+        return self.get_load_transient_status()
+
+    def abort_load_transient(self) -> None:
+        """Return the transient system to idle; the profile stays configured for re-arming."""
+        with self._profile_lock:
+            self._profile_generation += 1
+            try:
+                self._stop_profile_system()
+                self._driver.check_errors()
+            except BaseException:
+                self._profile_state = "unknown"
+                raise
+            self._profile_state = "aborted"
+
+    def _emergency_abort_load_transient(self) -> None:
+        """Send only ``INIT:CONT:TRAN OFF`` and ``ABOR:TRAN`` for shutdown.
+
+        Both pass a digitizer lease held by another thread, and this skips the
+        profile lock so a long configure call cannot delay shutdown.
+        """
+        if self._is_sim or not self.capabilities.supports_list_mode:
+            return
+        self._profile_generation += 1
+        try:
+            try:
+                self._write(f"INIT:CONT:TRAN OFF,{self._chan}")
+            finally:
+                self._write(f"ABOR:TRAN {self._chan}")
+        except BaseException:
+            self._profile_state = "unknown"
+            raise
+        self._profile_state = "aborted"
+
+    def clear_load_profile(self) -> None:
+        """Abort and return every load quantity to FIX (no LIST/ARB left selected)."""
+        with self._profile_lock:
+            self.abort_load_transient()
+            for scpi in self._PROFILE_SCPI:
+                self._write(f"{scpi}:MODE FIX,{self._chan}")
+            self._driver.check_errors()
+            self._profile_config = None
+            self._profile_state = "idle"
 
     def _require_digitizing(self) -> None:
         self._require_verified_or_sim()

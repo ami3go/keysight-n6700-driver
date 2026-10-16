@@ -19,7 +19,7 @@ import copy
 import re
 import struct
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 from scpi_driver_core.scpi.binary_block import encode_definite_length_block
 from scpi_driver_core.simulation.scripted import ScriptedScpiTransport
@@ -99,11 +99,22 @@ class _ChannelState:
     current_slew_a_per_s: float = 9.9e37
     voltage_mode: str = "FIX"
     current_mode: str = "FIX"
+    # N679xA loads also run resistance/power LIST and ARB profiles.
+    resistance_mode: str = "FIX"
+    power_mode: str = "FIX"
     voltage_triggered: float = 0.0
     current_triggered: float = 0.0
+    resistance_triggered: float = 0.0
+    power_triggered: float = 0.0
+    resistance_range: float = 8000.0
+    power_range: float = 102.0
+    # N679xA VOLT:INH:VON: the load does not sink below this input voltage.
+    voltage_on_level: float = 0.01
     step_trigger_output: bool = False
     voltage_list: tuple[float, ...] = (0.0,)
     current_list: tuple[float, ...] = (1.0,)
+    resistance_list: tuple[float, ...] = (1.0,)
+    power_list: tuple[float, ...] = (1.0,)
     dwell_list: tuple[float, ...] = (0.001,)
     list_bost: tuple[float, ...] = (0.0,)
     list_eost: tuple[float, ...] = (0.0,)
@@ -130,6 +141,7 @@ class _ChannelState:
     transient_continuous: bool = False
     transient_steps_left: float = 0
     transient_polls_left: int = 0
+    abort_polls_left: int = 0
 
     @property
     def operation_status(self) -> int:
@@ -168,21 +180,42 @@ class SimN6700Instrument:
         self.array_border = "NORM"
         self.idn = f"KEYSIGHT TECHNOLOGIES,{mainframe_model.upper()},SIM000001,B.00.00"
         self.sequence_step_base = sequence_step_base
+        # On the N6700C one TRIG:ARB:SOUR without a channel list gates every
+        # ARB start; the channel-scoped form returns -108, and the IMMediate
+        # default starts an ARB at INIT:TRAN (confirmed on E.02.09 hardware).
+        self.mainframe_global_arb_trigger = mainframe_model.upper() == "N6700C"
+        self.global_arb_trigger_source = "IMM"
         # Status polls a triggered AUTO profile stays TRAN_active; 0 completes
         # immediately on the trigger.
         self.transient_active_polls = 0
+        # Status polls an aborted, initiated transient stays TRAN_active; real
+        # hardware takes ~0.2 s and refuses MODE changes meanwhile (+308).
+        self.abort_settle_polls = 0
         # Instrument file system for MMEM:STOR/LOAD:ARB:SEQ.
         self.files: dict[str, tuple[str, list[dict[str, Any]], float, bool]] = {}
 
-    @staticmethod
-    def _active_mode(st: _ChannelState) -> str:
-        return st.voltage_mode if st.transient_active_quantity == "VOLT" else st.current_mode
+    _MODE_ATTRIBUTES: ClassVar[dict[str, str]] = {
+        "VOLT": "voltage_mode",
+        "CURR": "current_mode",
+        "RES": "resistance_mode",
+        "POW": "power_mode",
+    }
+    _LIST_ATTRIBUTES: ClassVar[dict[str, str]] = {
+        "VOLT": "voltage_list",
+        "CURR": "current_list",
+        "RES": "resistance_list",
+        "POW": "power_list",
+    }
+
+    @classmethod
+    def _active_mode(cls, st: _ChannelState) -> str:
+        return str(getattr(st, cls._MODE_ATTRIBUTES[st.transient_active_quantity]))
 
     def _initiate_transient(self, st: _ChannelState) -> None:
-        if st.voltage_mode != "FIX":
-            st.transient_active_quantity = "VOLT"
-        elif st.current_mode != "FIX":
-            st.transient_active_quantity = "CURR"
+        for quantity, attribute in self._MODE_ATTRIBUTES.items():
+            if getattr(st, attribute) != "FIX":
+                st.transient_active_quantity = quantity
+                break
         else:
             self._push_error(-230, "No source LIST/ARB/STEP selected")
             return
@@ -193,10 +226,13 @@ class SimN6700Instrument:
         st.transient_state = "waiting"
         st.transient_step_once = mode == "LIST" and st.list_step == "ONCE"
         if st.transient_step_once:
-            levels = st.voltage_list if st.transient_active_quantity == "VOLT" else st.current_list
+            levels = getattr(st, self._LIST_ATTRIBUTES[st.transient_active_quantity])
             st.transient_steps_left = len(levels) * st.list_count
         # TRAN_active stays set from INIT until the trigger system is idle.
         st.operation_status |= 16 | 64
+        if mode == "ARB" and self.mainframe_global_arb_trigger and self.global_arb_trigger_source == "IMM":
+            # IMMediate needs no trigger: the ARB runs as soon as it is initiated.
+            self._finish_transient(st)
 
     @staticmethod
     def _transient_is_infinite(st: _ChannelState) -> bool:
@@ -218,13 +254,15 @@ class SimN6700Instrument:
         if mode == "STEP":
             final = st.voltage_triggered if quantity == "VOLT" else st.current_triggered
         elif mode == "LIST" and st.list_terminate_last:
-            final = (st.voltage_list if quantity == "VOLT" else st.current_list)[-1]
+            final = getattr(st, self._LIST_ATTRIBUTES[quantity])[-1]
         elif mode == "ARB" and st.arb_shape == "UDEF" and st.arb_terminate_last:
             final = st.arb_values.get(f"{quantity}:UDEF:LEV", (None,))[-1]
         if quantity == "VOLT":
             st.voltage = st.transient_initial_voltage if final is None else final
-        else:
+        elif quantity == "CURR":
             st.current_limit = st.transient_initial_current if final is None else final
+        elif final is not None:
+            setattr(st, "resistance" if quantity == "RES" else "power", final)
         st.transient_state = "complete"
         st.operation_status &= ~(16 | 64)
         if st.transient_continuous:
@@ -262,7 +300,9 @@ class SimN6700Instrument:
             raw = arguments[0]
             parsed: Any
             if attribute == "arb_type":
-                parsed = "CURR" if raw.upper().startswith("CURR") else "VOLT"
+                parsed = next(
+                    (name for name in ("CURR", "RES", "POW") if raw.upper().startswith(name)), "VOLT"
+                )
             elif attribute == "arb_shape":
                 parsed = _shape_keyword(raw)
                 if parsed is None:
@@ -341,9 +381,10 @@ class SimN6700Instrument:
                 return ",".join(str(value) for value in values)
             step["params"][key] = tuple(float(value) for value in arguments[:-1])
             return None
-        match = re.match(r"^ARB:(VOLT|CURR):([A-Z:]+)$", header)
+        # The resistance node has no short form: ARB:RES:... is undefined.
+        match = re.match(r"^ARB:(VOLT|CURR|RESISTANCE|POW):([A-Z:]+)$", header)
         if match:
-            key = f"{match.group(1)}:{match.group(2)}"
+            key = f"{match.group(1).replace('RESISTANCE', 'RES')}:{match.group(2)}"
             if key.endswith(":POIN"):
                 return str(len(st.arb_values.get(key[: -len(":POIN")], (0.0,))))
             if query:
@@ -463,6 +504,10 @@ class SimN6700Instrument:
             channels = self._channels_from_command(norm)
             for ch in channels:
                 st = self.channels[ch]
+                if st.abort_polls_left > 0:
+                    st.abort_polls_left -= 1
+                    if st.abort_polls_left <= 0:
+                        st.operation_status &= ~64
                 if st.transient_state == "active" and st.transient_polls_left > 0:
                     st.transient_polls_left -= 1
                     if st.transient_polls_left <= 0:
@@ -553,6 +598,9 @@ class SimN6700Instrument:
             ("VOLTAGE:RANGE", "voltage_range"),
             ("CURR:RANG", "current_range"),
             ("CURRENT:RANGE", "current_range"),
+            ("RES:RANG", "resistance_range"),
+            ("POW:RANG", "power_range"),
+            ("VOLT:INH:VON", "voltage_on_level"),
             ("VOLT:PROT", "ovp"),
             ("VOLTAGE:PROTECTION", "ovp"),
             ("VOLT:LIM", "voltage_limit"),
@@ -584,7 +632,12 @@ class SimN6700Instrument:
         if upper.startswith("CURR:LIM") or upper.startswith("CURRENT:LIMIT"):
             value = float(norm.split(None, 1)[1].split(",")[0])
             for ch in self._channels_from_command(norm):
-                self.channels[ch].load_current_limit = value
+                st = self.channels[ch]
+                if st.model.startswith("N679") and st.smu_mode != "VOLT":
+                    # Confirmed on an N6791A: CURR:LIM applies in voltage priority only.
+                    self._push_error(315, f"Settings conflict error; chan {ch} must be in voltage priority mode")
+                    continue
+                st.load_current_limit = value
             return None
         # Source LIST/ARB/STEP/slew and the output transient trigger system.
         # These branches intentionally precede the generic VOLT/CURR handlers.
@@ -609,10 +662,15 @@ class SimN6700Instrument:
         for quantity, mode_attribute, triggered_attribute in (
             ("VOLT", "voltage_mode", "voltage_triggered"),
             ("CURR", "current_mode", "current_triggered"),
+            ("RES", "resistance_mode", "resistance_triggered"),
+            ("POW", "power_mode", "power_triggered"),
         ):
             if upper.startswith(f"{quantity}:MODE?"):
                 return self._query_values(self._channels_from_command(norm), mode_attribute)
             if upper.startswith(f"{quantity}:MODE"):
+                if any(self.channels[ch].abort_polls_left > 0 for ch in self._channels_from_command(norm)):
+                    self._push_error(308, "Cannot change while transient trigger is initiated")
+                    return None
                 mode = self._argument_values(norm)[0].upper()
                 if mode not in {"FIX", "FIXED", "LIST", "ARB", "STEP"}:
                     self._push_error(-222, "Invalid transient mode")
@@ -639,6 +697,8 @@ class SimN6700Instrument:
         for command, attribute in (
             ("LIST:VOLT", "voltage_list"),
             ("LIST:CURR", "current_list"),
+            ("LIST:RES", "resistance_list"),
+            ("LIST:POW", "power_list"),
             ("LIST:DWEL", "dwell_list"),
             ("LIST:TOUT:BOST", "list_bost"),
             ("LIST:TOUT:EOST", "list_eost"),
@@ -705,6 +765,18 @@ class SimN6700Instrument:
                     st.sequence_count = count
                     st.sequence_terminate_last = terminate
             return None
+        if upper.startswith("TRIG:ARB:SOUR") and self.mainframe_global_arb_trigger:
+            if "(@" in norm:
+                self._push_error(-108, "Parameter not allowed")
+                return "" if upper.startswith("TRIG:ARB:SOUR?") else None
+            if upper.startswith("TRIG:ARB:SOUR?"):
+                return self.global_arb_trigger_source
+            if any(st.transient_state in {"waiting", "active"} for st in self.channels.values()):
+                self._push_error(308, "Cannot change while transient trigger is initiated")
+                return None
+            raw = self._argument_values(norm)[0].upper()
+            self.global_arb_trigger_source = "EXT" if raw.startswith("EXT") else raw[:3]
+            return None
         if upper.startswith("TRIG:ARB:SOUR?"):
             return self._query_values(self._channels_from_command(norm), "arb_trigger_source")
         if upper.startswith("TRIG:ARB:SOUR"):
@@ -760,11 +832,15 @@ class SimN6700Instrument:
         if upper.startswith("ABOR:TRAN"):
             for ch in self._channels_from_command(norm):
                 st = self.channels[ch]
+                settling = st.transient_state in {"waiting", "active"} and self.abort_settle_polls > 0
                 if st.transient_state in {"waiting", "active"}:
                     st.voltage = st.transient_initial_voltage
                     st.current_limit = st.transient_initial_current
                 st.transient_state = "aborted"
                 st.operation_status &= ~(16 | 64)
+                if settling:
+                    st.abort_polls_left = self.abort_settle_polls
+                    st.operation_status |= 64
                 if st.transient_continuous:
                     # Continuous initiation re-arms the system right away.
                     self._initiate_transient(st)
