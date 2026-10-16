@@ -8,7 +8,10 @@ installed; that one describes what the *driver* can do.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import hashlib
+import json
+import re
+from dataclasses import dataclass, replace
 from typing import Literal
 
 ModuleType = Literal["power_supply", "smu", "electronic_load", "unknown"]
@@ -20,6 +23,8 @@ class ChannelCapabilities:
     module_type: ModuleType
     mainframe_model: str = ""
     options: tuple[str, ...] = ()
+    firmware_version: str = ""
+    capability_fingerprint: str = ""
     supports_voltage_source: bool = False
     supports_current_source: bool = False
     supports_load_cc: bool = False
@@ -70,26 +75,63 @@ SMU_PREFIXES = ("N678",)
 LOAD_MODELS = frozenset({"N6791A", "N6792A"})
 
 
+# Exact source models in the Keysight N6700C Model Differences / specification
+# tables. Prefix matching can silently advertise Arb for nonexistent/unknown modules.
+_OPTION_054_MODELS = frozenset(
+    {f"N673{n}B" for n in range(1, 7)}
+    | {f"N674{n}B" for n in range(1, 7)}
+    | {f"N675{n}A" for n in range(1, 7)}
+    | {f"N677{n}A" for n in range(3, 8)}
+)
+_PRECISION_MODELS = frozenset(f"N676{n}A" for n in range(1, 7))
+_SMU_MODELS = frozenset({"N6781A", "N6782A", "N6783A", "N6784A", "N6785A", "N6786A"})
+_QUALIFIED_MAINFRAMES = frozenset({"N6700C", "N6705C"})
+_OPTION_PATTERN = re.compile(r"[A-Z0-9]{1,16}$")
+_FIRMWARE_PATTERN = re.compile(r"[A-Z][A-Z0-9]*(?:[.][A-Z0-9]+){1,4}$")
+_INVALID_OPTION_REPLIES = frozenset({"UNKNOWN", "ERROR", "NONE", "NA", "UNAVAILABLE"})
+
+
 def classify_module(
     model: str,
     options: list[str] | tuple[str, ...] | None = None,
     *,
     mainframe_model: str | None = None,
+    firmware_version: str | None = None,
 ) -> ChannelCapabilities:
+    """Classify using a documented module/mainframe/option combination.
+
+    Unknown chassis, unrecognized models, absent/invalid option inventory and
+    unreviewed firmware identity *never* enable source LIST or voltage Arb.
+    The returned SHA-256 fingerprint is deterministic, not a proof of hardware
+    identity and not authorization for unattended energization.
+    """
     model_clean = model.strip().upper()
-    mainframe_clean = (mainframe_model or "").strip().upper()
-    # The ARB command subsystem (including CDW, sequences, and MMEMory
-    # sequence files) belongs to the N6705 DC Power Analyzer mainframe.  LIST
-    # and triggered STEP remain module features on the other N6700-family
-    # mainframes, so keep those capabilities separate.
-    arb_available = not mainframe_clean or mainframe_clean.startswith("N6705")
-    opts = tuple(options or ())
+    mainframe = (mainframe_model or "").strip().upper()
+    firmware = (firmware_version or "").strip().upper()
+    raw_options = tuple(str(item).strip().upper() for item in (options or ()))
+    opts = tuple(sorted({item for item in raw_options if item and item not in {"0", "+0"}}))
+    options_known = options is not None and all(
+        _OPTION_PATTERN.fullmatch(item) and item not in _INVALID_OPTION_REPLIES for item in opts
+    )
+    known_identity = bool(mainframe and _FIRMWARE_PATTERN.fullmatch(firmware))
+    fingerprint_data = [mainframe, firmware, model_clean, list(opts), options_known]
+    fingerprint = hashlib.sha256(
+        json.dumps(fingerprint_data, separators=(",", ":"), ensure_ascii=True).encode("ascii")
+    ).hexdigest()
+    common = ChannelCapabilities(
+        model=model_clean,
+        module_type="unknown",
+        options=opts,
+        mainframe_model=mainframe,
+        firmware_version=firmware,
+        capability_fingerprint=fingerprint,
+    )
+    supported_context = mainframe in _QUALIFIED_MAINFRAMES and known_identity and options_known
+
     if model_clean == "SIM_LOAD":
-        return ChannelCapabilities(
-            model=model_clean,
+        return replace(
+            common,
             module_type="electronic_load",
-            mainframe_model=mainframe_clean,
-            options=opts,
             supports_load_cc=True,
             supports_load_cv=True,
             supports_load_cr=True,
@@ -98,65 +140,56 @@ def classify_module(
             verified_real_load_commands=False,
         )
     if model_clean in LOAD_MODELS:
-        return ChannelCapabilities(
-            model=model_clean,
+        return replace(
+            common,
             module_type="electronic_load",
-            mainframe_model=mainframe_clean,
-            options=opts,
             supports_load_cc=True,
             supports_load_cv=True,
             supports_load_cr=True,
             supports_load_cp=True,
             supports_power_measurement=True,
-            supports_list_mode=True,
+            supports_list_mode=supported_context,
             verified_real_load_commands=True,
-            # "1 or 2 parameters (all models): 10.24 microseconds" per the manual's
-            # sample-rate table; the 5.12 microsecond single-parameter rate is SMU-only.
             supports_digitizing=True,
             supports_array_measurement=True,
             digitize_qualification="vendor_declared",
             digitize_min_interval_s=10.24e-6,
         )
-    if model_clean.startswith(SMU_PREFIXES):
-        return ChannelCapabilities(
-            model=model_clean,
+    if model_clean in _SMU_MODELS:
+        return replace(
+            common,
             module_type="smu",
-            mainframe_model=mainframe_clean,
-            options=opts,
             supports_voltage_source=True,
             supports_current_source=True,
             supports_power_measurement=True,
             supports_array_measurement=True,
-            supports_list_mode=True,
-            supports_voltage_arb=arb_available,
+            supports_list_mode=supported_context,
+            supports_voltage_arb=supported_context,
             supports_voltage_slew=True,
-            supports_current_transient=True,
-            supports_current_arb=arb_available,
+            supports_current_transient=supported_context,
+            supports_current_arb=supported_context,
             supports_bipolar_voltage=model_clean == "N6784A",
             supports_current_slew=True,
-            supports_aux_voltage_input=model_clean.startswith(("N6781", "N6785")),
-            supports_smu_priority_mode=True,
+            supports_aux_voltage_input=model_clean in {"N6781A", "N6785A"},
+            supports_smu_priority_mode=model_clean != "N6783A",
             supports_smu_output_off_mode=True,
         )
-    if model_clean.startswith(POWER_PREFIXES):
-        return ChannelCapabilities(
-            model=model_clean,
+    if model_clean in _OPTION_054_MODELS or model_clean in _PRECISION_MODELS:
+        optioned = model_clean in _OPTION_054_MODELS
+        arb_allowed = supported_context and (
+            not optioned or mainframe == "N6705C" or "054" in opts
+        )
+        return replace(
+            common,
             module_type="power_supply",
-            mainframe_model=mainframe_clean,
-            options=opts,
             supports_voltage_source=True,
             supports_current_source=False,
-            supports_power_measurement=model_clean.startswith("N676"),
-            supports_array_measurement=model_clean.startswith("N676") or "054" in opts,
-            supports_list_mode=True,
-            supports_voltage_arb=arb_available,
+            supports_power_measurement=model_clean in _PRECISION_MODELS,
+            supports_array_measurement=arb_allowed,
+            supports_list_mode=arb_allowed,
+            supports_voltage_arb=arb_allowed,
             supports_voltage_slew=True,
-            supports_current_transient=True,
-            supports_current_arb=arb_available,
+            supports_current_transient=arb_allowed,
+            supports_current_arb=arb_allowed,
         )
-    return ChannelCapabilities(
-        model=model_clean,
-        module_type="unknown",
-        mainframe_model=mainframe_clean,
-        options=opts,
-    )
+    return common

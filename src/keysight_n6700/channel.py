@@ -112,10 +112,22 @@ class BaseChannel:
     def _chan(self) -> str:
         return format_channel_list(self.channel)
 
+    def _invalidate_discovery(self) -> None:
+        """Revoke stale channel handles on rediscovery/disconnect."""
+        self._discovery_valid = False
+
+    def _assert_discovery_valid(self) -> None:
+        if not getattr(self, "_discovery_valid", True):
+            raise DriverPreconditionError(
+                "channel discovery is stale; reacquire the channel from the driver"
+            )
+
     def _query(self, command: str) -> str:
+        self._assert_discovery_valid()
         return self._driver.query_scpi(command)
 
     def _write(self, command: str) -> None:
+        self._assert_discovery_valid()
         self._driver.write_scpi(command)
 
     def measure_voltage(self) -> float:
@@ -245,6 +257,13 @@ class PowerSupplyChannel(BaseChannel):
         self._transient_continuous = False
         self._transient_triggered_at: float | None = None
         self._sequence_step_base: int | None = None
+
+    def _invalidate_discovery(self) -> None:
+        super()._invalidate_discovery()
+        with self._transient_lock:
+            self._transient_generation += 1
+            self._transient_config = None
+            self._transient_state = "unknown"
 
     def output_on(self) -> None:
         self.set_output(True)

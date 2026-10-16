@@ -8,6 +8,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       matrix:
         python-version: ["3.10", "3.13"]
@@ -29,7 +30,7 @@ jobs:
       - name: Mypy (adapter)
         run: mypy --ignore-missing-imports adapters/robotframework/keysight_n6700_robotframework_adapter
       - name: Pytest
-        run: pytest --cov=keysight_n6700 --cov-report=term-missing
+        run: pytest --timeout=30 --timeout-method=thread --cov=keysight_n6700 --cov-report=term-missing
       - name: Structure validation
         run: python scripts/validate_structure.py
       - name: AI contract / capability model freshness

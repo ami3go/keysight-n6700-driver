@@ -171,22 +171,22 @@ def test_non_bipolar_module_rejects_negative_voltage_envelope(driver) -> None:
         )
 
 
-def test_arb_is_rejected_early_on_non_analyzer_mainframe() -> None:
+def test_source_transients_are_rejected_early_without_option_054() -> None:
     driver = N6700.connect_simulated(mainframe_model="N6700C")
     try:
         transport = driver._session(None).transport
         transport.clear_history()
-        with pytest.raises(DriverUnsupportedOperationError, match="require an N6705"):
+        with pytest.raises(DriverUnsupportedOperationError, match="LIST/ARB support"):
             driver.configure_voltage_arb_waveform(
                 1, ArbSine(1.0, 2.0, 100.0), maximum_voltage_v=5.0
             )
         assert not any(command.startswith("ARB:") for command in transport.history)
 
-        # Mainframe gating is ARB-specific; ordinary LIST generation remains usable.
-        config = driver.configure_voltage_list(
-            1, [1.0, 2.0], 0.001, maximum_voltage_v=5.0
-        )
-        assert config.levels_v == pytest.approx((1.0, 2.0))
+        with pytest.raises(DriverUnsupportedOperationError, match="LIST/ARB support"):
+            driver.configure_voltage_list(
+                1, [1.0, 2.0], 0.001, maximum_voltage_v=5.0
+            )
+        assert not any(command.startswith(("ARB:", "LIST:")) for command in transport.history)
     finally:
         driver.disconnect()
 

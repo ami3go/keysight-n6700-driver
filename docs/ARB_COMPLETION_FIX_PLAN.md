@@ -3,7 +3,9 @@
 **Branch:** `fix/arb-completion`
 **Baseline:** `d2e4276` (`main`, 2026-10-15)
 **Prepared:** 2026-10-16
-**Status:** implementation in progress; simulator/offline claims only
+**Status:** implementation in progress; P0-1 incorporated from PR #20; simulator/offline claims only
+**Release target:** v0.7.10 after the v0.7.9 capability work from PR #20
+**Reviewed core target:** `scpi-driver-core@9c5dd50a`
 
 This plan closes the gaps found after merging the waveform-generator review.
 It supplements the broader [ARB driver implementation task](ARB_DRIVER_IMPLEMENTATION_TASK.md)
@@ -91,8 +93,8 @@ headroom, and safe failure state. Fill missing shape-by-parameter negative tests
 
 ### P1-8 — reviewed core dependency integration
 
-1. Inspect the latest `scpi-driver-core` changes against the companion hardening
-   task; do not update to an unreviewed branch head.
+1. Review `scpi-driver-core@9c5dd50a` against the companion hardening task;
+   do not update to a later unreviewed branch head.
 2. Pin normal and `[visa]` requirements to the same immutable reviewed commit.
 3. Run old/new compatibility checks for LIST/UDEF, ARB, digitizer, tracing,
    timeouts, binary blocks, and session locking before accepting the new pin.
@@ -135,7 +137,7 @@ and no claim that skipped hardware tests passed.
 
 ## Completion checklist
 
-- [ ] P0-1 exact capability/Option 054 matrix
+- [x] P0-1 exact capability/Option 054 matrix (PR #20 prerequisite)
 - [ ] P0-2 error preservation and shared-session transaction lock
 - [ ] P0-3 typed and verified trigger dialect
 - [ ] P1-4 standard voltage shape audit
