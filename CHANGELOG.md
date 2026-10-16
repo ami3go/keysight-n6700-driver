@@ -23,6 +23,13 @@ priority. Configuration validates absolute current range, the live SMU voltage
 compliance (using `VOLT:LIM`, not OVP), the fixed-voltage operating point for
 supply current limits, and protection state before and after programming.
 
+Constant-dwell ARB uploads now preflight the complete ASCII command against a
+64 KiB encoded-command bound before the first mutation. The driver explicitly
+does not split a vector or use the still-unqualified binary-input grammar. It
+also queries the effective CDW point count and rejects mismatches, with tests
+for point/dwell boundaries, quantization, oversized transfers, malformed
+readback, and transfer-failure cleanup.
+
 Source profile configuration now holds the alias and core-client operation
 locks across the complete prepare/program/readback transaction, preventing
 another channel from interleaving SCPI commands. Configuration cleanup is

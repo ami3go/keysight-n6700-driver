@@ -247,6 +247,10 @@ class PowerSupplyChannel(BaseChannel):
     # [SOURce:]ARB:<VOLT|CURR>:CDWell:DWELl range, in 10.24 us steps.
     _CDW_MINIMUM_DWELL_S = 10.24e-6
     _CDW_MAXIMUM_DWELL_S = 0.30
+    # The reviewed text codec accepts at most 64 KiB including its terminator.
+    # CDW binary input is vendor-defined, but is not used until its transport
+    # framing has separate protocol qualification; never fragment this list.
+    _MAXIMUM_CDW_ASCII_COMMAND_BYTES = 65_536
     # [SOURce:]ARB:SEQuence:STEP:FUNCtion:SHAPe: at most 100 steps.
     _MAXIMUM_SEQUENCE_STEPS = 100
 
@@ -1439,12 +1443,20 @@ class PowerSupplyChannel(BaseChannel):
         repeat = normalize_repeat_count(repeat_count, 256)
         duration_limit = self._require_duration(dwell * len(values), repeat, maximum_duration_s)
         scpi = self._QUANTITY_SCPI[quantity]
+        level_command = f"ARB:{scpi}:CDW {self._csv(values)},{self._chan}"
+        encoded_bytes = len(level_command.encode("ascii")) + 1  # conservative LF terminator
+        if encoded_bytes > self._MAXIMUM_CDW_ASCII_COMMAND_BYTES:
+            raise DriverArgumentValueError(
+                f"constant-dwell ASCII command is {encoded_bytes} bytes; maximum is "
+                f"{self._MAXIMUM_CDW_ASCII_COMMAND_BYTES} bytes. The driver does not "
+                "fragment CDW vectors or use unqualified binary input."
+            )
 
         def program() -> None:
             self._write(f"ARB:FUNC:TYPE {scpi},{self._chan}")
             self._write(f"ARB:FUNC:SHAP CDW,{self._chan}")
             self._write(f"ARB:{scpi}:CDW:DWEL {format_float(dwell)},{self._chan}")
-            self._write(f"ARB:{scpi}:CDW {self._csv(values)},{self._chan}")
+            self._write(level_command)
             self._write(f"ARB:COUN {repeat_scpi(repeat)},{self._chan}")
             self._write(f"ARB:TERM:LAST {format_bool(terminate_last)},{self._chan}")
             self._write(f"{scpi}:MODE ARB,{self._chan}")
@@ -1454,6 +1466,14 @@ class PowerSupplyChannel(BaseChannel):
             level_readback = self._parse_csv_floats(
                 self._query(f"ARB:{scpi}:CDW? {self._chan}"), "constant-dwell level"
             )
+            point_readback = self._parse_integer(
+                self._query(f"ARB:{scpi}:CDW:POIN? {self._chan}"),
+                "constant-dwell point count",
+            )
+            if point_readback != len(values):
+                raise DriverOperationUncertainError(
+                    "constant-dwell point-count readback mismatch"
+                )
             dwell_readback = self._parse_float(
                 self._query(f"ARB:{scpi}:CDW:DWEL? {self._chan}"), "constant-dwell dwell"
             )
