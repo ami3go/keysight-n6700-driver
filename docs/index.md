@@ -16,6 +16,7 @@ power systems.
 - [Worked Arb code examples and offline tests](ARB_WORKED_CODE_EXAMPLES.md)
 - [Coordinated Arb driver implementation task](ARB_DRIVER_IMPLEMENTATION_TASK.md)
 - [ARB completion fix plan](ARB_COMPLETION_FIX_PLAN.md)
+- [Remaining Arb safety and HIL qualification task](../task/N6700_ARB_REMAINING_WORK_TASK.md)
 - [Troubleshooting](troubleshooting.md)
 - [Release notes](release_notes.md)
 
