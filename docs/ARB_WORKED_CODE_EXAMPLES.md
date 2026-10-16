@@ -1,8 +1,11 @@
 # Worked Arb waveform code examples — N6700/N6705
 
-**Revision:** 1.0 · **2026-10-15** · documentation release **v0.7.6**
-**Purpose:** source-linked, detailed Python designs and SCPI transcripts for extending this driver's arbitrary-waveform generator support.
-**Safety:** **Examples 2–7 are offline designs, not public driver APIs and not approved live-instrument scripts.** They compile or validate commands but never transmit them. Example 1 runs **only with the built-in simulator**. All real hardware operation requires a separately approved HIL plan, per-model capability checks and independent protection.
+**Revision:** 1.1 · **2026-10-16** · implementation release **v0.7.10**
+**Purpose:** preserve the source-linked design examples that informed the typed
+ARB implementation and show their current public-API equivalents.
+**Safety:** examples remain offline/simulator material, not approved
+live-instrument scripts. All real hardware operation requires a separately
+approved HIL plan, per-model capability checks and independent protection.
 
 This document complements the [source-code analysis](ARB_SOURCE_CODE_ANALYSIS.md), [manufacturer command inventory](ARB_WAVEFORM_REFERENCE.md) and the [implemented bounded voltage-transient API](VOLTAGE_TRANSIENT_IMPLEMENTATION.md). New code below is an **original adaptation of concepts**, not copied third-party source. Each section identifies exact sources, implemented status, dangers and tests.
 
@@ -18,7 +21,11 @@ This document complements the [source-code analysis](ARB_SOURCE_CODE_ANALYSIS.md
 | 6. Two-step Arb sequence | [Keysight sequence example](https://www.keysight.com/nz/en/assets/9018-04957/service-manuals/9018-04957.pdf), [IVM6311ATE](https://github.com/HarishKumarSedu/IVM6311ATE/blob/4b41017d16d87b0050eeccc5588c850b9acd57bd/Instruments/KeySight_N670x.py) | `ARB:SEQ:RESET`, shape per index, source type | Prevalidate every step and keep output OFF; no automatic `*TRG` or `OUTP ON` |
 | 7. Trigger and fault-injection plan | [VoltFraud](https://github.com/PDSHan/VoltFraud/blob/20a9030a8dea9d59e481cf00a220c5f51c496068/VoltFraud-sgx/lib/DCpower_ctr.py), [SweepMe! SMU](https://github.com/SweepMe/instrument-drivers/blob/f69a9a17cca86ef6d83788634aaedcab3cc0af89/src/SMU-Keysight_N6705/main.py) | Explicit source selection, finite status polling, fault-injection scenarios | Distinguish `TRIG:ARB:SOUR` from `TRIG:TRAN:SOUR`; preserve generation tokens, timeout cleanup |
 
-**Current supported driver behavior:** voltage `LIST`, voltage `UDEF` Arb and slew control, not typed standard PULSE/RAMP/CDW/current-Arb/sequence APIs. Code examples for these unimplemented features are **design references only**.
+**Current supported driver behavior:** bounded voltage/current LIST and UDEF,
+typed standard shapes, ASCII CDW, finite dwell-paced sequences, triggered STEP,
+typed ARB/TRAN trigger selection, and guarded lifecycle control. Examples 2–7
+remain historical pure compilers/plans; use the public APIs documented in
+[VOLTAGE_TRANSIENT_IMPLEMENTATION.md](VOLTAGE_TRANSIENT_IMPLEMENTATION.md).
 
 ## 2. Example 1 — current public API, runnable in the simulator
 
@@ -284,7 +291,12 @@ assert compile_current_cdw_data(
 ) == "ARB:CURR:CDW 0.1,0.3,0.1,(@1)"
 ~~~
 
-**Planned full configuration (not runnable in v0.7.6):** select type CURR and shape CDW, validate channel priority and total duration, set `ARB:CURR:CDW:DWEL`, transfer points, query `ARB:CURR:CDW:POIN?`, set finite `ARB:COUN`, `ARB:TERM:LAST OFF`, then enter `CURR:MODE ARB` **while the output is verified OFF**. For a PyVISA implementation, check the exact `write_ascii_values` terminator/channel-list behavior, ASCII transfer framing, large-array timeout and model support. **No output enable or trigger is shown or implied.**
+**Implemented equivalent (v0.7.10):**
+`configure_current_constant_dwell_arb()` performs this transaction while the
+output is verified OFF, checks the current programming role/range/compliance,
+preflights the complete ASCII command at 64 KiB, verifies `CDW:POIN?`, and
+reads back dwell/count/mode. It never enables or triggers the output. Binary
+CDW input and vectors exceeding the safe ASCII command budget remain rejected.
 
 ## 7. Example 6 — two-step Arb sequence planning and command ordering
 
@@ -335,8 +347,8 @@ assert not any("OUTP ON" in line or "*TRG" in line for line in commands)
 
 | Context | Representative command | Driver consequence |
 | --- | --- | --- |
-| Current implementation: voltage LIST/UDEF transient system | `TRIG:TRAN:SOUR BUS,(@1)` | Used by existing `configure_voltage_transient_trigger()`, validated by current simulator tests |
-| Arb-specific source selector in N6705 Programmer's Reference | `TRIG:ARB:SOUR BUS` | Selected trigger can apply broadly; exact mainframe/channel scope must be verified against installed hardware |
+| LIST/STEP transient system | `TRIG:TRAN:SOUR BUS,(@1)` | Selected by typed mode state and read back |
+| ARB transient system | `TRIG:ARB:SOUR BUS,(@1)` | Selected only for an approved channel-scoped capability dialect and read back; physical firmware verification remains pending |
 | Trigger specific armed transient | `TRIG:TRAN (@1)` | Existing driver uses this instead of mainframe-wide `*TRG` |
 
 A safe **offline** selection helper cannot auto-detect which selector is correct merely from the waveform name:

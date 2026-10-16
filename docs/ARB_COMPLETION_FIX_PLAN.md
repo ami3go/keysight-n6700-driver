@@ -3,7 +3,7 @@
 **Branch:** `fix/arb-completion`
 **Baseline:** `d2e4276` (`main`, 2026-10-15)
 **Prepared:** 2026-10-16
-**Status:** implementation in progress; P0-1 incorporated from PR #20; simulator/offline claims only
+**Status:** software packages complete; P0-1 incorporated from PR #20; simulator/offline claims only
 **Release target:** v0.7.10 after the v0.7.9 capability work from PR #20
 **Reviewed core target:** `scpi-driver-core@9c5dd50a`
 
@@ -145,5 +145,5 @@ and no claim that skipped hardware tests passed.
 - [x] P1-6 bounded CDW transfer
 - [x] P1-7 bounded sequence quality/point/trigger model
 - [x] P1-8 reviewed core pin and compatibility suite
-- [ ] P1-9 documentation/contracts/version/build
-- [ ] Hardware plan prepared; physical execution remains separately authorized
+- [x] P1-9 documentation/contracts/version/build
+- [x] Hardware plan prepared; physical execution remains separately authorized

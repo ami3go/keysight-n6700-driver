@@ -5,6 +5,10 @@ All notable changes to this project are documented here. See
 
 ## Unreleased
 
+No unreleased changes.
+
+## v0.7.10 — 2026-10-16
+
 ARB trigger-source selection now uses a typed, capability-approved dialect:
 LIST/STEP profiles retain channel-scoped `TRIG:TRAN:SOUR`, while ARB profiles
 use channel-scoped `TRIG:ARB:SOUR`. Unknown ARB trigger dialects fail closed,
@@ -66,8 +70,9 @@ must be in voltage priority. N678xA dwell may be up to 268.435 s.
 while initiated, multi-poll runs and step-once pacing.
 
 Completed the waveform-generator review: ARB capabilities are now combined
-with the discovered mainframe model and rejected before mutation outside an
-N6705 mainframe; LIST/STEP remain available independently. N6784A voltage
+with the discovered mainframe model, module, firmware, and installed options;
+unknown or unsupported combinations are rejected before mutation. LIST/STEP
+remain independently capability-gated. N6784A voltage
 profiles accept explicit bipolar safety envelopes while all unipolar modules
 continue to reject negative levels. ARB sequence setup probes and caches
 whether installed firmware numbers steps from 0 or 1, resolving the conflict

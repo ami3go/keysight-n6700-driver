@@ -35,11 +35,14 @@ Important vendor constraints reflected in the API:
 - LIST voltage, current, dwell and trigger arrays must have a common length or a singleton length.
 - LIST supports at most 512 points and repeat count 1–256.
 - User-defined voltage ARB supports at most 511 points.
-- ARB waveform commands, constant-dwell ARBs, sequences and sequence files require an N6705 mainframe; discovery rejects them early on N6700B/C, N6701 and N6702 while leaving LIST/STEP available.
+- ARB/LIST capability is derived from exact mainframe, module, firmware and
+  option context. N6700C N673xB/N674xB/N675xA/N677xA modules require Option
+  054; N676xA/N678xA and N6705C follow their reviewed capability paths.
 - N6784A supports an explicitly approved negative-to-positive voltage envelope; other supported modules remain unipolar.
 - Firmware sequence-step numbering is probed after `ARB:SEQ:RES` because the user-guide example is zero-based while the programmer's-reference parameter table says 1–100.
 - General LIST/UDEF dwell range for N6775A is 0–262.144 s, with range-dependent quantization.
-- ARB repeat count is finite and at most 16,777,216 in this API.
+- Single-shape ARB repeat count is bounded to 16,777,216 or explicit infinite
+  opt-in; normal sequence construction is finite and dwell-paced.
 - The output trigger system must be initiated and report WTG_transient before a trigger; early triggers can be ignored.
 - `ABOR:TRAN` returns the trigger system to idle. It does not disable continuous triggering, so cleanup also sends `INIT:CONT:TRAN OFF`.
 - `VOLT:SLEW` affects all voltage changes, including output on/off transitions.
@@ -152,7 +155,9 @@ For a user-defined ARB, replace `configure_voltage_list` with `configure_voltage
 5. The caller's maximum may not exceed the selected instrument range, and must stay at least 5 % below the OVP readback so step overshoot cannot trip protection.
    On N678xA SMU channels the channel must be in voltage priority (`FUNC VOLT`).
 6. Point count, dwell (262.144 s, or 268.435 s on N678xA), integer repeat count and calculated total duration are bounded before the first profile write.
-7. Infinite repeat requires an explicit value and is rejected by completion waits that cannot terminate naturally.
+7. Infinite single-shape repeat requires an explicit value and is rejected by
+   completion waits that cannot terminate naturally. Normal sequence creation
+   rejects infinite counts and trigger pacing without a finite trigger schedule.
 8. Configuration pins `CURR:MODE FIX` (the fixed current limit applies to every step; no current list is programmed) and LIST writes disabled BOST/EOST arrays so stale instrument arrays cannot invalidate the profile or emit unreviewed triggers.
 9. Profile arrays and voltage mode are read back before configuration is reported successful.
 10. Partial configuration failure sends `ABOR:TRAN`, disables continuous transient initiation, selects FIXED voltage mode, and marks local state unknown.
@@ -181,9 +186,9 @@ The driver validates instrument and caller-supplied limits. It cannot discover t
 | LIST policy | `LIST:COUN`, `LIST:STEP`, `LIST:TERM:LAST`, `VOLT:MODE LIST` |
 | UDEF ARB | `ARB:FUNC:TYPE VOLT`, `ARB:FUNC:SHAP UDEF`, `ARB:VOLT:UDEF:LEV`, `ARB:VOLT:UDEF:DWEL`, `ARB:VOLT:UDEF:BOST` |
 | Built-in/CDW ARB | `ARB:<VOLT|CURR>:<shape>`, `ARB:<VOLT|CURR>:CDW`, parameter readbacks |
-| ARB sequence | `ARB:SEQ:RES`, runtime 0/1 step-base probe, `ARB:SEQ:STEP:*`, `MMEM:<STOR|LOAD>:ARB:SEQ` |
+| ARB sequence | `ARB:SEQ:RES`, runtime 0/1 step-base probe, `ARB:SEQ:STEP:*`, `ARB:SEQ:QUAL?`, `MMEM:<STOR|LOAD>:ARB:SEQ` |
 | ARB policy | `ARB:COUN`, `ARB:TERM:LAST`, `VOLT:MODE ARB` |
-| Trigger source | `TRIG:TRAN:SOUR BUS|EXT` plus readback |
+| Trigger source | LIST/STEP: `TRIG:TRAN:SOUR`; ARB: `TRIG:ARB:SOUR`, both channel-scoped with readback |
 | Arm/readiness | `INIT:TRAN`, `STAT:OPER:COND?` bit 4 / decimal 16 |
 | Channel-scoped software trigger | `TRIG:TRAN (@n)` |
 | Completion | `STAT:OPER:COND?` bit 6 / decimal 64 and WTG clear |

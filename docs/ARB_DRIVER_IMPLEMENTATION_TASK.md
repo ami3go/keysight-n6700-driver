@@ -1,11 +1,19 @@
 # Task: Production-oriented N6700 Arb waveform generator integration
 
-**Task ID:** N6700-ARB-001 · **Prepared:** 2026-10-15 · **Status:** READY TO START REVIEWED PRs; **unimplemented features remain unimplemented**
+**Task ID:** N6700-ARB-001 · **Prepared:** 2026-10-15 · **Original status:** READY TO START REVIEWED PRs
 **Repository:** https://github.com/ami3go/keysight-n6700-driver
 **Inspected baseline:** `main@0594f5161ca49169fe75171b466842320d29a26f`, package `0.7.6`
 **Core dependency pinned at baseline:** `scpi-driver-core@ec19ab88906d8e6ac270b30d7615ce7e75dc6a08` in both normal and `[visa]` requirements.
 **Companion core task:** [N6700_ARB_CORE_HARDENING_TASK.md](https://github.com/ami3go/scpi-driver-core/blob/main/task/N6700_ARB_CORE_HARDENING_TASK.md) (published on core `main` at commit [`ef913b1`](https://github.com/ami3go/scpi-driver-core/commit/ef913b1078600630af511c7aebb652092f4651b6)).
 **Status constraint:** this document is a **task**, not a code delivery, software qualification, or permission to energize hardware. All code blocks are implementation sketches unless explicitly labeled current public API.
+
+> **Implementation update (v0.7.10):** DRV-ARB-A through DRV-ARB-H are now
+> implemented and covered by offline/simulator checks. This document preserves
+> the original task and review rationale; use
+> [`ARB_COMPLETION_FIX_PLAN.md`](ARB_COMPLETION_FIX_PLAN.md) and
+> [`ARB_WAVEFORM_REFERENCE.md`](ARB_WAVEFORM_REFERENCE.md) for current software
+> status. DRV-ARB-I physical HIL/DSO qualification remains unexecuted and
+> requires separate authorization.
 
 ## 1. Objective and scope
 
