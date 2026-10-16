@@ -10,6 +10,11 @@ LIST/STEP profiles retain channel-scoped `TRIG:TRAN:SOUR`, while ARB profiles
 use channel-scoped `TRIG:ARB:SOUR`. Unknown ARB trigger dialects fail closed,
 and ordinary single-channel runs never emit mainframe-global `*TRG`.
 
+All timing fields of the seven finite parametric ARB shapes now enforce the
+documented 262.144 s ceiling at shape construction. The distinct N678xA
+268.435 s limit remains confined to UDEF dwell values, and every timing field
+has an explicit boundary regression test.
+
 Source profile configuration now holds the alias and core-client operation
 locks across the complete prepare/program/readback transaction, preventing
 another channel from interleaving SCPI commands. Configuration cleanup is

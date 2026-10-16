@@ -25,7 +25,7 @@ from keysight_n6700 import (
     DriverUnsupportedOperationError,
     shape_from_name,
 )
-from keysight_n6700.waveforms import normalize_repeat_count
+from keysight_n6700.waveforms import PARAMETRIC_MAXIMUM_TIME_S, normalize_repeat_count
 
 
 def _sim(driver):
@@ -96,6 +96,51 @@ def test_shape_level_bounds_and_durations() -> None:
 def test_invalid_shape_parameters_are_rejected(factory) -> None:
     with pytest.raises(DriverArgumentValueError):
         factory()
+
+
+@pytest.mark.parametrize(
+    ("waveform", "attribute"),
+    [
+        (ArbStep(1.0, 2.0), "start_time_s"),
+        (ArbRamp(1.0, 2.0, 1.0), "start_time_s"),
+        (ArbRamp(1.0, 2.0, 1.0), "rise_time_s"),
+        (ArbRamp(1.0, 2.0, 1.0), "end_time_s"),
+        (ArbStaircase(1.0, 2.0, 2, 1.0), "start_time_s"),
+        (ArbStaircase(1.0, 2.0, 2, 1.0), "staircase_time_s"),
+        (ArbStaircase(1.0, 2.0, 2, 1.0), "end_time_s"),
+        (ArbPulse(1.0, 2.0, 1.0), "start_time_s"),
+        (ArbPulse(1.0, 2.0, 1.0), "top_time_s"),
+        (ArbPulse(1.0, 2.0, 1.0), "end_time_s"),
+        (ArbTrapezoid(1.0, 2.0, 1.0, 1.0, 1.0), "start_time_s"),
+        (ArbTrapezoid(1.0, 2.0, 1.0, 1.0, 1.0), "rise_time_s"),
+        (ArbTrapezoid(1.0, 2.0, 1.0, 1.0, 1.0), "top_time_s"),
+        (ArbTrapezoid(1.0, 2.0, 1.0, 1.0, 1.0), "fall_time_s"),
+        (ArbTrapezoid(1.0, 2.0, 1.0, 1.0, 1.0), "end_time_s"),
+        (ArbExponential(1.0, 2.0, 1.0, 1.0), "start_time_s"),
+        (ArbExponential(1.0, 2.0, 1.0, 1.0), "time_s"),
+        (ArbExponential(1.0, 2.0, 1.0, 1.0), "time_constant_s"),
+    ],
+    ids=lambda value: value if isinstance(value, str) else type(value).__name__,
+)
+def test_every_parametric_shape_time_obeys_documented_ceiling(waveform, attribute) -> None:
+    assert replace(waveform, **{attribute: PARAMETRIC_MAXIMUM_TIME_S}).times_s
+    with pytest.raises(DriverArgumentValueError, match=r"must be <= 262\.144 s"):
+        replace(waveform, **{attribute: PARAMETRIC_MAXIMUM_TIME_S + 0.001})
+
+
+def test_n678_udef_uses_its_distinct_dwell_timebase() -> None:
+    driver = N6700.connect_simulated(models={1: "N6784A"}, mainframe_model="N6705C")
+    try:
+        config = driver.configure_voltage_arb_waveform(
+            1,
+            ArbUserDefined((0.0,), (268.435,)),
+            minimum_voltage_v=-1.0,
+            maximum_voltage_v=1.0,
+            maximum_duration_s=269.0,
+        )
+        assert config.waveform.duration_s == pytest.approx(268.435)
+    finally:
+        driver.disconnect()
 
 
 def test_user_defined_shape_broadcasts_dwell_and_trigger_flags() -> None:

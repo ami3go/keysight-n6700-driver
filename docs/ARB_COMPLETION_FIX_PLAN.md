@@ -140,7 +140,7 @@ and no claim that skipped hardware tests passed.
 - [x] P0-1 exact capability/Option 054 matrix (PR #20 prerequisite)
 - [x] P0-2 error preservation and shared-session transaction lock
 - [x] P0-3 typed and verified trigger dialect
-- [ ] P1-4 standard voltage shape audit
+- [x] P1-4 standard voltage shape audit
 - [ ] P1-5 current ARB safety matrix
 - [ ] P1-6 bounded CDW transfer
 - [ ] P1-7 bounded sequence quality/point/trigger model

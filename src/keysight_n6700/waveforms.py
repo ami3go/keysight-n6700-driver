@@ -24,6 +24,10 @@ RepeatCount = int | Literal["infinite"]
 # Programmer's Reference, [SOURce:]ARB:<VOLT|CURR>:SINusoid:FREQuency.
 SINE_MINIMUM_FREQUENCY_HZ = 3.8147e-5
 SINE_MAXIMUM_FREQUENCY_HZ = 1.0e4
+# Every timing parameter of the seven parametric shapes has this documented
+# model-independent ceiling.  UDEF dwell is separate: N678xA uses a 268.435 s
+# timebase while other modules use 262.144 s.
+PARAMETRIC_MAXIMUM_TIME_S = 262.144
 # [SOURce:]ARB:<VOLT|CURR>:STAircase:NSTeps (0 steps is rejected: no staircase).
 STAIRCASE_MAXIMUM_STEPS = 500
 USER_DEFINED_MAXIMUM_POINTS = 511
@@ -60,6 +64,10 @@ class _Shape:
                 value = _finite(raw, attribute)
             if kind == "time" and value < 0:
                 raise DriverArgumentValueError(f"{attribute} must be >= 0 s")
+            if kind == "time" and value > PARAMETRIC_MAXIMUM_TIME_S:
+                raise DriverArgumentValueError(
+                    f"{attribute} must be <= {PARAMETRIC_MAXIMUM_TIME_S:g} s"
+                )
             object.__setattr__(self, attribute, value)
 
     def scpi_parameters(self) -> tuple[tuple[str, float, ParameterKind], ...]:

@@ -55,6 +55,7 @@ from .types import (
     VoltageTransientToken,
 )
 from .waveforms import (
+    PARAMETRIC_MAXIMUM_TIME_S,
     PARAMETRIC_SHAPES,
     USER_DEFINED_MAXIMUM_POINTS,
     ArbSequenceStep,
@@ -501,7 +502,11 @@ class PowerSupplyChannel(BaseChannel):
             raise DriverArgumentValueError(f"{name} must be an ARB shape such as ArbRamp")
         shape_low, shape_high = waveform.level_bounds
         self._require_within(quantity, (shape_low, shape_high), low, high)
-        maximum_s = self._maximum_dwell_s
+        maximum_s = (
+            self._maximum_dwell_s
+            if isinstance(waveform, ArbUserDefined)
+            else PARAMETRIC_MAXIMUM_TIME_S
+        )
         if any(value > maximum_s for value in waveform.times_s):
             raise DriverArgumentValueError(
                 f"{name} time parameters must be within 0..{maximum_s:g} s"
