@@ -5,6 +5,9 @@
 - `python/basic_power_supply.py` — configure, enable, and measure one channel against the simulator.
 - `python/multi_session.py` — hold two independent sessions in one driver instance.
 - `python/ethernet_connection.py` — connect to real hardware over raw TCP/SCPI.
+- `python/generator/` — short ARB waveform generator examples (pulse, ramp, sine,
+  staircase, trapezoid, custom points, sequences, current ARB). See its
+  [README](python/generator/README.md).
 
 Run any of them directly: `python examples/python/basic_power_supply.py`.
 
