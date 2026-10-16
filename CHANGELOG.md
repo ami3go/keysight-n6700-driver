@@ -30,6 +30,14 @@ also queries the effective CDW point count and rejects mismatches, with tests
 for point/dwell boundaries, quantization, oversized transfers, malformed
 readback, and transfer-failure cleanup.
 
+ARB sequences now budget the vendor-generated points for STEP, PULSE,
+STAIRCASE, UDEF, and smooth shapes before resetting sequence memory. They
+require finite sequence counts and dwell pacing in the normal completion API,
+enforce the 511-point budget at minimum quality, query `ARB:SEQ:QUAL?`, and
+record the effective 16–100 quality and generated-point count in the returned
+configuration. Step repeat counts are accepted only for trigger-paced steps,
+which require a future API with an explicit finite trigger schedule.
+
 Source profile configuration now holds the alias and core-client operation
 locks across the complete prepare/program/readback transaction, preventing
 another channel from interleaving SCPI commands. Configuration cleanup is

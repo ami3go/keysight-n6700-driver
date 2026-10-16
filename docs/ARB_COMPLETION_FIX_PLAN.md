@@ -143,7 +143,7 @@ and no claim that skipped hardware tests passed.
 - [x] P1-4 standard voltage shape audit
 - [x] P1-5 current ARB safety matrix
 - [x] P1-6 bounded CDW transfer
-- [ ] P1-7 bounded sequence quality/point/trigger model
+- [x] P1-7 bounded sequence quality/point/trigger model
 - [ ] P1-8 reviewed core pin and compatibility suite
 - [ ] P1-9 documentation/contracts/version/build
 - [ ] Hardware plan prepared; physical execution remains separately authorized

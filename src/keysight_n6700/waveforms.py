@@ -31,6 +31,9 @@ PARAMETRIC_MAXIMUM_TIME_S = 262.144
 # [SOURce:]ARB:<VOLT|CURR>:STAircase:NSTeps (0 steps is rejected: no staircase).
 STAIRCASE_MAXIMUM_STEPS = 500
 USER_DEFINED_MAXIMUM_POINTS = 511
+SEQUENCE_MAXIMUM_POINTS = 511
+SEQUENCE_MINIMUM_QUALITY = 16
+SEQUENCE_MAXIMUM_QUALITY = 100
 
 
 def _finite(value: object, name: str) -> float:
@@ -319,6 +322,32 @@ ArbShape = (
     | ArbUserDefined
 )
 
+
+def sequence_waveform_points(waveform: ArbShape, quality: int) -> int:
+    """Return sequence memory points for one shape at instrument ``quality``.
+
+    The guide assigns ``quality`` points to each smooth waveform as a whole,
+    three to a pulse, two to a step, one per UDEF point, and one more point
+    than the number of staircase transitions. Repeats do not consume more
+    waveform memory.
+    """
+    if not SEQUENCE_MINIMUM_QUALITY <= quality <= SEQUENCE_MAXIMUM_QUALITY:
+        raise DriverArgumentValueError(
+            f"quality must be within {SEQUENCE_MINIMUM_QUALITY}.."
+            f"{SEQUENCE_MAXIMUM_QUALITY}"
+        )
+    if isinstance(waveform, (ArbRamp, ArbTrapezoid, ArbExponential, ArbSine)):
+        return quality
+    if isinstance(waveform, ArbPulse):
+        return 3
+    if isinstance(waveform, ArbStep):
+        return 2
+    if isinstance(waveform, ArbStaircase):
+        return waveform.steps + 1
+    if isinstance(waveform, ArbUserDefined):
+        return len(waveform.levels)
+    raise DriverArgumentValueError("waveform must be an ARB shape")
+
 PARAMETRIC_SHAPES: dict[str, type[_Shape]] = {
     cls.shape: cls
     for cls in (ArbStep, ArbRamp, ArbStaircase, ArbSine, ArbPulse, ArbTrapezoid, ArbExponential)
@@ -434,6 +463,10 @@ class ArbSequenceStep:
         if self.pacing not in {"dwell", "trigger"}:
             raise DriverArgumentValueError("pacing must be 'dwell' or 'trigger'")
         repeat = normalize_repeat_count(self.repeat_count, 16_777_216)
+        if self.pacing == "dwell" and repeat != 1:
+            raise DriverArgumentValueError(
+                "sequence step repeat_count is only valid with trigger-paced execution"
+            )
         if repeat == "infinite" and self.pacing != "trigger":
             raise DriverArgumentValueError(
                 "only a trigger-paced sequence step may repeat 'infinite' times"

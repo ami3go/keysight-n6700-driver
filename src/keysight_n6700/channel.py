@@ -57,6 +57,9 @@ from .types import (
 from .waveforms import (
     PARAMETRIC_MAXIMUM_TIME_S,
     PARAMETRIC_SHAPES,
+    SEQUENCE_MAXIMUM_POINTS,
+    SEQUENCE_MAXIMUM_QUALITY,
+    SEQUENCE_MINIMUM_QUALITY,
     USER_DEFINED_MAXIMUM_POINTS,
     ArbSequenceStep,
     ArbShape,
@@ -65,6 +68,7 @@ from .waveforms import (
     normalize_repeat_count,
     normalize_trigger_flags,
     repeat_scpi,
+    sequence_waveform_points,
 )
 
 _ConfigT = TypeVar("_ConfigT", bound=SourceTransientConfiguration)
@@ -1657,6 +1661,20 @@ class PowerSupplyChannel(BaseChannel):
             if not isinstance(step, ArbSequenceStep):
                 raise DriverArgumentValueError(f"steps[{index}] must be an ArbSequenceStep")
             self._validate_waveform(quantity, step.waveform, low, high, f"steps[{index}]")
+            if step.pacing == "trigger":
+                raise DriverArgumentValueError(
+                    "trigger-paced ARB sequences require an external finite trigger schedule; "
+                    "the normal completion API accepts dwell pacing only"
+                )
+        minimum_points = sum(
+            sequence_waveform_points(step.waveform, SEQUENCE_MINIMUM_QUALITY)
+            for step in result
+        )
+        if minimum_points > SEQUENCE_MAXIMUM_POINTS:
+            raise DriverArgumentValueError(
+                f"ARB sequence requires at least {minimum_points} generated points at quality "
+                f"{SEQUENCE_MINIMUM_QUALITY}; maximum is {SEQUENCE_MAXIMUM_POINTS}"
+            )
         return result
 
     def _assert_sequence_readback(
@@ -1688,10 +1706,31 @@ class PowerSupplyChannel(BaseChannel):
             self._require_readback_within(
                 quantity, step.waveform.level_bounds, low, high, f"ARB sequence step {index}"
             )
-            if any(value > self._maximum_dwell_s for value in step.waveform.times_s):
+            maximum_time = (
+                self._maximum_dwell_s
+                if isinstance(step.waveform, ArbUserDefined)
+                else PARAMETRIC_MAXIMUM_TIME_S
+            )
+            if any(value > maximum_time for value in step.waveform.times_s):
                 raise DriverOperationUncertainError(
-                    f"ARB sequence step {index} time parameters exceed {self._maximum_dwell_s:g} s"
+                    f"ARB sequence step {index} time parameters exceed {maximum_time:g} s"
                 )
+        quality = self._parse_integer(
+            self._query(f"ARB:SEQ:QUAL? {self._chan}"), "ARB sequence quality"
+        )
+        if not SEQUENCE_MINIMUM_QUALITY <= quality <= SEQUENCE_MAXIMUM_QUALITY:
+            raise DriverOperationUncertainError(
+                f"ARB sequence quality {quality} is outside "
+                f"{SEQUENCE_MINIMUM_QUALITY}..{SEQUENCE_MAXIMUM_QUALITY}"
+            )
+        generated_points = sum(
+            sequence_waveform_points(step.waveform, quality) for step in steps
+        )
+        if generated_points > SEQUENCE_MAXIMUM_POINTS:
+            raise DriverOperationUncertainError(
+                f"ARB sequence readback requires {generated_points} generated points; "
+                f"maximum is {SEQUENCE_MAXIMUM_POINTS}"
+            )
         count = self._parse_repeat(
             self._query(f"ARB:SEQ:COUN? {self._chan}"), "ARB sequence count"
         )
@@ -1709,6 +1748,8 @@ class PowerSupplyChannel(BaseChannel):
             terminate_last=terminate,
             minimum_level=low,
             maximum_level=high,
+            quality=quality,
+            generated_points=generated_points,
         )
 
     def _configure_sequence(
@@ -1726,6 +1767,10 @@ class PowerSupplyChannel(BaseChannel):
         low, high = self._bounds(quantity, minimum, maximum)
         requested = self._validate_sequence(quantity, steps, low, high)
         count = normalize_repeat_count(sequence_count, 4096, "sequence_count")
+        if count == "infinite":
+            raise DriverArgumentValueError(
+                "sequence_count must be finite for the normal completion API"
+            )
         duration_limit = self._require_duration(
             self._sequence_one_pass_s(requested), count, maximum_duration_s
         )
@@ -1780,11 +1825,7 @@ class PowerSupplyChannel(BaseChannel):
         terminate_last: bool = False,
         maximum_duration_s: float = 60.0,
     ) -> ArbSequenceConfiguration:
-        """Configure a voltage ARB sequence of up to 100 shapes.
-
-        Trigger-paced steps need the ``'external'`` transient trigger source
-        and an explicit completion timeout.
-        """
+        """Configure a finite, dwell-paced voltage ARB sequence of up to 100 shapes."""
         return self._configure_sequence(
             "voltage",
             steps,

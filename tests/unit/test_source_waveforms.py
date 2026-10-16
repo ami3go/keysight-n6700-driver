@@ -321,7 +321,7 @@ def test_constant_dwell_arb_rejects_out_of_range_settings(driver, dwell_s, kwarg
 
 def _sequence():
     return [
-        ArbSequenceStep(ArbPulse(1.0, 5.0, 0.01), repeat_count=2),
+        ArbSequenceStep(ArbPulse(1.0, 5.0, 0.01)),
         ArbSequenceStep(ArbRamp(1.0, 4.0, 0.01)),
         ArbSequenceStep(ArbSine(1.0, 3.0, 100.0)),
     ]
@@ -336,7 +336,9 @@ def test_arb_sequence_programs_steps_in_order_and_runs(driver) -> None:
     assert config.steps == tuple(_sequence())
     assert config.sequence_count == 2
     assert config.trigger_paced is False
-    assert config.duration_s == pytest.approx(2 * (2 * 0.01 + 0.01 + 0.01))
+    assert config.duration_s == pytest.approx(2 * (0.01 + 0.01 + 0.01))
+    assert 16 <= config.quality <= 100
+    assert config.generated_points <= 511
     shapes = [c for c in transport.history if c.startswith("ARB:SEQ:STEP:FUNC:SHAP ")]
     assert shapes == [
         "ARB:SEQ:STEP:FUNC:SHAP PULS,0,(@1)",
@@ -391,21 +393,16 @@ def test_arb_sequence_rejects_invalid_steps(driver) -> None:
         ArbSequenceStep(ArbStep(1.0, 2.0), repeat_count="infinite")
 
 
-def test_trigger_paced_sequence_requires_external_source(driver) -> None:
-    driver.configure_voltage_arb_sequence(
-        1,
-        [ArbSequenceStep(ArbPulse(1.0, 5.0, 0.01), pacing="trigger")],
-        maximum_voltage_v=10.0,
-    )
-    driver.set_dc_voltage(1.0, 1)
-    driver.enable_output(1)
-    with pytest.raises(DriverPreconditionError, match="trigger-paced"):
-        driver.arm_voltage_transient(1)
-    driver.configure_voltage_transient_trigger(1, "external")
-    token = driver.arm_voltage_transient(1)
-    assert driver.wait_voltage_transient_ready(1, token).state == "ready"
-    _sim(driver).execute("TRIG:TRAN (@1)")  # the external edge
-    assert driver.wait_voltage_transient_complete(1, token, timeout_s=1.0).state == "complete"
+def test_trigger_paced_sequence_requires_a_separate_finite_schedule_api(driver) -> None:
+    transport = driver._session(None).transport
+    transport.clear_history()
+    with pytest.raises(DriverArgumentValueError, match="finite trigger schedule"):
+        driver.configure_voltage_arb_sequence(
+            1,
+            [ArbSequenceStep(ArbPulse(1.0, 5.0, 0.01), pacing="trigger")],
+            maximum_voltage_v=10.0,
+        )
+    assert not any(command.startswith("ARB:") for command in transport.history)
 
 
 def test_sequence_file_store_and_load_round_trip(driver) -> None:
@@ -430,8 +427,10 @@ def test_loaded_sequence_outside_envelope_is_refused(driver) -> None:
 def test_loaded_infinite_sequence_requires_opt_in(driver) -> None:
     driver.configure_voltage_arb_sequence(
         1, [ArbSequenceStep(ArbPulse(1.0, 5.0, 0.01))], maximum_voltage_v=10.0,
-        sequence_count="infinite",
     )
+    # Model an externally supplied legacy file. The normal builder deliberately
+    # cannot create an unbounded sequence.
+    _sim(driver).execute("ARB:SEQ:COUN INF,(@1)")
     driver.store_arb_sequence(1, r"internal:\inf.seq")
     with pytest.raises(DriverPreconditionError, match="allow_infinite"):
         driver.load_voltage_arb_sequence(1, r"internal:\inf.seq", maximum_voltage_v=10.0)

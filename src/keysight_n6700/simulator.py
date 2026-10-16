@@ -281,6 +281,30 @@ class SimN6700Instrument:
             return None
         if header == "ARB:SEQ:LEN":
             return str(len(st.sequence_steps))
+        if header == "ARB:SEQ:QUAL":
+            fixed_points = 0
+            smooth_shapes = 0
+            for sequence_step in st.sequence_steps:
+                shape = sequence_step["shape"]
+                if shape in {"RAMP", "TRAP", "EXP", "SIN"}:
+                    smooth_shapes += 1
+                elif shape == "PULS":
+                    fixed_points += 3
+                elif shape == "STEP":
+                    fixed_points += 2
+                elif shape == "STA":
+                    values = sequence_step["params"].get(
+                        f"{st.arb_type}:STA:NST", (10.0,)
+                    )
+                    fixed_points += int(values[0]) + 1
+                elif shape == "UDEF":
+                    values = sequence_step["params"].get(
+                        f"{st.arb_type}:UDEF:LEV", (0.0,)
+                    )
+                    fixed_points += len(values)
+            if not smooth_shapes:
+                return "100"
+            return str(min(100, max(16, (511 - fixed_points) // smooth_shapes)))
         if header == "ARB:SEQ:STEP:FUNC:SHAP":
             if query:
                 step = self._sequence_step(st, arguments[0])
