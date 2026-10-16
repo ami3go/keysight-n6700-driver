@@ -38,6 +38,12 @@ record the effective 16–100 quality and generated-point count in the returned
 configuration. Step repeat counts are accepted only for trigger-paced steps,
 which require a future API with an explicit finite trigger schedule.
 
+The normal and `[visa]` dependencies now share the immutable reviewed
+`scpi-driver-core` pin `9c5dd50a03031f65e1aa5cf13832db7372f043b9`
+(core v0.1.0.dev11). Compatibility coverage includes source LIST/ARB,
+digitizer ASCII/REAL32 framing, tracing, timeouts, session serialization,
+exception translation, and byte-exact outbound IEEE-488.2 blocks.
+
 Source profile configuration now holds the alias and core-client operation
 locks across the complete prepare/program/readback transaction, preventing
 another channel from interleaving SCPI commands. Configuration cleanup is

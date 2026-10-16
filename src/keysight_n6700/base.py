@@ -21,11 +21,11 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable, Iterator, Mapping
-from contextlib import AbstractContextManager, contextmanager, suppress
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, TypeVar, cast
+from typing import Any, TypeVar
 
 from scpi_driver_core.exceptions import ScpiDriverError
 from scpi_driver_core.scpi.client import ScpiClient
@@ -329,8 +329,7 @@ class BaseInstrument:
         the normal write/query choke points while holding this transaction.
         """
         entry = self._entry(alias)
-        client_lock = cast(AbstractContextManager[None], entry.session.operation_lock())
-        with entry.lock, client_lock:
+        with entry.lock, entry.session.operation_lock():
             yield
 
     # -- the operation-execution wrapper, LPDS-003 §17.1 -----------------------
