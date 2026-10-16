@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import pytest
 from scpi_driver_core.simulation.scripted import ScriptedScpiTransport
@@ -24,7 +25,7 @@ from keysight_n6700 import (
     DriverUnsupportedOperationError,
     shape_from_name,
 )
-from keysight_n6700.waveforms import normalize_repeat_count
+from keysight_n6700.waveforms import PARAMETRIC_MAXIMUM_TIME_S, normalize_repeat_count
 
 
 def _sim(driver):
@@ -95,6 +96,51 @@ def test_shape_level_bounds_and_durations() -> None:
 def test_invalid_shape_parameters_are_rejected(factory) -> None:
     with pytest.raises(DriverArgumentValueError):
         factory()
+
+
+@pytest.mark.parametrize(
+    ("waveform", "attribute"),
+    [
+        (ArbStep(1.0, 2.0), "start_time_s"),
+        (ArbRamp(1.0, 2.0, 1.0), "start_time_s"),
+        (ArbRamp(1.0, 2.0, 1.0), "rise_time_s"),
+        (ArbRamp(1.0, 2.0, 1.0), "end_time_s"),
+        (ArbStaircase(1.0, 2.0, 2, 1.0), "start_time_s"),
+        (ArbStaircase(1.0, 2.0, 2, 1.0), "staircase_time_s"),
+        (ArbStaircase(1.0, 2.0, 2, 1.0), "end_time_s"),
+        (ArbPulse(1.0, 2.0, 1.0), "start_time_s"),
+        (ArbPulse(1.0, 2.0, 1.0), "top_time_s"),
+        (ArbPulse(1.0, 2.0, 1.0), "end_time_s"),
+        (ArbTrapezoid(1.0, 2.0, 1.0, 1.0, 1.0), "start_time_s"),
+        (ArbTrapezoid(1.0, 2.0, 1.0, 1.0, 1.0), "rise_time_s"),
+        (ArbTrapezoid(1.0, 2.0, 1.0, 1.0, 1.0), "top_time_s"),
+        (ArbTrapezoid(1.0, 2.0, 1.0, 1.0, 1.0), "fall_time_s"),
+        (ArbTrapezoid(1.0, 2.0, 1.0, 1.0, 1.0), "end_time_s"),
+        (ArbExponential(1.0, 2.0, 1.0, 1.0), "start_time_s"),
+        (ArbExponential(1.0, 2.0, 1.0, 1.0), "time_s"),
+        (ArbExponential(1.0, 2.0, 1.0, 1.0), "time_constant_s"),
+    ],
+    ids=lambda value: value if isinstance(value, str) else type(value).__name__,
+)
+def test_every_parametric_shape_time_obeys_documented_ceiling(waveform, attribute) -> None:
+    assert replace(waveform, **{attribute: PARAMETRIC_MAXIMUM_TIME_S}).times_s
+    with pytest.raises(DriverArgumentValueError, match=r"must be <= 262\.144 s"):
+        replace(waveform, **{attribute: PARAMETRIC_MAXIMUM_TIME_S + 0.001})
+
+
+def test_n678_udef_uses_its_distinct_dwell_timebase() -> None:
+    driver = N6700.connect_simulated(models={1: "N6784A"}, mainframe_model="N6705C")
+    try:
+        config = driver.configure_voltage_arb_waveform(
+            1,
+            ArbUserDefined((0.0,), (268.435,)),
+            minimum_voltage_v=-1.0,
+            maximum_voltage_v=1.0,
+            maximum_duration_s=269.0,
+        )
+        assert config.waveform.duration_s == pytest.approx(268.435)
+    finally:
+        driver.disconnect()
 
 
 def test_user_defined_shape_broadcasts_dwell_and_trigger_flags() -> None:
@@ -171,22 +217,22 @@ def test_non_bipolar_module_rejects_negative_voltage_envelope(driver) -> None:
         )
 
 
-def test_arb_is_rejected_early_on_non_analyzer_mainframe() -> None:
+def test_source_transients_are_rejected_early_without_option_054() -> None:
     driver = N6700.connect_simulated(mainframe_model="N6700C")
     try:
         transport = driver._session(None).transport
         transport.clear_history()
-        with pytest.raises(DriverUnsupportedOperationError, match="require an N6705"):
+        with pytest.raises(DriverUnsupportedOperationError, match="LIST/ARB support"):
             driver.configure_voltage_arb_waveform(
                 1, ArbSine(1.0, 2.0, 100.0), maximum_voltage_v=5.0
             )
         assert not any(command.startswith("ARB:") for command in transport.history)
 
-        # Mainframe gating is ARB-specific; ordinary LIST generation remains usable.
-        config = driver.configure_voltage_list(
-            1, [1.0, 2.0], 0.001, maximum_voltage_v=5.0
-        )
-        assert config.levels_v == pytest.approx((1.0, 2.0))
+        with pytest.raises(DriverUnsupportedOperationError, match="LIST/ARB support"):
+            driver.configure_voltage_list(
+                1, [1.0, 2.0], 0.001, maximum_voltage_v=5.0
+            )
+        assert not any(command.startswith(("ARB:", "LIST:")) for command in transport.history)
     finally:
         driver.disconnect()
 
@@ -197,6 +243,37 @@ def test_shape_duration_is_bounded(driver) -> None:
             1, ArbSine(1.0, 5.0, 1.0), maximum_voltage_v=10.0, repeat_count=100,
             maximum_duration_s=10.0,
         )
+
+
+def test_trigger_source_uses_mode_specific_typed_dialect(driver) -> None:
+    transport = driver._session(None).transport
+    assert isinstance(transport, ScriptedScpiTransport)
+
+    driver.configure_voltage_list(1, [1.0, 2.0], 0.001, maximum_voltage_v=5.0)
+    transport.clear_history()
+    driver.configure_voltage_transient_trigger(1, "bus")
+    assert "TRIG:TRAN:SOUR BUS,(@1)" in transport.history
+    assert "TRIG:TRAN:SOUR? (@1)" in transport.history
+    assert not any(command.startswith("TRIG:ARB:SOUR") for command in transport.history)
+
+    driver.configure_voltage_arb_waveform(
+        1, ArbSine(1.0, 2.0, 100.0), maximum_voltage_v=5.0
+    )
+    transport.clear_history()
+    driver.configure_voltage_transient_trigger(1, "external")
+    assert "TRIG:ARB:SOUR EXT,(@1)" in transport.history
+    assert "TRIG:ARB:SOUR? (@1)" in transport.history
+    assert not any(command.startswith(("TRIG:TRAN:SOUR", "*TRG")) for command in transport.history)
+
+
+def test_unknown_arb_trigger_dialect_fails_closed(driver) -> None:
+    driver.configure_voltage_arb_waveform(
+        1, ArbSine(1.0, 2.0, 100.0), maximum_voltage_v=5.0
+    )
+    channel = driver.power_supply(1)
+    channel.capabilities = replace(channel.capabilities, arb_trigger_dialect="unsupported")
+    with pytest.raises(DriverUnsupportedOperationError, match="no approved ARB trigger dialect"):
+        channel.configure_voltage_transient_trigger("bus")
 
 
 def test_infinite_repeat_cannot_wait_for_completion(driver) -> None:
@@ -244,7 +321,7 @@ def test_constant_dwell_arb_rejects_out_of_range_settings(driver, dwell_s, kwarg
 
 def _sequence():
     return [
-        ArbSequenceStep(ArbPulse(1.0, 5.0, 0.01), repeat_count=2),
+        ArbSequenceStep(ArbPulse(1.0, 5.0, 0.01)),
         ArbSequenceStep(ArbRamp(1.0, 4.0, 0.01)),
         ArbSequenceStep(ArbSine(1.0, 3.0, 100.0)),
     ]
@@ -259,7 +336,9 @@ def test_arb_sequence_programs_steps_in_order_and_runs(driver) -> None:
     assert config.steps == tuple(_sequence())
     assert config.sequence_count == 2
     assert config.trigger_paced is False
-    assert config.duration_s == pytest.approx(2 * (2 * 0.01 + 0.01 + 0.01))
+    assert config.duration_s == pytest.approx(2 * (0.01 + 0.01 + 0.01))
+    assert 16 <= config.quality <= 100
+    assert config.generated_points <= 511
     shapes = [c for c in transport.history if c.startswith("ARB:SEQ:STEP:FUNC:SHAP ")]
     assert shapes == [
         "ARB:SEQ:STEP:FUNC:SHAP PULS,0,(@1)",
@@ -314,21 +393,16 @@ def test_arb_sequence_rejects_invalid_steps(driver) -> None:
         ArbSequenceStep(ArbStep(1.0, 2.0), repeat_count="infinite")
 
 
-def test_trigger_paced_sequence_requires_external_source(driver) -> None:
-    driver.configure_voltage_arb_sequence(
-        1,
-        [ArbSequenceStep(ArbPulse(1.0, 5.0, 0.01), pacing="trigger")],
-        maximum_voltage_v=10.0,
-    )
-    driver.set_dc_voltage(1.0, 1)
-    driver.enable_output(1)
-    with pytest.raises(DriverPreconditionError, match="trigger-paced"):
-        driver.arm_voltage_transient(1)
-    driver.configure_voltage_transient_trigger(1, "external")
-    token = driver.arm_voltage_transient(1)
-    assert driver.wait_voltage_transient_ready(1, token).state == "ready"
-    _sim(driver).execute("TRIG:TRAN (@1)")  # the external edge
-    assert driver.wait_voltage_transient_complete(1, token, timeout_s=1.0).state == "complete"
+def test_trigger_paced_sequence_requires_a_separate_finite_schedule_api(driver) -> None:
+    transport = driver._session(None).transport
+    transport.clear_history()
+    with pytest.raises(DriverArgumentValueError, match="finite trigger schedule"):
+        driver.configure_voltage_arb_sequence(
+            1,
+            [ArbSequenceStep(ArbPulse(1.0, 5.0, 0.01), pacing="trigger")],
+            maximum_voltage_v=10.0,
+        )
+    assert not any(command.startswith("ARB:") for command in transport.history)
 
 
 def test_sequence_file_store_and_load_round_trip(driver) -> None:
@@ -353,8 +427,10 @@ def test_loaded_sequence_outside_envelope_is_refused(driver) -> None:
 def test_loaded_infinite_sequence_requires_opt_in(driver) -> None:
     driver.configure_voltage_arb_sequence(
         1, [ArbSequenceStep(ArbPulse(1.0, 5.0, 0.01))], maximum_voltage_v=10.0,
-        sequence_count="infinite",
     )
+    # Model an externally supplied legacy file. The normal builder deliberately
+    # cannot create an unbounded sequence.
+    _sim(driver).execute("ARB:SEQ:COUN INF,(@1)")
     driver.store_arb_sequence(1, r"internal:\inf.seq")
     with pytest.raises(DriverPreconditionError, match="allow_infinite"):
         driver.load_voltage_arb_sequence(1, r"internal:\inf.seq", maximum_voltage_v=10.0)

@@ -47,7 +47,9 @@ def test_n679x_family_is_recognized_case_insensitively() -> None:
 
 
 def test_n678x_still_classifies_as_smu() -> None:
-    caps = classify_module("N6781A")
+    caps = classify_module(
+        "N6781A", [], mainframe_model="N6700C", firmware_version="C.01.00"
+    )
     assert caps.module_type == "smu"
     assert caps.supports_smu_priority_mode is True
     assert caps.supports_aux_voltage_input is True
@@ -60,19 +62,32 @@ def test_n6784a_is_the_only_bipolar_voltage_smu() -> None:
     assert classify_module("N6781A").supports_bipolar_voltage is False
 
 
-def test_mainframe_model_gates_arb_without_gating_list_transients() -> None:
-    analyzer = classify_module("N6775A", mainframe_model="N6705C")
-    modular = classify_module("N6775A", mainframe_model="N6700C")
+def test_mainframe_model_and_option_gate_source_transients() -> None:
+    analyzer = classify_module(
+        "N6775A", [], mainframe_model="N6705C", firmware_version="C.01.00"
+    )
+    modular = classify_module(
+        "N6775A", [], mainframe_model="N6700C", firmware_version="C.01.00"
+    )
+    modular_optioned = classify_module(
+        "N6775A", ["054"], mainframe_model="N6700C", firmware_version="C.01.00"
+    )
     assert analyzer.supports_voltage_arb is True
     assert analyzer.supports_current_arb is True
     assert modular.supports_voltage_arb is False
     assert modular.supports_current_arb is False
-    assert modular.supports_list_mode is True
-    assert modular.supports_current_transient is True
+    assert modular.supports_list_mode is False
+    assert modular.supports_current_transient is False
+    assert modular_optioned.supports_voltage_arb is True
+    assert modular_optioned.supports_current_arb is True
+    assert modular_optioned.supports_list_mode is True
+    assert modular_optioned.supports_current_transient is True
 
 
 def test_n677x_supports_voltage_list_arb_and_slew() -> None:
-    caps = classify_module("N6775A")
+    caps = classify_module(
+        "N6775A", ["054"], mainframe_model="N6700C", firmware_version="C.01.00"
+    )
     assert caps.module_type == "power_supply"
     assert caps.supports_list_mode is True
     assert caps.supports_voltage_arb is True

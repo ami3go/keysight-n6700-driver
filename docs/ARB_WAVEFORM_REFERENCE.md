@@ -1,7 +1,9 @@
 # N6700 power-module arbitrary waveform generation (ARB): command and capability reference
 
 **Reference revision:** 1.5 (2026-10-15)
-**Driver baseline:** keysight-n6700-driver v0.7.0; catalog published in documentation release v0.7.1; external code references updated in v0.7.2; forum/Stack Overflow research added in v0.7.3; third-party software design review added in v0.7.4; expanded source-by-source analysis published in v0.7.5; worked code examples added in v0.7.6.
+**Driver baseline:** keysight-n6700-driver v0.7.10; research catalog and worked
+examples originated in v0.7.1–v0.7.6, with typed software implementation and
+offline protocol completion in v0.7.10.
 **Purpose:** collect the documented hardware waveform functions, their SCPI command families, hardware gating, and the difference between vendor support and the Python driver's implemented surface.
 
 > **Critical status:** This is a **manufacturer-command inventory and implementation backlog**, not a declaration that every command below works on every installed module or is implemented by this driver. A SCPI command appearing in a common manual does not grant model capability. Never generate an energizing waveform without a reviewed module/option matrix, DUT voltage/current/power envelope, explicit output enable, readback verification, and a safe abort path.
@@ -118,7 +120,10 @@ Do not run examples on a connected DUT without capability and envelope checks; c
 - **Sequence repeats:** **ARB:SEQ:COUN** finite **1–4096** (hardware also permits INFinity). Step repeats (for triggered pacing) have a different **1–16,777,216** range. Do **not** use a shared count validator.
 - **Sine frequency:** the reference lists **3.8147e-5–1e4 Hz** as a command range; real output bandwidth is specific to the installed module.
 - **Dwell/time values:** the reference repeatedly gives **0–262.144 s** for relevant timing parameters. Exact minimum, quantization and legal zero-dwell use must be checked per shape/model; do not infer precise analog dwell from a SCPI round-trip.
-- **Existing driver API:** currently supports only **finite bounded voltage LIST** (max 512 points) and **finite bounded voltage UDEF Arb** (max 511 points), with stricter user-set maximum duration and explicit approved voltage envelope; it does **not** expose CDW or standard-shape APIs.
+- **Existing driver API:** supports bounded voltage/current LIST and UDEF,
+  typed standard shapes, CDW, triggered STEP, and finite dwell-paced
+  sequences. Configuration requires an explicit level envelope, output OFF,
+  model/option capability approval, full readback, and bounded duration.
 
 ## 6. Sequence ARB command inventory
 
@@ -153,21 +158,25 @@ For live benches, physical E-stop/inhibit and independent hardware voltage/curre
 
 ## 8. Current repository coverage and implementation backlog
 
-| Capability | v0.7.0 driver status | Follow-up |
+| Capability | v0.7.10 driver status | Follow-up |
 | --- | --- | --- |
 | Voltage slew rate | **Implemented in software** | Physical edge/slew qualification pending |
 | Finite voltage LIST | **Implemented** | Real N6775A analog timing HIL/DSO pending |
 | Finite voltage UDEF Arb | **Implemented** | Real N6775A analog timing HIL/DSO pending |
 | BUS/external triggering; arm/wait/abort, token fencing | **Implemented** | Stress and hardware tests pending |
-| Standard shape STEP, RAMP, STAircase, SIN, PULS, TRAP, EXP | **Not implemented as typed APIs** | Per-model capability gate, serializable typed parameter objects, readback tests |
-| CDWell | **Not implemented** | Separate memory/256-repeat limits, robust bulk transfer |
-| Arb sequence | **Not implemented** | Atomic planning and global 511-point budget; index/pacing tests |
-| Current Arb | **Not implemented as a typed current-profile API** | Priority-mode matrix, overload/overcurrent tests |
+| Standard shape STEP, RAMP, STAircase, SIN, PULS, TRAP, EXP | **Implemented and offline-tested** | Physical analog timing/amplitude qualification pending |
+| CDWell | **Implemented with bounded ASCII transfer** | Binary input deliberately unqualified; large-vector HIL pending |
+| Arb sequence | **Implemented for finite dwell pacing** | Trigger-paced scheduling needs a separate finite-trigger API; HIL pending |
+| Current Arb | **Implemented with current-limit/source roles** | SMU compliance/quadrant analog HIL pending |
 | Power/resistance Arb | **Not supported for power-source channels** | Load-specific design and validation only |
-| Infinite Arb repetition | **Intentionally excluded** | Independent watchdog/energy risk review required |
-| File import/export and arbitrary binary upload | **Not implemented** | Schema, checksum, IEEE block format/byte order tests |
+| Infinite single Arb repetition | **Explicit opt-in; normal completion rejects it** | Independent watchdog/energy risk review required |
+| Sequence file store/load | **Implemented with readback validation** | External files containing infinite repetition require explicit opt-in |
+| Arbitrary binary upload | **Not implemented** | Vendor-specific grammar and HIL required; core byte transport is tested |
 
-Future work should be separate reviewed pull requests: (A) model/option capability matrix and command map, (B) finite standard voltage shapes with simulator and query readbacks, (C) bounded current shapes, (D) constant dwell, (E) finite sequences, (F) guarded DSO HIL. Review each PR against the exact manual/model before merge.
+The remaining release gate is guarded physical DSO/HIL qualification across
+the approved model/option matrix, including failure cleanup and two-channel
+isolation. Trigger-paced sequence scheduling and vendor-qualified CDW binary
+input remain future, separately reviewed APIs.
 
 ## 9. Verification matrix before claiming production readiness
 
@@ -185,7 +194,9 @@ Future work should be separate reviewed pull requests: (A) model/option capabili
 - [Known risks](../review/known_risks.md)
 - [Current module capability model](../capability/capability_model.yaml)
 
-**Change scope:** reference documentation only. No Arb/driver command behavior or qualification status changes in v0.7.1–v0.7.6.
+**Qualification boundary:** v0.7.10 changes driver behavior and has offline
+protocol coverage. It still makes no physical analog or unattended-production
+qualification claim.
 
 ## 11. Reviewed external code examples and references (2026-10-15)
 

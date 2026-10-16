@@ -68,6 +68,7 @@ class _ChannelState:
     voltage_range: float = 20.0
     current_range: float = 1.0
     ovp: float = 20.0
+    voltage_limit: float = 20.0
     ocp: bool = False
     smu_mode: str = "VOLT"
     smu_off_mode: str = "HIGHZ"
@@ -119,6 +120,7 @@ class _ChannelState:
     sequence_count: float = 1
     sequence_terminate_last: bool = False
     transient_trigger_source: str = "BUS"
+    arb_trigger_source: str = "BUS"
     transient_state: str = "idle"
     transient_generation: int = 0
     transient_initial_voltage: float = 0.0
@@ -279,6 +281,30 @@ class SimN6700Instrument:
             return None
         if header == "ARB:SEQ:LEN":
             return str(len(st.sequence_steps))
+        if header == "ARB:SEQ:QUAL":
+            fixed_points = 0
+            smooth_shapes = 0
+            for sequence_step in st.sequence_steps:
+                shape = sequence_step["shape"]
+                if shape in {"RAMP", "TRAP", "EXP", "SIN"}:
+                    smooth_shapes += 1
+                elif shape == "PULS":
+                    fixed_points += 3
+                elif shape == "STEP":
+                    fixed_points += 2
+                elif shape == "STA":
+                    values = sequence_step["params"].get(
+                        f"{st.arb_type}:STA:NST", (10.0,)
+                    )
+                    fixed_points += int(values[0]) + 1
+                elif shape == "UDEF":
+                    values = sequence_step["params"].get(
+                        f"{st.arb_type}:UDEF:LEV", (0.0,)
+                    )
+                    fixed_points += len(values)
+            if not smooth_shapes:
+                return "100"
+            return str(min(100, max(16, (511 - fixed_points) // smooth_shapes)))
         if header == "ARB:SEQ:STEP:FUNC:SHAP":
             if query:
                 step = self._sequence_step(st, arguments[0])
@@ -529,6 +555,8 @@ class SimN6700Instrument:
             ("CURRENT:RANGE", "current_range"),
             ("VOLT:PROT", "ovp"),
             ("VOLTAGE:PROTECTION", "ovp"),
+            ("VOLT:LIM", "voltage_limit"),
+            ("VOLTAGE:LIMIT", "voltage_limit"),
         ):
             if upper.startswith(name + "?"):
                 channels = self._channels_from_command(norm)
@@ -676,6 +704,13 @@ class SimN6700Instrument:
                     st.sequence_steps = copy.deepcopy(steps)
                     st.sequence_count = count
                     st.sequence_terminate_last = terminate
+            return None
+        if upper.startswith("TRIG:ARB:SOUR?"):
+            return self._query_values(self._channels_from_command(norm), "arb_trigger_source")
+        if upper.startswith("TRIG:ARB:SOUR"):
+            arb_source = self._argument_values(norm)[0].upper()
+            for ch in self._channels_from_command(norm):
+                self.channels[ch].arb_trigger_source = arb_source
             return None
         if upper.startswith("TRIG:TRAN:SOUR?"):
             return self._query_values(self._channels_from_command(norm), "transient_trigger_source")

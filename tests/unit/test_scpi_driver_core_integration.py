@@ -6,7 +6,11 @@ confirmation guard.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
+from scpi_driver_core.scpi import ScpiClient
+from scpi_driver_core.simulation import ScriptedScpiTransport
 from scpi_driver_core.tracing.events import TraceDirection
 from scpi_driver_core.tracing.observer import RecordingTraceObserver
 from scpi_driver_core.tracing.redaction import PatternRedactor
@@ -17,6 +21,26 @@ from keysight_n6700 import (
     DriverTimeoutError,
     DriverUnsafeOperationError,
 )
+
+REVIEWED_CORE_COMMIT = "9c5dd50a03031f65e1aa5cf13832db7372f043b9"
+
+
+def test_normal_and_visa_dependencies_share_reviewed_immutable_core_pin() -> None:
+    metadata = (Path(__file__).parents[2] / "pyproject.toml").read_text(encoding="utf-8")
+    assert metadata.count(f"scpi-driver-core@{REVIEWED_CORE_COMMIT}") == 2
+    assert "scpi-driver-core@ec19ab8" not in metadata
+
+
+def test_reviewed_core_preserves_arbitrary_binary_upload_bytes() -> None:
+    transport = ScriptedScpiTransport()
+    transport.open()
+    payload = bytes(range(256)) + b";\n\r#H20\x00\xff"
+    received: list[bytes] = []
+    transport.on_binary_write("DATA:ARB", lambda _prefix, raw: received.append(raw))
+    ScpiClient(transport).write_binary_block("DATA:ARB ", payload)
+    assert received == [payload]
+    assert transport.binary_history == [("DATA:ARB", payload)]
+    assert transport.history == []
 
 
 def test_protocol_trace_observer_records_every_write_and_read() -> None:

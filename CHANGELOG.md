@@ -5,6 +5,56 @@ All notable changes to this project are documented here. See
 
 ## Unreleased
 
+No unreleased changes.
+
+## v0.7.10 — 2026-10-16
+
+ARB trigger-source selection now uses a typed, capability-approved dialect:
+LIST/STEP profiles retain channel-scoped `TRIG:TRAN:SOUR`, while ARB profiles
+use channel-scoped `TRIG:ARB:SOUR`. Unknown ARB trigger dialects fail closed,
+and ordinary single-channel runs never emit mainframe-global `*TRG`.
+
+All timing fields of the seven finite parametric ARB shapes now enforce the
+documented 262.144 s ceiling at shape construction. The distinct N678xA
+268.435 s limit remains confined to UDEF dwell values, and every timing field
+has an explicit boundary regression test.
+
+Current transients now carry an explicit programming role: ordinary supplies
+modulate a non-negative current limit, priority-capable N678xA modules program
+a source current, and N6783A remains a non-negative application-specific path.
+Reviewed two-quadrant SMUs may use negative-current ARBs only in current
+priority. Configuration validates absolute current range, the live SMU voltage
+compliance (using `VOLT:LIM`, not OVP), the fixed-voltage operating point for
+supply current limits, and protection state before and after programming.
+
+Constant-dwell ARB uploads now preflight the complete ASCII command against a
+64 KiB encoded-command bound before the first mutation. The driver explicitly
+does not split a vector or use the still-unqualified binary-input grammar. It
+also queries the effective CDW point count and rejects mismatches, with tests
+for point/dwell boundaries, quantization, oversized transfers, malformed
+readback, and transfer-failure cleanup.
+
+ARB sequences now budget the vendor-generated points for STEP, PULSE,
+STAIRCASE, UDEF, and smooth shapes before resetting sequence memory. They
+require finite sequence counts and dwell pacing in the normal completion API,
+enforce the 511-point budget at minimum quality, query `ARB:SEQ:QUAL?`, and
+record the effective 16–100 quality and generated-point count in the returned
+configuration. Step repeat counts are accepted only for trigger-paced steps,
+which require a future API with an explicit finite trigger schedule.
+
+The normal and `[visa]` dependencies now share the immutable reviewed
+`scpi-driver-core` pin `9c5dd50a03031f65e1aa5cf13832db7372f043b9`
+(core v0.1.0.dev11). Compatibility coverage includes source LIST/ARB,
+digitizer ASCII/REAL32 framing, tracing, timeouts, session serialization,
+exception translation, and byte-exact outbound IEEE-488.2 blocks.
+
+Source profile configuration now holds the alias and core-client operation
+locks across the complete prepare/program/readback transaction, preventing
+another channel from interleaving SCPI commands. Configuration cleanup is
+best effort and records secondary failures without replacing the original
+exception; uncertain cleanup leaves the transient state unknown. Threaded
+two-channel and cleanup-fault tests cover the lock order and failure path.
+
 Voltage-transient lifecycle review fixes: an abort from another thread, a
 protection trip, or output OFF during a run is no longer reported as
 `complete` (every abort bumps the token generation; completion also checks
@@ -20,13 +70,25 @@ must be in voltage priority. N678xA dwell may be up to 268.435 s.
 while initiated, multi-poll runs and step-once pacing.
 
 Completed the waveform-generator review: ARB capabilities are now combined
-with the discovered mainframe model and rejected before mutation outside an
-N6705 mainframe; LIST/STEP remain available independently. N6784A voltage
+with the discovered mainframe model, module, firmware, and installed options;
+unknown or unsupported combinations are rejected before mutation. LIST/STEP
+remain independently capability-gated. N6784A voltage
 profiles accept explicit bipolar safety envelopes while all unipolar modules
 continue to reject negative levels. ARB sequence setup probes and caches
 whether installed firmware numbers steps from 0 or 1, resolving the conflict
 between Keysight's guide example and parameter table. The simulator and unit
 suite exercise both numbering conventions and N6700C/N6705C capability paths.
+
+## v0.7.9 — 2026-10-15
+
+DRV-ARB-A: source LIST/UDEF Arb capability detection now uses an exact Keysight
+module-model matrix together with discovered mainframe ID, firmware and options.
+For N6700C, N673xB/N674xB/N675xA/N677xA require Option 054; N676xA,
+supported N678xA and N6705C are handled separately. Unknown hardware identities
+fail closed for source LIST/Arb. Channel rediscovery/disconnect revokes stale
+handles and transient tokens. The simulator identifies as N6705C, matching its
+integrated Arb behavior. New negative tests reject unsupported source LIST/Arb
+before any SCPI mutation. No physical waveform has been qualified.
 
 ## v0.7.8 — 2026-10-15
 

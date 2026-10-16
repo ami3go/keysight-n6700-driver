@@ -271,6 +271,8 @@ class ArbSequenceConfiguration:
     terminate_last: bool
     minimum_level: float
     maximum_level: float
+    quality: int
+    generated_points: int
 
     @property
     def trigger_paced(self) -> bool:

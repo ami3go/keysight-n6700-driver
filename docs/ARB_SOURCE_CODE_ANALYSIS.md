@@ -240,7 +240,11 @@ Most third-party repositories have their own licenses (SweepMe!'s reviewed file 
 
 ## 8. Worked code examples and offline tests (v0.7.6)
 
-See [**ARB_WORKED_CODE_EXAMPLES.md**](ARB_WORKED_CODE_EXAMPLES.md), which converts the reviewed sources into an existing simulator-only UDEF execution example and six original, offline-only proposals: typed PULSE compiler, frequency/duty conversion, mainframe/Option 054 capability gating, CDW vector formatting, finite sequence compilation, and trigger-family selection. Includes explicit source links and seven negative/contract tests. Standard PULSE/CDW/sequence APIs are **not implemented** in the driver; no live instrument command sequences are provided.
+See [**ARB_WORKED_CODE_EXAMPLES.md**](ARB_WORKED_CODE_EXAMPLES.md), which
+records the research designs that preceded the v0.7.10 typed implementation.
+Standard shapes, bounded ASCII CDW, finite dwell-paced sequences, and typed
+trigger-family selection are now implemented and offline-tested. The original
+examples remain historical design references, not live-instrument scripts.
 
 ## 9. Coordinated implementation work packages (v0.7.7)
 

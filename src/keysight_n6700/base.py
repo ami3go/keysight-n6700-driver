@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Callable, Mapping
-from contextlib import suppress
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -319,6 +319,18 @@ class BaseInstrument:
 
     def _session(self, alias: str | None) -> ScpiSession:
         return self._entry(alias).session
+
+    @contextmanager
+    def _operation_lock(self, alias: str | None = None) -> Iterator[None]:
+        """Serialize a multi-command operation across one shared session.
+
+        Lock order is alias entry then core client.  Individual operations use
+        the same order and both locks are reentrant, so channel code may call
+        the normal write/query choke points while holding this transaction.
+        """
+        entry = self._entry(alias)
+        with entry.lock, entry.session.operation_lock():
+            yield
 
     # -- the operation-execution wrapper, LPDS-003 §17.1 -----------------------
 
