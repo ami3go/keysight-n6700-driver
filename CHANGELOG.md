@@ -7,6 +7,15 @@ All notable changes to this project are documented here. See
 
 No unreleased changes.
 
+## v0.7.11 — 2026-10-16
+
+Documentation/task-only revision: add `task/N6700_ARB_REMAINING_QUALIFICATION_TASK.md`
+with a sequential work plan for transport-fault lease recovery (#14), reviewed
+capability and core issue reconciliation (#21/#15), supervised waveform lifecycle,
+full protocol conformance, guarded HIL/DSO evidence and downstream release gates.
+Add `task/README.md` as the task index. No SCPI runtime, transport, hardware
+behavior, Arb qualification or dependency commit changes.
+
 ## v0.7.10 — 2026-10-16
 
 ARB trigger-source selection now uses a typed, capability-approved dialect:
