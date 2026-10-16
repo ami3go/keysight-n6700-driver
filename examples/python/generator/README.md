@@ -18,11 +18,25 @@ python examples/python/generator/01_pulse.py
 | `07_sequence.py` | Several shapes chained into one profile (`ArbSequenceStep`) |
 | `08_current_pulse.py` | Current ARB load pulse (`configure_current_arb_waveform`) |
 
+| `gui.py` | Basic Tk window: pick a shape, edit its parameters, press **Run** |
+
 `_play.py` holds the common run step: enable output, arm, trigger, wait for
 completion, and always turn the output off afterwards.
 
 Every `configure_*` call takes `maximum_voltage_v` / `maximum_current_a`: the
 driver refuses any waveform that leaves that envelope.
+
+## GUI
+
+```bash
+python examples/python/generator/gui.py
+```
+
+Choose **Simulator** or **Ethernet** (with an IP address), set the channel,
+current limit, maximum voltage and repeat count, then pick a shape (pulse,
+ramp, sine, staircase, trapezoid) and press **Run**. On Ethernet it asks for
+confirmation before enabling the output. Requires Tk (`python3-tk` on
+Debian/Ubuntu).
 
 ## Real hardware
 
