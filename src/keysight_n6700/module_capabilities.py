@@ -15,6 +15,7 @@ from dataclasses import dataclass, replace
 from typing import Literal
 
 ModuleType = Literal["power_supply", "smu", "electronic_load", "unknown"]
+ArbTriggerDialect = Literal["unsupported", "channel_scoped"]
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,7 @@ class ChannelCapabilities:
     supports_array_measurement: bool = False
     supports_list_mode: bool = False
     supports_voltage_arb: bool = False
+    arb_trigger_dialect: ArbTriggerDialect = "unsupported"
     supports_voltage_slew: bool = False
     # Current LIST/STEP transients remain available independently of the
     # N6705-only ARB subsystem.
@@ -165,6 +167,7 @@ def classify_module(
             supports_array_measurement=True,
             supports_list_mode=supported_context,
             supports_voltage_arb=supported_context,
+            arb_trigger_dialect="channel_scoped" if supported_context else "unsupported",
             supports_voltage_slew=True,
             supports_current_transient=supported_context,
             supports_current_arb=supported_context,
@@ -188,6 +191,7 @@ def classify_module(
             supports_array_measurement=arb_allowed,
             supports_list_mode=arb_allowed,
             supports_voltage_arb=arb_allowed,
+            arb_trigger_dialect="channel_scoped" if arb_allowed else "unsupported",
             supports_voltage_slew=True,
             supports_current_transient=arb_allowed,
             supports_current_arb=arb_allowed,

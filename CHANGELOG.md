@@ -5,6 +5,11 @@ All notable changes to this project are documented here. See
 
 ## Unreleased
 
+ARB trigger-source selection now uses a typed, capability-approved dialect:
+LIST/STEP profiles retain channel-scoped `TRIG:TRAN:SOUR`, while ARB profiles
+use channel-scoped `TRIG:ARB:SOUR`. Unknown ARB trigger dialects fail closed,
+and ordinary single-channel runs never emit mainframe-global `*TRG`.
+
 Source profile configuration now holds the alias and core-client operation
 locks across the complete prepare/program/readback transaction, preventing
 another channel from interleaving SCPI commands. Configuration cleanup is

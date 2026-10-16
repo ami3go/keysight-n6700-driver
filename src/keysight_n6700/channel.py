@@ -1934,6 +1934,19 @@ class PowerSupplyChannel(BaseChannel):
 
     # -- transient trigger lifecycle -----------------------------------------------
 
+    def _trigger_source_commands(self, source: str | None = None) -> tuple[str, str]:
+        """Return the mode-specific setter/query without accepting raw SCPI."""
+        if self._transient_mode == "arb":
+            if self.capabilities.arb_trigger_dialect != "channel_scoped":
+                raise DriverUnsupportedOperationError(
+                    "the installed mainframe/module/firmware has no approved ARB trigger dialect"
+                )
+            prefix = "TRIG:ARB:SOUR"
+        else:
+            prefix = "TRIG:TRAN:SOUR"
+        setter = "" if source is None else f"{prefix} {source},{self._chan}"
+        return setter, f"{prefix}? {self._chan}"
+
     def configure_voltage_transient_trigger(
         self, source: Literal["bus", "external"] = "bus"
     ) -> None:
@@ -1944,17 +1957,19 @@ class PowerSupplyChannel(BaseChannel):
                 raise DriverPreconditionError(
                     "transient trigger source cannot change while a profile is armed"
                 )
-            self._write(f"TRIG:TRAN:SOUR {'BUS' if source == 'bus' else 'EXT'},{self._chan}")
-            self._driver.check_errors()
-            readback = self._query(f"TRIG:TRAN:SOUR? {self._chan}").strip().upper()
             expected = "BUS" if source == "bus" else "EXT"
+            setter, query = self._trigger_source_commands(expected)
+            self._write(setter)
+            self._driver.check_errors()
+            readback = self._query(query).strip().upper()
             if not readback.startswith(expected):
                 raise DriverOperationUncertainError("transient trigger-source readback mismatch")
             self._transient_trigger_source = source
 
     def _read_transient_trigger_source(self) -> Literal["bus", "external"]:
         # The instrument, not the cached default, decides what INIT:TRAN waits for.
-        readback = self._query(f"TRIG:TRAN:SOUR? {self._chan}").strip().upper()
+        _, query = self._trigger_source_commands()
+        readback = self._query(query).strip().upper()
         source: Literal["bus", "external"]
         if readback.startswith("BUS"):
             source = "bus"

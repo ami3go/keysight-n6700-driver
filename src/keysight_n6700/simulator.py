@@ -119,6 +119,7 @@ class _ChannelState:
     sequence_count: float = 1
     sequence_terminate_last: bool = False
     transient_trigger_source: str = "BUS"
+    arb_trigger_source: str = "BUS"
     transient_state: str = "idle"
     transient_generation: int = 0
     transient_initial_voltage: float = 0.0
@@ -676,6 +677,13 @@ class SimN6700Instrument:
                     st.sequence_steps = copy.deepcopy(steps)
                     st.sequence_count = count
                     st.sequence_terminate_last = terminate
+            return None
+        if upper.startswith("TRIG:ARB:SOUR?"):
+            return self._query_values(self._channels_from_command(norm), "arb_trigger_source")
+        if upper.startswith("TRIG:ARB:SOUR"):
+            arb_source = self._argument_values(norm)[0].upper()
+            for ch in self._channels_from_command(norm):
+                self.channels[ch].arb_trigger_source = arb_source
             return None
         if upper.startswith("TRIG:TRAN:SOUR?"):
             return self._query_values(self._channels_from_command(norm), "transient_trigger_source")

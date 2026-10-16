@@ -44,6 +44,7 @@ def test_arb_matrix(
     )
     assert cap.supports_list_mode is expected
     assert cap.supports_voltage_arb is expected
+    assert cap.arb_trigger_dialect == ("channel_scoped" if expected else "unsupported")
     assert cap.mainframe_model == mainframe
     assert cap.firmware_version == "A.01.02"
     assert len(cap.capability_fingerprint) == 64

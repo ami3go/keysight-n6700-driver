@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import pytest
 from scpi_driver_core.simulation.scripted import ScriptedScpiTransport
@@ -197,6 +198,37 @@ def test_shape_duration_is_bounded(driver) -> None:
             1, ArbSine(1.0, 5.0, 1.0), maximum_voltage_v=10.0, repeat_count=100,
             maximum_duration_s=10.0,
         )
+
+
+def test_trigger_source_uses_mode_specific_typed_dialect(driver) -> None:
+    transport = driver._session(None).transport
+    assert isinstance(transport, ScriptedScpiTransport)
+
+    driver.configure_voltage_list(1, [1.0, 2.0], 0.001, maximum_voltage_v=5.0)
+    transport.clear_history()
+    driver.configure_voltage_transient_trigger(1, "bus")
+    assert "TRIG:TRAN:SOUR BUS,(@1)" in transport.history
+    assert "TRIG:TRAN:SOUR? (@1)" in transport.history
+    assert not any(command.startswith("TRIG:ARB:SOUR") for command in transport.history)
+
+    driver.configure_voltage_arb_waveform(
+        1, ArbSine(1.0, 2.0, 100.0), maximum_voltage_v=5.0
+    )
+    transport.clear_history()
+    driver.configure_voltage_transient_trigger(1, "external")
+    assert "TRIG:ARB:SOUR EXT,(@1)" in transport.history
+    assert "TRIG:ARB:SOUR? (@1)" in transport.history
+    assert not any(command.startswith(("TRIG:TRAN:SOUR", "*TRG")) for command in transport.history)
+
+
+def test_unknown_arb_trigger_dialect_fails_closed(driver) -> None:
+    driver.configure_voltage_arb_waveform(
+        1, ArbSine(1.0, 2.0, 100.0), maximum_voltage_v=5.0
+    )
+    channel = driver.power_supply(1)
+    channel.capabilities = replace(channel.capabilities, arb_trigger_dialect="unsupported")
+    with pytest.raises(DriverUnsupportedOperationError, match="no approved ARB trigger dialect"):
+        channel.configure_voltage_transient_trigger("bus")
 
 
 def test_infinite_repeat_cannot_wait_for_completion(driver) -> None:
