@@ -138,7 +138,7 @@ and no claim that skipped hardware tests passed.
 ## Completion checklist
 
 - [x] P0-1 exact capability/Option 054 matrix (PR #20 prerequisite)
-- [ ] P0-2 error preservation and shared-session transaction lock
+- [x] P0-2 error preservation and shared-session transaction lock
 - [ ] P0-3 typed and verified trigger dialect
 - [ ] P1-4 standard voltage shape audit
 - [ ] P1-5 current ARB safety matrix

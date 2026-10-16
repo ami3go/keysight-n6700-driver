@@ -5,6 +5,13 @@ All notable changes to this project are documented here. See
 
 ## Unreleased
 
+Source profile configuration now holds the alias and core-client operation
+locks across the complete prepare/program/readback transaction, preventing
+another channel from interleaving SCPI commands. Configuration cleanup is
+best effort and records secondary failures without replacing the original
+exception; uncertain cleanup leaves the transient state unknown. Threaded
+two-channel and cleanup-fault tests cover the lock order and failure path.
+
 Voltage-transient lifecycle review fixes: an abort from another thread, a
 protection trip, or output OFF during a run is no longer reported as
 `complete` (every abort bumps the token generation; completion also checks

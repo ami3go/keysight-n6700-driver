@@ -17,7 +17,7 @@ import hashlib
 import json
 import time
 from collections.abc import Callable, Mapping, Sequence
-from contextlib import suppress
+from contextlib import AbstractContextManager, suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -125,6 +125,9 @@ class _AliasFacade:
 
     def write_scpi(self, command: str) -> None:
         self._driver.write_scpi(command, alias=self._alias)
+
+    def operation_lock(self) -> AbstractContextManager[None]:
+        return self._driver._operation_lock(alias=self._alias)
 
     def _measure_power(self, channel: int) -> PowerMeasurement:
         return self._driver._measure_power(channel, alias=self._alias)

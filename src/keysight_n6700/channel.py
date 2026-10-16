@@ -6,6 +6,7 @@ import hashlib
 import math
 import threading
 from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
 from time import monotonic, sleep
 from typing import ClassVar, Literal, NamedTuple, Protocol, TypeVar
 
@@ -82,6 +83,8 @@ class _DriverProtocol(Protocol):
     def query_scpi(self, command: str) -> str: ...
 
     def write_scpi(self, command: str) -> None: ...
+
+    def operation_lock(self) -> AbstractContextManager[None]: ...
 
     def _measure_power(self, channel: int) -> PowerMeasurement: ...
 
@@ -758,16 +761,35 @@ class PowerSupplyChannel(BaseChannel):
         # tell "aborted" apart from "ran to completion" (both clear the bits).
         self._transient_generation += 1
 
-    def _configuration_failed(self) -> None:
-        try:
-            self._stop_transient_system()
-            self._write(f"VOLT:MODE FIX,{self._chan}")
-            self._write(f"CURR:MODE FIX,{self._chan}")
-        finally:
-            self._invalidate_transient_tokens()
-            self._transient_state = "unknown"
-            self._transient_mode = "fixed"
-            self._transient_config = None
+    def _configuration_failed(self, primary: BaseException) -> None:
+        """Best-effort cleanup without ever replacing ``primary``."""
+        failures: list[str] = []
+        for command in (
+            f"INIT:CONT:TRAN OFF,{self._chan}",
+            f"ABOR:TRAN {self._chan}",
+            f"VOLT:MODE FIX,{self._chan}",
+            f"CURR:MODE FIX,{self._chan}",
+        ):
+            try:
+                self._write(command)
+            except BaseException as cleanup_error:
+                failures.append(
+                    f"{command}: {type(cleanup_error).__name__}: {cleanup_error}"
+                )
+        self._invalidate_transient_tokens()
+        self._transient_state = "unknown"
+        self._transient_mode = "fixed"
+        self._transient_config = None
+        self._transient_continuous = False
+        outcome = (
+            "cleanup completed"
+            if not failures
+            else "cleanup failures: " + "; ".join(failures)
+        )
+        if isinstance(primary, DriverError):
+            primary.details["source_transient_configuration_cleanup"] = outcome
+        if hasattr(primary, "add_note"):
+            primary.add_note(f"source transient configuration {outcome}")
 
     def _run_configuration(
         self,
@@ -777,15 +799,16 @@ class PowerSupplyChannel(BaseChannel):
     ) -> _ConfigT:
         """Output-OFF guarded program/verify transaction with cleanup on failure."""
         with self._transient_lock:
-            self._require_output_off_for_configuration()
-            try:
-                self._invalidate_transient_tokens()
-                self._prepare_transient_configuration()
-                program()
-                config = verify()
-            except BaseException:
-                self._configuration_failed()
-                raise
+            with self._driver.operation_lock():
+                self._require_output_off_for_configuration()
+                try:
+                    self._invalidate_transient_tokens()
+                    self._prepare_transient_configuration()
+                    program()
+                    config = verify()
+                except BaseException as primary:
+                    self._configuration_failed(primary)
+                    raise
             self._transient_config = config
             self._transient_mode = mode
             self._transient_state = "configured"
