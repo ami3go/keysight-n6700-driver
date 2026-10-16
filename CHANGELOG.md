@@ -15,6 +15,14 @@ documented 262.144 s ceiling at shape construction. The distinct N678xA
 268.435 s limit remains confined to UDEF dwell values, and every timing field
 has an explicit boundary regression test.
 
+Current transients now carry an explicit programming role: ordinary supplies
+modulate a non-negative current limit, priority-capable N678xA modules program
+a source current, and N6783A remains a non-negative application-specific path.
+Reviewed two-quadrant SMUs may use negative-current ARBs only in current
+priority. Configuration validates absolute current range, the live SMU voltage
+compliance (using `VOLT:LIM`, not OVP), the fixed-voltage operating point for
+supply current limits, and protection state before and after programming.
+
 Source profile configuration now holds the alias and core-client operation
 locks across the complete prepare/program/readback transaction, preventing
 another channel from interleaving SCPI commands. Configuration cleanup is

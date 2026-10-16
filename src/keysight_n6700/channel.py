@@ -400,15 +400,23 @@ class PowerSupplyChannel(BaseChannel):
         low_name, high_name = self._BOUND_NAMES[quantity]
         low = self._finite(minimum, low_name)
         high = self._finite(maximum, high_name)
-        negative_allowed = quantity == "voltage" and self.capabilities.supports_bipolar_voltage
+        negative_allowed = (
+            quantity == "voltage" and self.capabilities.supports_bipolar_voltage
+        ) or (
+            quantity == "current" and self.capabilities.supports_negative_current_arb
+        )
         if high <= low:
             raise DriverArgumentValueError(
                 f"{quantity} safety bounds require {low_name} < {high_name}"
             )
         if low < 0 and not negative_allowed:
+            detail = (
+                "only N6784A voltage profiles support a bipolar voltage envelope"
+                if quantity == "voltage"
+                else "this module/current-programming role has no approved negative-current ARB"
+            )
             raise DriverArgumentValueError(
-                f"{quantity} safety bounds require 0 <= {low_name}; only N6784A voltage "
-                "profiles support a bipolar envelope"
+                f"{quantity} safety bounds require 0 <= {low_name}; {detail}"
             )
         return low, high
 
@@ -458,12 +466,63 @@ class PowerSupplyChannel(BaseChannel):
                 )
         else:
             current_range = self.get_current_range()
-            if maximum > current_range:
+            if max(abs(minimum), abs(maximum)) > current_range:
                 raise DriverArgumentValueError(
-                    f"approved maximum {maximum:g} A exceeds instrument range {current_range:g} A"
+                    f"approved envelope {minimum:g}..{maximum:g} A exceeds instrument "
+                    f"range +/-{current_range:g} A"
                 )
-        if self.capabilities.module_type == "smu":
+            role = self.capabilities.current_programming_role
+            if role == "unsupported":
+                raise DriverUnsupportedOperationError(
+                    f"{self.capabilities.model} has no approved current-programming role"
+                )
+            if role == "current_source":
+                if not self.capabilities.supports_smu_priority_mode:
+                    raise DriverUnsupportedOperationError(
+                        f"{self.capabilities.model} has no approved current-priority mode"
+                    )
+                function = self._query(f"FUNC? {self._chan}").strip().upper()
+                if not function.startswith("CURR"):
+                    raise DriverPreconditionError(
+                        "SMU current LIST/ARB requires current priority mode (FUNC CURR)"
+                    )
+                voltage_limit = self._parse_float(
+                    self._query(f"VOLT:LIM? {self._chan}"), "SMU positive voltage compliance"
+                )
+                voltage_range = self.get_voltage_range()
+                if voltage_limit <= 0 or voltage_limit > voltage_range:
+                    raise DriverPreconditionError(
+                        f"SMU voltage compliance {voltage_limit:g} V must be within "
+                        f"0..{voltage_range:g} V"
+                    )
+            else:
+                # On an ordinary supply CURR is a limit while VOLT remains the
+                # driven quantity.  Validate the fixed voltage operating point.
+                voltage_setpoint = self.get_voltage_setpoint()
+                voltage_range = self.get_voltage_range()
+                ovp = self.get_ovp()
+                if (
+                    not math.isfinite(voltage_setpoint)
+                    or voltage_setpoint < 0
+                    or voltage_setpoint > voltage_range
+                    or voltage_setpoint > ovp * (1.0 - self._OVP_HEADROOM_FRACTION)
+                ):
+                    raise DriverPreconditionError(
+                        "current-limit LIST/ARB requires a non-negative fixed voltage setpoint "
+                        "within range and at least 5% below OVP"
+                    )
+            protection = self.get_protection_status()
+            if protection.active:
+                raise DriverPreconditionError(
+                    f"current LIST/ARB requires cleared protection; "
+                    f"STAT:QUES:COND={protection.raw_status}"
+                )
+        if self.capabilities.module_type == "smu" and (
+            quantity == "voltage" or self.capabilities.current_programming_role != "current_source"
+        ):
             # A source profile only programs the output in its own priority mode.
+            if not self.capabilities.supports_smu_priority_mode:
+                return
             expected = self._QUANTITY_SCPI[quantity]
             function = self._query(f"FUNC? {self._chan}").strip().upper()
             if not function.startswith(expected):
@@ -682,6 +741,12 @@ class PowerSupplyChannel(BaseChannel):
             raise DriverOperationUncertainError("voltage mode did not stay FIX")
         if not self._query(f"CURR:MODE? {self._chan}").strip().upper().startswith(mode):
             raise DriverOperationUncertainError(f"current mode did not enter {mode}")
+        protection = self.get_protection_status()
+        if protection.active:
+            raise DriverOperationUncertainError(
+                f"protection became active while configuring current {mode}; "
+                f"STAT:QUES:COND={protection.raw_status}"
+            )
 
     def _assert_fixed_current_mode(self) -> None:
         if not self._query(f"CURR:MODE? {self._chan}").strip().upper().startswith("FIX"):
@@ -2315,6 +2380,10 @@ class SMUChannel(PowerSupplyChannel):
 
     def set_smu_mode(self, mode: Literal["voltage", "current"]) -> None:
         self._require_smu()
+        if not self.capabilities.supports_smu_priority_mode:
+            raise DriverUnsupportedOperationError(
+                f"{self.capabilities.model} does not support selectable voltage/current priority"
+            )
         scpi_mode = "VOLT" if mode == "voltage" else "CURR"
         self._write(f"FUNC {scpi_mode},{self._chan}")
 
@@ -2330,11 +2399,10 @@ class SMUChannel(PowerSupplyChannel):
         return self.get_current_limit()
 
     def set_voltage_limit(self, value: float) -> None:
-        # Capability-gated wrapper; maps to OVP-style voltage protection for supported simulator/PSU behavior.
-        self.set_ovp(value)
+        self._write(f"VOLT:LIM {format_float(value)},{self._chan}")
 
     def get_voltage_limit(self) -> float:
-        return self.get_ovp()
+        return float(self._query(f"VOLT:LIM? {self._chan}"))
 
     def configure_voltage_priority(
         self,

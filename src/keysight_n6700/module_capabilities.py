@@ -16,6 +16,7 @@ from typing import Literal
 
 ModuleType = Literal["power_supply", "smu", "electronic_load", "unknown"]
 ArbTriggerDialect = Literal["unsupported", "channel_scoped"]
+CurrentProgrammingRole = Literal["unsupported", "current_limit", "current_source"]
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,10 @@ class ChannelCapabilities:
     supports_current_transient: bool = False
     # Current ARB waveform support after combining module and mainframe.
     supports_current_arb: bool = False
+    # Ordinary supplies modulate a current limit; priority-capable N678xA
+    # modules program a source current.  These are not interchangeable.
+    current_programming_role: CurrentProgrammingRole = "unsupported"
+    supports_negative_current_arb: bool = False
     # Four-quadrant voltage sourcing is available only on the N6784A.
     supports_bipolar_voltage: bool = False
     # [SOURce:]CURRent:SLEW: "This command only applies to models N678xA SMU."
@@ -171,6 +176,12 @@ def classify_module(
             supports_voltage_slew=True,
             supports_current_transient=supported_context,
             supports_current_arb=supported_context,
+            current_programming_role=(
+                "current_limit" if model_clean == "N6783A" else "current_source"
+            ),
+            supports_negative_current_arb=(
+                supported_context and model_clean != "N6783A"
+            ),
             supports_bipolar_voltage=model_clean == "N6784A",
             supports_current_slew=True,
             supports_aux_voltage_input=model_clean in {"N6781A", "N6785A"},
@@ -195,5 +206,6 @@ def classify_module(
             supports_voltage_slew=True,
             supports_current_transient=arb_allowed,
             supports_current_arb=arb_allowed,
+            current_programming_role="current_limit" if arb_allowed else "unsupported",
         )
     return common

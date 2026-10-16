@@ -68,6 +68,7 @@ class _ChannelState:
     voltage_range: float = 20.0
     current_range: float = 1.0
     ovp: float = 20.0
+    voltage_limit: float = 20.0
     ocp: bool = False
     smu_mode: str = "VOLT"
     smu_off_mode: str = "HIGHZ"
@@ -530,6 +531,8 @@ class SimN6700Instrument:
             ("CURRENT:RANGE", "current_range"),
             ("VOLT:PROT", "ovp"),
             ("VOLTAGE:PROTECTION", "ovp"),
+            ("VOLT:LIM", "voltage_limit"),
+            ("VOLTAGE:LIMIT", "voltage_limit"),
         ):
             if upper.startswith(name + "?"):
                 channels = self._channels_from_command(norm)
