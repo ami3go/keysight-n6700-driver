@@ -7,6 +7,19 @@ All notable changes to this project are documented here. See
 
 No unreleased changes.
 
+## v0.7.11 — 2026-10-16
+
+Documentation/planning-only release. Added `task/N6700_ARB_REMAINING_WORK_TASK.md`
+and task index, detailing post-v0.7.10 residual safety review, bounded Arb
+runtime, faulted digitizer lease recovery, authorized HIL/independent DSO
+qualification, evidence schema, downstream integration and optional composite
+waveform planning. The original A–H work is already software-implemented;
+no real-hardware tests or new source-output functionality are claimed.
+
+Updated documentation navigation and synchronized package/AI contract/manifest
+release metadata. Source control behavior and the reviewed SCPI core pin are
+unchanged.
+
 ## v0.7.10 — 2026-10-16
 
 ARB trigger-source selection now uses a typed, capability-approved dialect:
