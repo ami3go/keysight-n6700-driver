@@ -549,3 +549,18 @@ exclusions:
     scope: v0.7.0
     review_date: "2026-10-14"
     covered_by: tests/unit/test_voltage_transient.py
+
+  - method: get_verified_digitize_available_points
+    reason: "Explicit fail-closed API: manufacturer SCPI offers no verified free-point query. Does not transmit any digitizer memory SCPI command, so no outbound vector is meaningful. Unit tests assert unsupported operation for N6791A/N6792A."
+    risk: high
+    approval: pending_independent_review
+    scope: N679-02 draft; do not release as verified free-capacity support
+    review_date: "2026-10-21"
+    covered_by: tests/unit/test_digitize_verified_reservation.py
+  - method: configure_digitize_verified
+    reason: "Transaction wrapper around configure_digitize whose individual SENS:SWE / SENS:FUNC readbacks are exercised in existing unit/simulator tests. A dedicated LPDS-019 protocol vector and independent approval are required before release."
+    risk: medium
+    approval: pending_independent_review
+    scope: N679-02 draft; exact-depth configured receipt only
+    review_date: "2026-10-21"
+    covered_by: tests/unit/test_digitize_verified_reservation.py
