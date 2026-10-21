@@ -32,6 +32,7 @@ from scpi_driver_core.scpi.client import ScpiClient
 from scpi_driver_core.session import ScpiSession, SessionRegistry
 from scpi_driver_core.tracing.observer import Tracer
 from scpi_driver_core.transport.base import Transport
+from scpi_driver_core.transport.models import TransportState
 
 from ._translate import translated
 from .exceptions import (
@@ -172,6 +173,14 @@ class BaseInstrument:
         return self._metadata
 
     # -- hooks a concrete driver overrides -----------------------------------
+
+    def _on_terminal_transport_fault(self, alias: str, session: ScpiSession) -> None:
+        """A terminal byte-transport fault invalidates driver-local resource ownership.
+
+        Implementations must not infer an instrument abort or electrically safe
+        state from this notification. Called under the alias operation lock.
+        """
+
 
     def _build_transport(
         self, *, alias: str, resource: str, connection_type: str, **options: Any
@@ -362,7 +371,14 @@ class BaseInstrument:
                     return action(entry.session)
             except DriverError:
                 self._set_state(key, SessionState.ERROR)
-                self._set_state(key, previous if previous != SessionState.BUSY else SessionState.CONNECTED)
+                if entry.session.transport.state in {TransportState.FAULTED, TransportState.CLOSED}:
+                    # A dead transport cannot safely preserve its in-process
+                    # acquisition reservation. It also cannot prove hardware OFF.
+                    self._on_terminal_transport_fault(key, entry.session)
+                else:
+                    self._set_state(
+                        key, previous if previous != SessionState.BUSY else SessionState.CONNECTED
+                    )
                 raise
             finally:
                 if entry.state is SessionState.BUSY:
