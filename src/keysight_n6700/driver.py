@@ -201,6 +201,12 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         with self._entry(key).lock:
             self._digitize_leases.release(key, channel)
 
+    def _require_session_replacement_allowed(self, alias: str, session: ScpiSession) -> None:
+        # Called by base._connect_session while holding the global registry
+        # lock AND old alias's operation lock, immediately before teardown.
+        self._reconcile_terminal_transport_lease(alias)
+        self._digitize_leases.require_idle(alias, "session replacement")
+
     def _on_terminal_transport_fault(self, alias: str, session: ScpiSession) -> None:
         # Called only after the byte transport reports a terminal fault.
         # Resource bookkeeping release MUST NOT be confused with a proven ABORt
@@ -450,10 +456,6 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         if options:
             raise DriverArgumentValueError(f"unknown connect() options: {sorted(options)}")
 
-        if replace and alias in self._aliases:
-            with self._entry(alias).lock:
-                self._reconcile_terminal_transport_lease(alias)
-                self._digitize_leases.require_idle(alias, "session replacement")
         self._connect_session(
             alias=alias,
             resource=str(resource or ""),
