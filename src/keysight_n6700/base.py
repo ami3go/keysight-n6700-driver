@@ -364,6 +364,18 @@ class BaseInstrument:
                     code="LPDS-STA-005",
                     operation=operation_name,
                 )
+            # A terminal byte-transport fault is authoritative even if the
+            # previous SCPI call never reached the driver fault wrapper.
+            # Drop only the affected host reservation before a stale lease
+            # policy can mask the actual connection error.
+            if entry.session.transport.state in {TransportState.FAULTED, TransportState.CLOSED}:
+                self._set_state(key, SessionState.ERROR)
+                self._on_terminal_transport_fault(key, entry.session)
+                raise DriverConnectionError(
+                    "transport is terminally faulted; reconnect and independently verify instrument state",
+                    code="LPDS-CON-002",
+                    operation=operation_name,
+                )
             previous = entry.state
             self._set_state(key, SessionState.BUSY)
             try:
