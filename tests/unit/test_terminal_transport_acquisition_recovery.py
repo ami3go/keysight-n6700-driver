@@ -188,3 +188,25 @@ def test_transport_failure_during_status_poll_preserves_uncertainty(
     assert driver._digitize_leases.owner("default") is None
     assert "abort_failed" in str(getattr(exc.value, "details", {}).get("acquisition_cleanup"))
     driver.disconnect()
+
+
+def test_healthy_session_replacement_refuses_live_foreign_capture(driver: N6700) -> None:
+    channel = _load(driver)
+    channel.configure_digitize("voltage", points=10, interval_s=20.48e-6)
+    with pytest.raises(DriverResourceBusyError):
+        driver.connect(connection_type="simulated", replace=True)
+    assert driver._digitize_leases.owner("default") is not None
+    channel.abort_digitize()
+    driver.connect(connection_type="simulated", replace=True)
+    assert driver.query_scpi("*IDN?").startswith("KEYSIGHT TECHNOLOGIES")
+
+
+def test_disconnect_attempts_safe_off_before_entering_closing(driver: N6700) -> None:
+    driver.set_dc_voltage(5.0, 1)
+    driver.enable_output(1)
+    simulated = driver._session(None).transport.instrument
+    assert simulated.channels[1].enabled
+    driver.disconnect()
+    # This is an observation of the simulator's command handling, not
+    # proof of physical output state on disconnected hardware.
+    assert not simulated.channels[1].enabled
