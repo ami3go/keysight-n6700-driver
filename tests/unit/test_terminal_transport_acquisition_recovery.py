@@ -112,3 +112,79 @@ def test_repeated_transport_fault_cleanup_is_idempotent(driver: N6700) -> None:
     driver._reconcile_terminal_transport_lease("default")
     assert driver._digitize_leases.owner("default") is None
     driver.disconnect_all()
+
+
+def test_transport_timeout_during_point_readback_quarantines_session(
+    driver: N6700, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scpi_driver_core.exceptions import TransportTimeoutError
+
+    channel = _load(driver)
+    client = driver._session(None).client
+    original = client.query
+
+    def query(command: str, **kwargs: object) -> str:
+        if command.startswith("SENS:SWE:POIN?"):
+            driver._session(None).transport.invalidate()
+            raise TransportTimeoutError("simulated sweep point read timeout")
+        return original(command, **kwargs)
+
+    monkeypatch.setattr(client, "query", query)
+    with pytest.raises(Exception, match="simulated sweep point read timeout"):
+        channel.configure_digitize("voltage", points=1024, interval_s=20.48e-6)
+    assert channel.digitize_timing is None
+    assert channel.digitize_status.state.value == "unknown"
+    assert driver._digitize_leases.owner("default") is None
+    assert driver.get_connection_state()["state"] == "faulted"
+    driver.disconnect()
+
+
+def test_transport_timeout_during_abort_is_not_a_verified_abort(
+    driver: N6700, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scpi_driver_core.exceptions import TransportTimeoutError
+
+    channel = _load(driver)
+    channel.configure_digitize("voltage", points=10, interval_s=20.48e-6)
+    client = driver._session(None).client
+    original = client.write
+
+    def write(command: str, **kwargs: object) -> None:
+        if command.startswith("ABOR:ACQ"):
+            driver._session(None).transport.invalidate()
+            raise TransportTimeoutError("simulated abort write timeout")
+        original(command, **kwargs)
+
+    monkeypatch.setattr(client, "write", write)
+    with pytest.raises(Exception, match="simulated abort write timeout"):
+        channel.abort_digitize()
+    assert channel.digitize_status.state.value == "unknown"
+    assert driver._digitize_leases.owner("default") is None
+    assert driver.get_connection_state()["state"] == "faulted"
+    driver.disconnect()
+
+
+def test_transport_failure_during_status_poll_preserves_uncertainty(
+    driver: N6700, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scpi_driver_core.exceptions import TransportTimeoutError
+
+    channel = _load(driver)
+    channel.configure_digitize("voltage", points=10, interval_s=20.48e-6)
+    channel.arm_digitize()
+    client = driver._session(None).client
+    original = client.query
+
+    def query(command: str, **kwargs: object) -> str:
+        if command.startswith("STAT:OPER:COND?"):
+            driver._session(None).transport.invalidate()
+            raise TransportTimeoutError("simulated status timeout")
+        return original(command, **kwargs)
+
+    monkeypatch.setattr(client, "query", query)
+    with pytest.raises(Exception, match="simulated status timeout") as exc:
+        channel.wait_digitize_armed(timeout_s=0.2)
+    assert channel.digitize_status.state.value == "unknown"
+    assert driver._digitize_leases.owner("default") is None
+    assert "abort_failed" in str(getattr(exc.value, "details", {}).get("acquisition_cleanup"))
+    driver.disconnect()
