@@ -174,6 +174,9 @@ class BaseInstrument:
 
     # -- hooks a concrete driver overrides -----------------------------------
 
+    def _require_session_replacement_allowed(self, alias: str, session: ScpiSession) -> None:
+        """Validate replacement while registry and old session operation locks are held."""
+
     def _on_terminal_transport_fault(self, alias: str, session: ScpiSession) -> None:
         """A terminal byte-transport fault invalidates driver-local resource ownership.
 
@@ -243,7 +246,13 @@ class BaseInstrument:
                     code="LPDS-CON-001",
                 )
             if alias in self._aliases:
-                self._disconnect_session(alias, raise_on_error=False)
+                previous = self._aliases[alias]
+                # A lease check outside the session's operation lock can race
+                # a new acquisition; validate and tear down the same old
+                # session while its lock is held.
+                with previous.lock:
+                    self._require_session_replacement_allowed(alias, previous.session)
+                    self._disconnect_session(alias, raise_on_error=False)
 
             transport = self._build_transport(
                 alias=alias, resource=resource, connection_type=connection_type, **options
@@ -289,14 +298,17 @@ class BaseInstrument:
                     f"no session is connected as alias {alias!r}", code="LPDS-STA-002"
                 )
             return
-        with suppress(DriverStateError):
-            self._set_state(alias, SessionState.CLOSING)
+        # While still connected, attempt the best-effort source/load safe
+        # state. CLOSING disallows typed SCPI calls and must not be entered
+        # before the shutdown hook has had a chance to run.
         try:
             self._apply_safe_state(alias, entry.session, reason="disconnect")
         except Exception:
             logging.getLogger(__name__).warning(
                 "safe-state hook failed for alias %r during disconnect", alias, exc_info=True
             )
+        with suppress(DriverStateError):
+            self._set_state(alias, SessionState.CLOSING)
         try:
             entry.session.close()
         finally:
