@@ -53,6 +53,16 @@ class AcquisitionCoordinator:
                 )
             del self._owners[alias]
 
+    def invalidate_terminal_session(self, alias: str) -> None:
+        """Drop only this alias's bookkeeping after independently proven terminal I/O fault.
+
+        This does NOT send ABORt, establish transport recovery, prove an idle
+        acquisition, or verify any output safe-OFF state. The driver must gate
+        all subsequent I/O until a new verified session is connected.
+        """
+        with self._lock:
+            self._owners.pop(alias, None)
+
     def require_idle(self, alias: str, operation: str) -> None:
         with self._lock:
             if alias in self._owners:
@@ -111,4 +121,7 @@ class AcquisitionCoordinator:
                     raise DriverResourceConflictError(
                         f"SCPI command would risk invalidating channel {owner.channel} digitizer data"
                     )
-            yield
+        # The driver holds its alias operation lock across SCPI I/O. Do not
+        # retain the coordinator lock while transport callbacks can block: a
+        # timeout must not stop another thread's emergency-OFF lease check.
+        yield
