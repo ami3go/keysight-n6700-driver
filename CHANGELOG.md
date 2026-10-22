@@ -9,16 +9,21 @@ No unreleased changes.
 
 ## v0.7.11 — 2026-10-16
 
-Documentation/planning-only release. Added `task/N6700_ARB_REMAINING_WORK_TASK.md`
-and task index, detailing post-v0.7.10 residual safety review, bounded Arb
-runtime, faulted digitizer lease recovery, authorized HIL/independent DSO
-qualification, evidence schema, downstream integration and optional composite
-waveform planning. The original A–H work is already software-implemented;
-no real-hardware tests or new source-output functionality are claimed.
+Documentation/planning-only release. Added `task/README.md` and two
+implementation-ready post-v0.7.10 task specifications:
+`task/N6700_ARB_REMAINING_WORK_TASK.md` (RW-00 through RW-09 plus optional
+RW-10: residual safety review, bounded Arb runtime, faulted digitizer lease
+recovery, authorized HIL/independent DSO qualification, evidence schema,
+downstream integration and optional composite waveform planning) and
+`task/N6700_ARB_REMAINING_QUALIFICATION_TASK.md` (ARB-R01 through R08:
+transport-fault lease recovery #14, capability/core reconciliation #21/#15,
+supervised waveform lifecycle, full protocol conformance, guarded HIL/DSO
+evidence and downstream release gates).
 
-Updated documentation navigation and synchronized package/AI contract/manifest
-release metadata. Source control behavior and the reviewed SCPI core pin are
-unchanged.
+The original A–H work is already software-implemented; no real-hardware tests
+or new source-output functionality are claimed. Updated documentation
+navigation and synchronized package/AI contract/manifest release metadata.
+Source control behavior and the reviewed SCPI core pin are unchanged.
 
 ## v0.7.10 — 2026-10-16
 
