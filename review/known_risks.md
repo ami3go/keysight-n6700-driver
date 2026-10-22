@@ -1,4 +1,4 @@
-# Known risks and deliberate scope decisions — v0.7.0
+# Known risks and deliberate scope decisions — v0.8.0
 
 This driver targets **software-verifiable full LPDS conformance**: every
 requirement checkable without real hardware or organization-scale tooling is
@@ -6,6 +6,20 @@ implemented and tested for real, not stubbed. What real hardware or a larger
 team would add is listed here explicitly, per LPDS-001 §32's allowance for a
 solo/small-team project to document a gap honestly rather than fake
 compliance or silently drop it.
+
+**Reviewed against v0.8.0, 2026-10-22.** Dated "Update"/"Closed"/"Open" entries
+below keep their original dates; the summary here is the current picture.
+
+| Area | State at v0.8.0 | Evidence |
+| --- | --- | --- |
+| N6775A + N6791A path on one N6700C | Hardware acceptance §1-§7 pass; README label "fully tested for the N6775A + N6791A path" (scoped) | `docs/hardware_acceptance_tests.md`, `results/` |
+| Overall LPDS-001 §9 status | `untested` | README |
+| Source LIST/ARB capability matrix (issue #21) | Fail-closed, vendor-verified; the bench N6775A has no Option 054 and is correctly denied | `docs/ARB_CAPABILITY_MATRIX.md` |
+| Source LIST/ARB on real hardware | **Not run**: no Option 054 module on the bench | `results/scope_hil/20261016-n6775a-transient-pytest.log` |
+| Load LIST/ARB on real hardware | Passed with real current (buck run) | `results/hardware_buck_regulation/` |
+| Transport-fault lease recovery (issue #14), core pin (issue #15) | Closed | PR #28, issue comments |
+| SMU (N678xA), protection trip/clear, remote/local, `*RST` | Not exercised on hardware | `docs/ROADMAP.md` phases 2-3 |
+| LPDS-010 Domain J, soak/fault injection | Not attempted | `docs/ROADMAP.md` phase 2/4 |
 
 ## Real hardware: one read-only run done, most of the surface still untouched
 
