@@ -3,7 +3,14 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
-## Unreleased
+## v0.8.0 — 2026-10-22
+
+Consolidates the post-v0.7.10 work: N679xA electronic-load LIST/ARB, terminal
+transport-fault lease recovery, exact-depth digitizer configuration, the v0.6.0
+deep-review hardening, and the remaining ARB task/qualification documentation.
+Distribution version 0.8.0 (display/archive 26.26).
+
+### Added
 
 N679xA electronic-load LIST and ARB profiles
 ([docs/LOAD_LIST_ARB.md](docs/LOAD_LIST_ARB.md)): current, voltage, resistance
@@ -18,12 +25,49 @@ Aborts now wait for the transient system to be idle. `shutdown_all` aborts load
 transients before switching the input OFF. Pure LIST/ARB codec helpers moved
 into a shared `_ProfileCodec` base without behaviour change.
 
+Exact-depth, lease-protected digitizer configuration
+(`configure_digitize_verified`) records the configured sweep depth and fails
+closed when a caller asks for unverified free memory
+(`get_verified_digitize_available_points`). It is a configured-depth receipt
+only; free-capacity support remains pending independent review.
+
+A basic Tk GUI example for the ARB generator (`examples/arb-gui`), the
+post-v0.7.10 remaining-work task specification, and the ARB qualification
+roadmap (ARB-R01 through R08) round out the release documentation.
+
+### Fixed
+
+- DRV-14: terminal transport faults now invalidate only the affected digitizer
+  lease. Replacement-lease validation is atomic with teardown, acquisition
+  owners are isolated, and shutdown precedes state teardown.
+- Deep-review hardening from the v0.6.0 line: transactional session lifecycle
+  and fault classification, verified writes/shutdown/output/measurement,
+  truthful SMU limits and protection status, SCPI parameter validation and
+  safe REAL-block parsing, a complete dynamic exception contract, bounded
+  datalog cadence, and non-invasive read-only CLI sessions.
+- Simulator: `VOLT:LIM` / `VOLT:INH:VON` writes no longer fall through into a
+  later header loop and report a bogus `LIST:TOUT:EOST` undefined-header error.
+  Added `RES:RANG` / `POW:RANG` handling, realistic N6751A/N6781A/N679xA
+  envelopes, and corrected the N679xA current-limit priority check.
+
+### Qualification
+
 Protocol HIL passed 4/4 on an N6700C (E.02.09.3271) with an N6791A and no
-source connected. This is not sinking-accuracy or timing qualification.
+source connected. This is not sinking-accuracy or timing qualification. The
+driver remains simulator/software tested overall; the new APIs are marked in
+the conformance exclusions with their review scope.
 
 Known gap found on the same bench, not fixed here: source-module ARBs use
 channel-scoped `TRIG:ARB:SOUR`, which this N6700C rejects (`-108`), so source
 ARB triggering on N6700C fails closed.
+
+### Changed
+
+- `shutdown_all` still aborts transient activity first, but now issues one
+  guarded `OUTP OFF` for the discovered channel list and verifies every
+  reported output state.
+- Generated capability, conformance-inventory, AI-contract, and lock artifacts
+  were refreshed for the merged APIs.
 
 ## v0.7.11 — 2026-10-16
 

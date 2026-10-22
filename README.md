@@ -202,6 +202,19 @@ simulator-only. See [`review/known_risks.md`](review/known_risks.md) and
 for the full detail and how to reproduce or extend this on your own
 hardware.
 
+## Local CI
+
+GitHub Actions runs Ruff, both mypy targets, pytest with coverage, structure
+validation, and a generated-artifact freshness check. The same set can be run
+offline in a `[dev]` environment:
+
+```bash
+scripts/ci_local.sh
+```
+
+Set `PYTHON=/path/to/python` to select a specific interpreter. Extra arguments
+are forwarded to pytest (for example `scripts/ci_local.sh tests/unit -q`).
+
 ## Safety
 
 `connect()` never energizes an output or load input. Typed setpoint methods
