@@ -11,13 +11,27 @@ power systems, with an optional Robot Framework adapter.
   `keysight_n6700.module_capabilities.LOAD_PREFIXES`.
 - **Transports**: VISA (USB/LAN/GPIB via PyVISA), raw TCP/SCPI (port 5025),
   and a built-in no-hardware simulator.
-- **Status**: `untested` (LPDS-001 §9) — LPDS-019 protocol conformance now
+- **Status**: **fully tested for the N6775A + N6791A path** (scoped
+  claim, see below); overall LPDS-001 §9 status is still `untested` —
+  LPDS-019 protocol conformance now
   passes against real hardware too (18/24 vectors; the rest need a real SMU
   module or are simulator-only by design, see below), which is the specific
   bar LPDS-001 §9 sets for `stable`. It isn't called `stable` yet because
   that evidence only covers the power-supply/electronic-load path — no real
   SMU, no protection-trip, no remote/local control have been exercised. See
   [`review/known_risks.md`](review/known_risks.md).
+
+  **What "fully tested for the N6775A + N6791A path" means:** on one
+  N6700C (firmware E.02.09.3271) with an N6775A supply and an N6791A load,
+  the whole hardware acceptance suite (`docs/hardware_acceptance_tests.md`
+  §1-§7) passes on real hardware: the read-only API (43/43), enable/measure/disable, the
+  100-point CV/CC/CR/CV sweep, LPDS-019 conformance (18 of 24 vectors,
+  19 with `enable-output`), digitized capture, level-triggered load
+  transients, the voltage-transient lifecycle, load LIST/ARB, and a
+  real-current buck regulation run. **It does not cover** other module
+  models (N678xA SMUs, N679xA other than N6791A, other N67xx supplies),
+  other mainframes or firmware, protection trip/clear, remote/local
+  control, or the `*RST` vector.
 
 ## Why this repo exists
 

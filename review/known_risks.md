@@ -137,6 +137,15 @@ fixture topology) but a real mainframe reports however many modules are
 actually installed (`2`, here) — checked for type/positivity on real
 hardware, not exact equality.
 
+**Scoped label, 2026-10-22:** the driver is marked *fully tested for the
+N6775A + N6791A path* — one N6700C (firmware E.02.09.3271), channel 1 an
+N6775A, channel 2 an N6791A. That claim covers exactly the hardware
+acceptance modules in `docs/hardware_acceptance_tests.md` §1-§7 passing on
+that combination, and nothing else: no SMU, no other load or supply model,
+no other mainframe or firmware, no protection trip/clear, no remote/local
+control, no `*RST` vector. It is a label for that combination, not a
+change to the overall status below.
+
 Driver status remains `untested` (LPDS-001 §9), not `stable` — real LPDS-019
 conformance evidence now exists for the power-supply/electronic-load path,
 but not yet for a real SMU, and the remaining items below are still open.

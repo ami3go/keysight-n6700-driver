@@ -15,6 +15,12 @@ VOUT. Every DUT rating is explicit and the run needs the
 `RUN_REVIEWED_BUCK` confirmation. Passed twice against a 3.3 V buck on the
 N6700C bench, giving the first real-current evidence for the load LIST path.
 
+The driver is now labelled *fully tested for the N6775A + N6791A path*
+([README](README.md), [review/known_risks.md](review/known_risks.md)): a
+scoped claim for one N6700C with that supply/load pair. Overall LPDS-001 §9
+status stays `untested`; SMUs, other modules and mainframes, protection
+trip/clear and remote/local control are explicitly outside the claim.
+
 ## v0.8.0 — 2026-10-22
 
 Consolidates the post-v0.7.10 work: N679xA electronic-load LIST/ARB, terminal
