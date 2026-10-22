@@ -32,6 +32,7 @@ from scpi_driver_core.scpi.client import ScpiClient
 from scpi_driver_core.session import ScpiSession, SessionRegistry
 from scpi_driver_core.tracing.observer import Tracer
 from scpi_driver_core.transport.base import Transport
+from scpi_driver_core.transport.models import TransportState
 
 from ._translate import translated
 from .exceptions import (
@@ -173,6 +174,17 @@ class BaseInstrument:
 
     # -- hooks a concrete driver overrides -----------------------------------
 
+    def _require_session_replacement_allowed(self, alias: str, session: ScpiSession) -> None:
+        """Validate replacement while registry and old session operation locks are held."""
+
+    def _on_terminal_transport_fault(self, alias: str, session: ScpiSession) -> None:
+        """A terminal byte-transport fault invalidates driver-local resource ownership.
+
+        Implementations must not infer an instrument abort or electrically safe
+        state from this notification. Called under the alias operation lock.
+        """
+
+
     def _build_transport(
         self, *, alias: str, resource: str, connection_type: str, **options: Any
     ) -> Transport:
@@ -234,7 +246,13 @@ class BaseInstrument:
                     code="LPDS-CON-001",
                 )
             if alias in self._aliases:
-                self._disconnect_session(alias, raise_on_error=False)
+                previous = self._aliases[alias]
+                # A lease check outside the session's operation lock can race
+                # a new acquisition; validate and tear down the same old
+                # session while its lock is held.
+                with previous.lock:
+                    self._require_session_replacement_allowed(alias, previous.session)
+                    self._disconnect_session(alias, raise_on_error=False)
 
             transport = self._build_transport(
                 alias=alias, resource=resource, connection_type=connection_type, **options
@@ -280,14 +298,17 @@ class BaseInstrument:
                     f"no session is connected as alias {alias!r}", code="LPDS-STA-002"
                 )
             return
-        with suppress(DriverStateError):
-            self._set_state(alias, SessionState.CLOSING)
+        # While still connected, attempt the best-effort source/load safe
+        # state. CLOSING disallows typed SCPI calls and must not be entered
+        # before the shutdown hook has had a chance to run.
         try:
             self._apply_safe_state(alias, entry.session, reason="disconnect")
         except Exception:
             logging.getLogger(__name__).warning(
                 "safe-state hook failed for alias %r during disconnect", alias, exc_info=True
             )
+        with suppress(DriverStateError):
+            self._set_state(alias, SessionState.CLOSING)
         try:
             entry.session.close()
         finally:
@@ -355,6 +376,18 @@ class BaseInstrument:
                     code="LPDS-STA-005",
                     operation=operation_name,
                 )
+            # A terminal byte-transport fault is authoritative even if the
+            # previous SCPI call never reached the driver fault wrapper.
+            # Drop only the affected host reservation before a stale lease
+            # policy can mask the actual connection error.
+            if entry.session.transport.state in {TransportState.FAULTED, TransportState.CLOSED}:
+                self._set_state(key, SessionState.ERROR)
+                self._on_terminal_transport_fault(key, entry.session)
+                raise DriverConnectionError(
+                    "transport is terminally faulted; reconnect and independently verify instrument state",
+                    code="LPDS-CON-002",
+                    operation=operation_name,
+                )
             previous = entry.state
             self._set_state(key, SessionState.BUSY)
             try:
@@ -362,7 +395,14 @@ class BaseInstrument:
                     return action(entry.session)
             except DriverError:
                 self._set_state(key, SessionState.ERROR)
-                self._set_state(key, previous if previous != SessionState.BUSY else SessionState.CONNECTED)
+                if entry.session.transport.state in {TransportState.FAULTED, TransportState.CLOSED}:
+                    # A dead transport cannot safely preserve its in-process
+                    # acquisition reservation. It also cannot prove hardware OFF.
+                    self._on_terminal_transport_fault(key, entry.session)
+                else:
+                    self._set_state(
+                        key, previous if previous != SessionState.BUSY else SessionState.CONNECTED
+                    )
                 raise
             finally:
                 if entry.state is SessionState.BUSY:

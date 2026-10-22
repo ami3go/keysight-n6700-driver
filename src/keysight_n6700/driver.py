@@ -32,7 +32,7 @@ from scpi_driver_core.tracing.jsonl import JsonlTraceSink
 from scpi_driver_core.tracing.observer import TraceObserver, Tracer
 from scpi_driver_core.tracing.redaction import Redactor
 from scpi_driver_core.transport.base import Transport
-from scpi_driver_core.transport.models import ReplayPolicy
+from scpi_driver_core.transport.models import ReplayPolicy, TransportState
 from scpi_driver_core.transport.tcp import TcpTransport
 from scpi_driver_core.transport.visa import VisaTransport
 
@@ -189,10 +189,48 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         self._digitize_leases = AcquisitionCoordinator()
 
     def _begin_digitize(self, channel: int, alias: str | None = None) -> None:
-        self._digitize_leases.begin(self._resolve_alias(alias), channel)
+        key = self._resolve_alias(alias)
+        entry = self._entry(key)
+        # Serialize reservation with SCPI commands using the alias lock.
+        # A terminal transport may never start/restart an acquisition.
+        with entry.lock:
+            if entry.state not in _CONNECTED_STATES or entry.session.transport.state is not TransportState.OPEN:
+                raise DriverPreconditionError(
+                    "digitizer requires a live verified session; disconnect and reconnect after a fault"
+                )
+            self._digitize_leases.begin(key, channel)
 
     def _end_digitize(self, channel: int, alias: str | None = None) -> None:
-        self._digitize_leases.release(self._resolve_alias(alias), channel)
+        key = self._resolve_alias(alias)
+        with self._entry(key).lock:
+            self._digitize_leases.release(key, channel)
+
+    def _require_session_replacement_allowed(self, alias: str, session: ScpiSession) -> None:
+        # Called by base._connect_session while holding the global registry
+        # lock AND old alias's operation lock, immediately before teardown.
+        self._reconcile_terminal_transport_lease(alias)
+        self._digitize_leases.require_idle(alias, "session replacement")
+
+    def _on_terminal_transport_fault(self, alias: str, session: ScpiSession) -> None:
+        # Called only after the byte transport reports a terminal fault.
+        # Resource bookkeeping release MUST NOT be confused with a proven ABORt
+        # or OFF state on the mainframe.
+        if session.transport.state not in {TransportState.FAULTED, TransportState.CLOSED}:
+            return
+        self._digitize_leases.invalidate_terminal_session(alias)
+        discovery = self._discovery.get(alias)
+        if discovery is not None:
+            for previous_channel in discovery.channels.values():
+                previous_channel._invalidate_discovery()
+            discovery.channels.clear()
+            discovery.capabilities.clear()
+
+    def _reconcile_terminal_transport_lease(self, alias: str) -> None:
+        # Also covers faults detected before disconnect/replace, even when no
+        # later SCPI command reached _execute_operation.
+        entry = self._entry(alias)
+        if entry.session.transport.state in {TransportState.FAULTED, TransportState.CLOSED}:
+            self._on_terminal_transport_fault(alias, entry.session)
 
     def _channel_supports_digitizing(self, channel: int, alias: str | None = None) -> bool:
         """Whether ``channel`` has a real SWEep/digitizer subsystem at all.
@@ -422,8 +460,6 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         if options:
             raise DriverArgumentValueError(f"unknown connect() options: {sorted(options)}")
 
-        if replace and alias in self._aliases:
-            self._digitize_leases.require_idle(alias, "session replacement")
         self._connect_session(
             alias=alias,
             resource=str(resource or ""),
@@ -457,9 +493,11 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         if alias is None and not self._aliases:
             return
         key = self._resolve_alias(alias)
-        self._digitize_leases.require_idle(key, "disconnect")
-        self._disconnect_session(key, raise_on_error=True)
-        self._discovery.pop(key, None)
+        with self._entry(key).lock:
+            self._reconcile_terminal_transport_lease(key)
+            self._digitize_leases.require_idle(key, "disconnect")
+            self._disconnect_session(key, raise_on_error=True)
+            self._discovery.pop(key, None)
 
     def select(self, alias: str) -> str:
         """Make ``alias`` the session used by calls that omit ``alias``."""
@@ -475,9 +513,11 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
     def disconnect_all(self) -> None:
         """Safely disconnect every open session."""
         for alias in list(self._aliases):
-            self._digitize_leases.require_idle(alias, "disconnect_all")
-            self._disconnect_session(alias, raise_on_error=False)
-            self._discovery.pop(alias, None)
+            with self._entry(alias).lock:
+                self._reconcile_terminal_transport_lease(alias)
+                self._digitize_leases.require_idle(alias, "disconnect_all")
+                self._disconnect_session(alias, raise_on_error=False)
+                self._discovery.pop(alias, None)
 
     @capability("connection.session.status", category="connection", risk_level="none")
     def get_connection_state(self, alias: str | None = None, refresh: bool = False) -> dict[str, Any]:
