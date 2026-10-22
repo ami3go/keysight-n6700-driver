@@ -542,6 +542,13 @@ exclusions:
     scope: v0.7.0
     review_date: "2026-10-14"
     covered_by: tests/unit/test_voltage_transient.py
+  - method: supervise_voltage_transient
+    reason: "Composes already-vectored status queries with abort-voltage-transient and disable-output; adds a time/abort/protection stop policy, not a new protocol shape. Deadline, caller abort, protection, superseded token, transport-fault cleanup, no-retry and lock behavior are covered by the supervised-run unit suite."
+    risk: medium
+    approval: maintainer
+    scope: v0.8.0
+    review_date: "2026-10-22"
+    covered_by: tests/unit/test_supervised_transient.py
   - method: wait_voltage_transient_complete
     reason: "Polls WTG/active state for a runtime generation token; timeout-to-abort recovery is covered by the lifecycle unit suite and adds no untested protocol shape beyond status and abort vectors."
     risk: low

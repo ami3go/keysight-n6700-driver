@@ -1810,6 +1810,24 @@ methods:
   - alias
   device_facing: true
   execution_status: not_yet_run
+- method: supervise_voltage_transient
+  canonical_method: supervise_voltage_transient
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.supervise_voltage_transient
+  signature: 'supervise_voltage_transient(self, channel: ''int'', token: ''VoltageTransientToken'', *,
+    maximum_runtime_s: ''float'', poll_interval_s: ''float'' = 0.05, abort_requested: ''Callable[[], bool]
+    | None'' = None, output_off_on_expiry: ''bool'' = True, alias: ''str | None'' = None) -> ''SupervisedTransientResult'''
+  required_arguments:
+  - channel
+  - token
+  - maximum_runtime_s
+  optional_arguments:
+  - poll_interval_s
+  - abort_requested
+  - output_off_on_expiry
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
 - method: trigger_digitize
   canonical_method: trigger_digitize
   aliases: []

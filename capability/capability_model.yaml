@@ -320,6 +320,26 @@ capabilities:
     python_method: abort_voltage_transient
     canonical_method: abort_voltage_transient
     aliases: []
+- capability_id: source.voltage.transient.supervise
+  display_name: Supervise Voltage Transient
+  description: Run an infinite or continuous source profile under a hard time limit and emergency output-OFF.
+  category: source
+  standard: true
+  risk_level: high
+  mutating: true
+  may_energize_or_sink_power: false
+  preconditions:
+  - A source transient is armed and triggered (or externally paced).
+  - Caller supplied a maximum runtime of at most one hour.
+  postconditions: []
+  side_effects: []
+  support:
+    state: supported
+    confidence: declared
+  binding:
+    python_method: supervise_voltage_transient
+    canonical_method: supervise_voltage_transient
+    aliases: []
 - capability_id: load.transient.list.configure
   display_name: Configure Load List
   description: Configure and verify a bounded N679xA load LIST without enabling the input.
