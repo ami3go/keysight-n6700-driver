@@ -1,0 +1,428 @@
+# ARB-R05 golden SCPI vectors for the source ARB/LIST families.
+#
+# Each vector replays one driver call on the simulator and pins the exact
+# ordered list of mutating SCPI commands (queries are not listed).  The text
+# was reviewed against the N6705 Programmer's Reference command tree in
+# Keysight_documents/N6775A.pdf.md; tests/conformance/test_arb_golden_vectors.py
+# also checks every header against that tree independently of the driver.
+#
+# Regenerate after an intentional protocol change, then review the diff line by
+# line against the vendor text before committing.  Never regenerate to make a
+# failing test pass.
+vectors:
+- id: voltage-arb-step
+  family: arb-shape
+  vendor: '[SOURce:]ARB:VOLTage:STEP:{STARt,END,STARt:TIMe}'
+  call:
+    method: configure_voltage_arb_waveform
+    args: [1]
+    kwargs:
+      waveform:
+        shape: ArbStep
+        args: [1.0, 5.0, 0.002]
+        kwargs: {}
+      maximum_voltage_v: 10.0
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'ARB:FUNC:TYPE
+      VOLT,(@1)', 'ARB:FUNC:SHAP STEP,(@1)', 'ARB:VOLT:STEP:STAR 1,(@1)', 'ARB:VOLT:STEP:END 5,(@1)',
+    'ARB:VOLT:STEP:STAR:TIM 0.002,(@1)', 'ARB:COUN 1,(@1)', 'ARB:TERM:LAST OFF,(@1)', 'VOLT:MODE ARB,(@1)']
+- id: voltage-arb-ramp
+  family: arb-shape
+  vendor: '[SOURce:]ARB:VOLTage:RAMP:{STARt,END,STARt:TIMe,RTIMe,END:TIMe}'
+  call:
+    method: configure_voltage_arb_waveform
+    args: [1]
+    kwargs:
+      waveform:
+        shape: ArbRamp
+        args: [1.0, 5.0, 0.01]
+        kwargs: {start_time_s: 0.002, end_time_s: 0.003}
+      maximum_voltage_v: 10.0
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'ARB:FUNC:TYPE
+      VOLT,(@1)', 'ARB:FUNC:SHAP RAMP,(@1)', 'ARB:VOLT:RAMP:STAR 1,(@1)', 'ARB:VOLT:RAMP:END 5,(@1)',
+    'ARB:VOLT:RAMP:STAR:TIM 0.002,(@1)', 'ARB:VOLT:RAMP:RTIM 0.01,(@1)', 'ARB:VOLT:RAMP:END:TIM 0.003,(@1)',
+    'ARB:COUN 1,(@1)', 'ARB:TERM:LAST OFF,(@1)', 'VOLT:MODE ARB,(@1)']
+- id: voltage-arb-staircase
+  family: arb-shape
+  vendor: '[SOURce:]ARB:VOLTage:STAircase:{STARt,END,STARt:TIMe,TIMe,END:TIMe,NSTeps}'
+  call:
+    method: configure_voltage_arb_waveform
+    args: [1]
+    kwargs:
+      waveform:
+        shape: ArbStaircase
+        args: [1.0, 5.0, 5, 0.01]
+        kwargs: {}
+      maximum_voltage_v: 10.0
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'ARB:FUNC:TYPE
+      VOLT,(@1)', 'ARB:FUNC:SHAP STA,(@1)', 'ARB:VOLT:STA:STAR 1,(@1)', 'ARB:VOLT:STA:END 5,(@1)', 'ARB:VOLT:STA:STAR:TIM
+      0,(@1)', 'ARB:VOLT:STA:TIM 0.01,(@1)', 'ARB:VOLT:STA:END:TIM 0,(@1)', 'ARB:VOLT:STA:NST 5,(@1)',
+    'ARB:COUN 1,(@1)', 'ARB:TERM:LAST OFF,(@1)', 'VOLT:MODE ARB,(@1)']
+- id: voltage-arb-sine
+  family: arb-shape
+  vendor: '[SOURce:]ARB:VOLTage:SINusoid:{AMPLitude,OFFSet,FREQuency}'
+  call:
+    method: configure_voltage_arb_waveform
+    args: [1]
+    kwargs:
+      waveform:
+        shape: ArbSine
+        args: [2.0, 5.0, 100.0]
+        kwargs: {}
+      maximum_voltage_v: 10.0
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'ARB:FUNC:TYPE
+      VOLT,(@1)', 'ARB:FUNC:SHAP SIN,(@1)', 'ARB:VOLT:SIN:AMPL 2,(@1)', 'ARB:VOLT:SIN:OFFS 5,(@1)', 'ARB:VOLT:SIN:FREQ
+      100,(@1)', 'ARB:COUN 1,(@1)', 'ARB:TERM:LAST OFF,(@1)', 'VOLT:MODE ARB,(@1)']
+- id: voltage-arb-pulse
+  family: arb-shape
+  vendor: '[SOURce:]ARB:VOLTage:PULSe:{STARt,TOP,STARt:TIMe,TOP:TIMe,END:TIMe}'
+  call:
+    method: configure_voltage_arb_waveform
+    args: [1]
+    kwargs:
+      waveform:
+        shape: ArbPulse
+        args: [1.0, 5.0, 0.01]
+        kwargs: {start_time_s: 0.001, end_time_s: 0.001}
+      maximum_voltage_v: 10.0
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'ARB:FUNC:TYPE
+      VOLT,(@1)', 'ARB:FUNC:SHAP PULS,(@1)', 'ARB:VOLT:PULS:STAR 1,(@1)', 'ARB:VOLT:PULS:TOP 5,(@1)',
+    'ARB:VOLT:PULS:STAR:TIM 0.001,(@1)', 'ARB:VOLT:PULS:TOP:TIM 0.01,(@1)', 'ARB:VOLT:PULS:END:TIM 0.001,(@1)',
+    'ARB:COUN 1,(@1)', 'ARB:TERM:LAST OFF,(@1)', 'VOLT:MODE ARB,(@1)']
+- id: voltage-arb-trapezoid
+  family: arb-shape
+  vendor: '[SOURce:]ARB:VOLTage:TRAPezoid:{STARt,TOP,STARt:TIMe,RTIMe,TOP:TIMe,FTIMe,END:TIMe}'
+  call:
+    method: configure_voltage_arb_waveform
+    args: [1]
+    kwargs:
+      waveform:
+        shape: ArbTrapezoid
+        args: [1.0, 5.0, 0.01, 0.01, 0.01]
+        kwargs: {}
+      maximum_voltage_v: 10.0
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'ARB:FUNC:TYPE
+      VOLT,(@1)', 'ARB:FUNC:SHAP TRAP,(@1)', 'ARB:VOLT:TRAP:STAR 1,(@1)', 'ARB:VOLT:TRAP:TOP 5,(@1)',
+    'ARB:VOLT:TRAP:STAR:TIM 0,(@1)', 'ARB:VOLT:TRAP:RTIM 0.01,(@1)', 'ARB:VOLT:TRAP:TOP:TIM 0.01,(@1)',
+    'ARB:VOLT:TRAP:FTIM 0.01,(@1)', 'ARB:VOLT:TRAP:END:TIM 0,(@1)', 'ARB:COUN 1,(@1)', 'ARB:TERM:LAST
+      OFF,(@1)', 'VOLT:MODE ARB,(@1)']
+- id: voltage-arb-exponential
+  family: arb-shape
+  vendor: '[SOURce:]ARB:VOLTage:EXPonential:{STARt,END,STARt:TIMe,TIMe,TCONstant}'
+  call:
+    method: configure_voltage_arb_waveform
+    args: [1]
+    kwargs:
+      waveform:
+        shape: ArbExponential
+        args: [1.0, 5.0, 0.01, 0.002]
+        kwargs: {}
+      maximum_voltage_v: 10.0
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'ARB:FUNC:TYPE
+      VOLT,(@1)', 'ARB:FUNC:SHAP EXP,(@1)', 'ARB:VOLT:EXP:STAR 1,(@1)', 'ARB:VOLT:EXP:END 5,(@1)', 'ARB:VOLT:EXP:STAR:TIM
+      0,(@1)', 'ARB:VOLT:EXP:TIM 0.01,(@1)', 'ARB:VOLT:EXP:TCON 0.002,(@1)', 'ARB:COUN 1,(@1)', 'ARB:TERM:LAST
+      OFF,(@1)', 'VOLT:MODE ARB,(@1)']
+- id: voltage-arb-infinite-terminate-last
+  family: arb-shape
+  vendor: '[SOURce:]ARB:COUNt INFinity; ARB:TERMinate:LAST ON'
+  call:
+    method: configure_voltage_arb_waveform
+    args: [1]
+    kwargs:
+      waveform:
+        shape: ArbSine
+        args: [2.0, 5.0, 100.0]
+        kwargs: {}
+      maximum_voltage_v: 10.0
+      repeat_count: infinite
+      terminate_last: true
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'ARB:FUNC:TYPE
+      VOLT,(@1)', 'ARB:FUNC:SHAP SIN,(@1)', 'ARB:VOLT:SIN:AMPL 2,(@1)', 'ARB:VOLT:SIN:OFFS 5,(@1)', 'ARB:VOLT:SIN:FREQ
+      100,(@1)', 'ARB:COUN INF,(@1)', 'ARB:TERM:LAST ON,(@1)', 'VOLT:MODE ARB,(@1)']
+- id: voltage-arb-repeat-3
+  family: arb-shape
+  vendor: '[SOURce:]ARB:COUNt 3'
+  call:
+    method: configure_voltage_arb_waveform
+    args: [1]
+    kwargs:
+      waveform:
+        shape: ArbSine
+        args: [2.0, 5.0, 100.0]
+        kwargs: {}
+      maximum_voltage_v: 10.0
+      repeat_count: 3
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'ARB:FUNC:TYPE
+      VOLT,(@1)', 'ARB:FUNC:SHAP SIN,(@1)', 'ARB:VOLT:SIN:AMPL 2,(@1)', 'ARB:VOLT:SIN:OFFS 5,(@1)', 'ARB:VOLT:SIN:FREQ
+      100,(@1)', 'ARB:COUN 3,(@1)', 'ARB:TERM:LAST OFF,(@1)', 'VOLT:MODE ARB,(@1)']
+- id: voltage-arb-user-defined
+  family: udef
+  vendor: '[SOURce:]ARB:VOLTage:UDEFined:{LEVel,DWELl,BOSTep}'
+  call:
+    method: configure_voltage_arb
+    args:
+    - 1
+    - [1.0, 5.0, 3.0]
+    - [0.01]
+    kwargs: {maximum_voltage_v: 10.0}
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'ARB:FUNC:TYPE
+      VOLT,(@1)', 'ARB:FUNC:SHAP UDEF,(@1)', 'ARB:VOLT:UDEF:LEV 1,5,3,(@1)', 'ARB:VOLT:UDEF:DWEL 0.01,0.01,0.01,(@1)',
+    'ARB:VOLT:UDEF:BOST 0,(@1)', 'ARB:COUN 1,(@1)', 'ARB:TERM:LAST OFF,(@1)', 'VOLT:MODE ARB,(@1)']
+- id: voltage-arb-user-defined-triggers
+  family: udef
+  vendor: '[SOURce:]ARB:VOLTage:UDEFined:BOSTep'
+  call:
+    method: configure_voltage_arb
+    args:
+    - 1
+    - [1.0, 5.0, 3.0]
+    - [0.01, 0.02, 0.03]
+    kwargs:
+      maximum_voltage_v: 10.0
+      begin_step_triggers: [true, false, true]
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'ARB:FUNC:TYPE
+      VOLT,(@1)', 'ARB:FUNC:SHAP UDEF,(@1)', 'ARB:VOLT:UDEF:LEV 1,5,3,(@1)', 'ARB:VOLT:UDEF:DWEL 0.01,0.02,0.03,(@1)',
+    'ARB:VOLT:UDEF:BOST 1,0,1,(@1)', 'ARB:COUN 1,(@1)', 'ARB:TERM:LAST OFF,(@1)', 'VOLT:MODE ARB,(@1)']
+- id: voltage-list
+  family: list
+  vendor: '[SOURce:]LIST:{VOLTage,DWELl,TOUT:BOSTep,TOUT:EOSTep,COUNt,STEP,TERMinate:LAST}'
+  call:
+    method: configure_voltage_list
+    args:
+    - 1
+    - [1.0, 5.0]
+    - [0.01, 0.02]
+    kwargs: {maximum_voltage_v: 10.0}
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'LIST:VOLT
+      1,5,(@1)', 'LIST:DWEL 0.01,0.02,(@1)', 'LIST:TOUT:BOST 0,(@1)', 'LIST:TOUT:EOST 0,(@1)', 'LIST:COUN
+      1,(@1)', 'LIST:STEP AUTO,(@1)', 'LIST:TERM:LAST OFF,(@1)', 'VOLT:MODE LIST,(@1)']
+- id: voltage-list-once-triggers
+  family: list
+  vendor: '[SOURce:]LIST:{STEP ONCE,TOUT:BOSTep,TOUT:EOSTep,COUNt}'
+  call:
+    method: configure_voltage_list
+    args:
+    - 1
+    - [1.0, 5.0, 2.0]
+    - [0.01, 0.02, 0.03]
+    kwargs:
+      maximum_voltage_v: 10.0
+      step_mode: once
+      repeat_count: 4
+      begin_step_triggers: [true, false, false]
+      end_step_triggers: [false, false, true]
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'LIST:VOLT
+      1,5,2,(@1)', 'LIST:DWEL 0.01,0.02,0.03,(@1)', 'LIST:TOUT:BOST 1,0,0,(@1)', 'LIST:TOUT:EOST 0,0,1,(@1)',
+    'LIST:COUN 4,(@1)', 'LIST:STEP ONCE,(@1)', 'LIST:TERM:LAST OFF,(@1)', 'VOLT:MODE LIST,(@1)']
+- id: voltage-constant-dwell
+  family: cdw
+  vendor: '[SOURce:]ARB:VOLTage:CDWell:{DWELl,[LEVel]}'
+  call:
+    method: configure_voltage_constant_dwell_arb
+    args:
+    - 1
+    - [1.0, 5.0, 3.0]
+    - 0.01
+    kwargs: {maximum_voltage_v: 10.0}
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'ARB:FUNC:TYPE
+      VOLT,(@1)', 'ARB:FUNC:SHAP CDW,(@1)', 'ARB:VOLT:CDW:DWEL 0.01,(@1)', 'ARB:VOLT:CDW 1,5,3,(@1)',
+    'ARB:COUN 1,(@1)', 'ARB:TERM:LAST OFF,(@1)', 'VOLT:MODE ARB,(@1)']
+- id: voltage-sequence-base0
+  family: sequence
+  vendor: '[SOURce:]ARB:SEQuence:{RESet,STEP:FUNCtion:SHAPe,STEP:PACing,STEP:COUNt,STEP:VOLTage:*,COUNt,TERMinate:LAST}'
+  call:
+    method: configure_voltage_arb_sequence
+    args:
+    - 1
+    - &id001
+      - sequence_step:
+          waveform:
+            shape: ArbStep
+            args: [1.0, 2.0, 0.01]
+            kwargs: {}
+          kwargs: {}
+      - sequence_step:
+          waveform:
+            shape: ArbSine
+            args: [1.0, 2.0, 100.0]
+            kwargs: {}
+          kwargs: {}
+    kwargs: {maximum_voltage_v: 10.0, sequence_count: 3}
+  simulator: {sequence_step_base: 0}
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'ARB:FUNC:TYPE
+      VOLT,(@1)', 'ARB:FUNC:SHAP SEQ,(@1)', 'ARB:SEQ:RES (@1)', 'ARB:SEQ:STEP:FUNC:SHAP STEP,0,(@1)',
+    'ARB:SEQ:STEP:PAC DWEL,0,(@1)', 'ARB:SEQ:STEP:COUN 1,0,(@1)', 'ARB:SEQ:STEP:VOLT:STEP:STAR 1,0,(@1)',
+    'ARB:SEQ:STEP:VOLT:STEP:END 2,0,(@1)', 'ARB:SEQ:STEP:VOLT:STEP:STAR:TIM 0.01,0,(@1)', 'ARB:SEQ:STEP:FUNC:SHAP
+      SIN,1,(@1)', 'ARB:SEQ:STEP:PAC DWEL,1,(@1)', 'ARB:SEQ:STEP:COUN 1,1,(@1)', 'ARB:SEQ:STEP:VOLT:SIN:AMPL
+      1,1,(@1)', 'ARB:SEQ:STEP:VOLT:SIN:OFFS 2,1,(@1)', 'ARB:SEQ:STEP:VOLT:SIN:FREQ 100,1,(@1)', 'ARB:SEQ:COUN
+      3,(@1)', 'ARB:SEQ:TERM:LAST OFF,(@1)', 'VOLT:MODE ARB,(@1)']
+- id: voltage-sequence-base1
+  family: sequence
+  vendor: '[SOURce:]ARB:SEQuence:STEP:* (firmware numbers steps from 1)'
+  call:
+    method: configure_voltage_arb_sequence
+    args:
+    - 1
+    - *id001
+    kwargs: {maximum_voltage_v: 10.0, sequence_count: 3}
+  simulator: {sequence_step_base: 1}
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'ARB:FUNC:TYPE
+      VOLT,(@1)', 'ARB:FUNC:SHAP SEQ,(@1)', 'ARB:SEQ:RES (@1)', 'ARB:SEQ:STEP:FUNC:SHAP STEP,1,(@1)',
+    'ARB:SEQ:STEP:PAC DWEL,1,(@1)', 'ARB:SEQ:STEP:COUN 1,1,(@1)', 'ARB:SEQ:STEP:VOLT:STEP:STAR 1,1,(@1)',
+    'ARB:SEQ:STEP:VOLT:STEP:END 2,1,(@1)', 'ARB:SEQ:STEP:VOLT:STEP:STAR:TIM 0.01,1,(@1)', 'ARB:SEQ:STEP:FUNC:SHAP
+      SIN,2,(@1)', 'ARB:SEQ:STEP:PAC DWEL,2,(@1)', 'ARB:SEQ:STEP:COUN 1,2,(@1)', 'ARB:SEQ:STEP:VOLT:SIN:AMPL
+      1,2,(@1)', 'ARB:SEQ:STEP:VOLT:SIN:OFFS 2,2,(@1)', 'ARB:SEQ:STEP:VOLT:SIN:FREQ 100,2,(@1)', 'ARB:SEQ:COUN
+      3,(@1)', 'ARB:SEQ:TERM:LAST OFF,(@1)', 'VOLT:MODE ARB,(@1)']
+- id: sequence-store
+  family: sequence-file
+  vendor: MMEMory:STORe:ARB:SEQuence
+  call:
+    method: store_arb_sequence
+    args: [1, 'internal:\a.seq']
+  prelude:
+  - method: configure_voltage_arb_sequence
+    args:
+    - 1
+    - *id001
+    kwargs: {maximum_voltage_v: 10.0}
+  writes: ['MMEM:STOR:ARB:SEQ "internal:\a.seq",(@1)']
+- id: sequence-load
+  family: sequence-file
+  vendor: MMEMory:LOAD:ARB:SEQuence
+  call:
+    method: load_voltage_arb_sequence
+    args: [1, 'internal:\a.seq']
+    kwargs: {maximum_voltage_v: 10.0}
+  prelude:
+  - method: configure_voltage_arb_sequence
+    args:
+    - 1
+    - *id001
+    kwargs: {maximum_voltage_v: 10.0}
+  - method: store_arb_sequence
+    args: [1, 'internal:\a.seq']
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'MMEM:LOAD:ARB:SEQ
+      "internal:\a.seq",(@1)', 'ARB:FUNC:SHAP SEQ,(@1)', 'VOLT:MODE ARB,(@1)']
+- id: voltage-step-mode
+  family: step
+  vendor: '[SOURce:]VOLTage:TRIGgered; [SOURce:]STEP:TOUT; VOLTage:MODE STEP'
+  call:
+    method: configure_voltage_step
+    args: [1, 5.0]
+    kwargs: {maximum_voltage_v: 10.0}
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'VOLT:TRIG
+      5,(@1)', 'STEP:TOUT OFF,(@1)', 'VOLT:MODE STEP,(@1)']
+- id: voltage-step-mode-trigger-output
+  family: step
+  vendor: '[SOURce:]STEP:TOUT ON'
+  call:
+    method: configure_voltage_step
+    args: [1, 5.0]
+    kwargs: {maximum_voltage_v: 10.0, trigger_output: true}
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'VOLT:TRIG
+      5,(@1)', 'STEP:TOUT ON,(@1)', 'VOLT:MODE STEP,(@1)']
+- id: current-list
+  family: list
+  vendor: '[SOURce:]LIST:CURRent'
+  call:
+    method: configure_current_list
+    args:
+    - 1
+    - [0.1, 0.2]
+    - [0.01, 0.01]
+    kwargs: {maximum_current_a: 1.0}
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'LIST:CURR
+      0.1,0.2,(@1)', 'LIST:DWEL 0.01,0.01,(@1)', 'LIST:TOUT:BOST 0,(@1)', 'LIST:TOUT:EOST 0,(@1)', 'LIST:COUN
+      1,(@1)', 'LIST:STEP AUTO,(@1)', 'LIST:TERM:LAST OFF,(@1)', 'CURR:MODE LIST,(@1)']
+- id: current-arb-user-defined
+  family: udef
+  vendor: '[SOURce:]ARB:CURRent:UDEFined:{LEVel,DWELl,BOSTep}'
+  call:
+    method: configure_current_arb
+    args:
+    - 1
+    - [0.1, 0.2]
+    - [0.01, 0.01]
+    kwargs: {maximum_current_a: 1.0}
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'ARB:FUNC:TYPE
+      CURR,(@1)', 'ARB:FUNC:SHAP UDEF,(@1)', 'ARB:CURR:UDEF:LEV 0.1,0.2,(@1)', 'ARB:CURR:UDEF:DWEL 0.01,0.01,(@1)',
+    'ARB:CURR:UDEF:BOST 0,(@1)', 'ARB:COUN 1,(@1)', 'ARB:TERM:LAST OFF,(@1)', 'CURR:MODE ARB,(@1)']
+- id: current-constant-dwell
+  family: cdw
+  vendor: '[SOURce:]ARB:CURRent:CDWell:{DWELl,[LEVel]}'
+  call:
+    method: configure_current_constant_dwell_arb
+    args:
+    - 1
+    - [0.1, 0.2]
+    - 0.01
+    kwargs: {maximum_current_a: 1.0}
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'ARB:FUNC:TYPE
+      CURR,(@1)', 'ARB:FUNC:SHAP CDW,(@1)', 'ARB:CURR:CDW:DWEL 0.01,(@1)', 'ARB:CURR:CDW 0.1,0.2,(@1)',
+    'ARB:COUN 1,(@1)', 'ARB:TERM:LAST OFF,(@1)', 'CURR:MODE ARB,(@1)']
+- id: current-arb-sine
+  family: arb-shape
+  vendor: '[SOURce:]ARB:CURRent:SINusoid:{AMPLitude,OFFSet,FREQuency}'
+  call:
+    method: configure_current_arb_waveform
+    args:
+    - 1
+    - shape: ArbSine
+      args: [0.1, 0.3, 100.0]
+      kwargs: {}
+    kwargs: {maximum_current_a: 1.0}
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'ARB:FUNC:TYPE
+      CURR,(@1)', 'ARB:FUNC:SHAP SIN,(@1)', 'ARB:CURR:SIN:AMPL 0.1,(@1)', 'ARB:CURR:SIN:OFFS 0.3,(@1)',
+    'ARB:CURR:SIN:FREQ 100,(@1)', 'ARB:COUN 1,(@1)', 'ARB:TERM:LAST OFF,(@1)', 'CURR:MODE ARB,(@1)']
+- id: current-arb-trapezoid
+  family: arb-shape
+  vendor: '[SOURce:]ARB:CURRent:TRAPezoid:*'
+  call:
+    method: configure_current_arb_waveform
+    args:
+    - 1
+    - shape: ArbTrapezoid
+      args: [0.1, 0.5, 0.01, 0.01, 0.01]
+      kwargs: {}
+    kwargs: {maximum_current_a: 1.0}
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'ARB:FUNC:TYPE
+      CURR,(@1)', 'ARB:FUNC:SHAP TRAP,(@1)', 'ARB:CURR:TRAP:STAR 0.1,(@1)', 'ARB:CURR:TRAP:TOP 0.5,(@1)',
+    'ARB:CURR:TRAP:STAR:TIM 0,(@1)', 'ARB:CURR:TRAP:RTIM 0.01,(@1)', 'ARB:CURR:TRAP:TOP:TIM 0.01,(@1)',
+    'ARB:CURR:TRAP:FTIM 0.01,(@1)', 'ARB:CURR:TRAP:END:TIM 0,(@1)', 'ARB:COUN 1,(@1)', 'ARB:TERM:LAST
+      OFF,(@1)', 'CURR:MODE ARB,(@1)']
+- id: current-sequence
+  family: sequence
+  vendor: '[SOURce:]ARB:SEQuence:STEP:CURRent:*'
+  call:
+    method: configure_current_arb_sequence
+    args:
+    - 1
+    - - sequence_step:
+          waveform:
+            shape: ArbStep
+            args: [0.1, 0.2, 0.01]
+            kwargs: {}
+          kwargs: {}
+      - sequence_step:
+          waveform:
+            shape: ArbSine
+            args: [0.1, 0.3, 100.0]
+            kwargs: {}
+          kwargs: {}
+    kwargs: {maximum_current_a: 1.0}
+  simulator: {sequence_step_base: 0}
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'ARB:FUNC:TYPE
+      CURR,(@1)', 'ARB:FUNC:SHAP SEQ,(@1)', 'ARB:SEQ:RES (@1)', 'ARB:SEQ:STEP:FUNC:SHAP STEP,0,(@1)',
+    'ARB:SEQ:STEP:PAC DWEL,0,(@1)', 'ARB:SEQ:STEP:COUN 1,0,(@1)', 'ARB:SEQ:STEP:CURR:STEP:STAR 0.1,0,(@1)',
+    'ARB:SEQ:STEP:CURR:STEP:END 0.2,0,(@1)', 'ARB:SEQ:STEP:CURR:STEP:STAR:TIM 0.01,0,(@1)', 'ARB:SEQ:STEP:FUNC:SHAP
+      SIN,1,(@1)', 'ARB:SEQ:STEP:PAC DWEL,1,(@1)', 'ARB:SEQ:STEP:COUN 1,1,(@1)', 'ARB:SEQ:STEP:CURR:SIN:AMPL
+      0.1,1,(@1)', 'ARB:SEQ:STEP:CURR:SIN:OFFS 0.3,1,(@1)', 'ARB:SEQ:STEP:CURR:SIN:FREQ 100,1,(@1)', 'ARB:SEQ:COUN
+      1,(@1)', 'ARB:SEQ:TERM:LAST OFF,(@1)', 'CURR:MODE ARB,(@1)']
+- id: current-step-mode
+  family: step
+  vendor: '[SOURce:]CURRent:TRIGgered; CURRent:MODE STEP'
+  call:
+    method: configure_current_step
+    args: [1, 0.2]
+    kwargs: {maximum_current_a: 1.0}
+  writes: ['INIT:CONT:TRAN OFF,(@1)', 'ABOR:TRAN (@1)', 'VOLT:MODE FIX,(@1)', 'CURR:MODE FIX,(@1)', 'CURR:TRIG
+      0.2,(@1)', 'STEP:TOUT OFF,(@1)', 'CURR:MODE STEP,(@1)']
