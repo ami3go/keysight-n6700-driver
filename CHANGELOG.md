@@ -5,6 +5,15 @@ All notable changes to this project are documented here. See
 
 ## Unreleased
 
+### Tests
+
+ARB-R05 ([docs/ARB_PROTOCOL_COVERAGE.md](docs/ARB_PROTOCOL_COVERAGE.md)): 27 replayable golden
+SCPI vectors covering every source ARB/LIST family, an independent check that every emitted
+command header exists in the N6705 Programmer's Reference tree, a vendor-derived boundary
+matrix, and a generated readback/fault matrix (malformed, mismatching and timed-out readbacks
+must abort cleanly and never energize). Hardware-only combinations are reported as skips.
+No driver code change.
+
 ### Added
 
 Supervised source runs (ARB-R04, [docs/SUPERVISED_RUNS.md](docs/SUPERVISED_RUNS.md)):
