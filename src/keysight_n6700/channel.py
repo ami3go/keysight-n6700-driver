@@ -58,6 +58,8 @@ from .types import (
     ScpiErrorRecord,
     SourceTransientConfiguration,
     StepTransientConfiguration,
+    SupervisedStopReason,
+    SupervisedTransientResult,
     TransientQuantity,
     VoltageArbConfiguration,
     VoltageListConfiguration,
@@ -127,6 +129,10 @@ class _DriverProtocol(Protocol):
     def _query_binary_scpi(self, command: str, *, max_bytes: int) -> bytes: ...
 
     def _channel_supports_digitizing(self, channel: int) -> bool: ...
+
+
+# Hard ceiling on one supervised run; a longer soak must be restarted by its owner.
+SUPERVISED_MAXIMUM_RUNTIME_S = 3600.0
 
 
 class _ProfileCodec:
@@ -2538,6 +2544,178 @@ class PowerSupplyChannel(_ProfileCodec, BaseChannel):
                 self._transient_state = "unknown"
                 raise
             self._transient_state = "aborted"
+
+    def supervise_voltage_transient(
+        self,
+        token: VoltageTransientToken,
+        *,
+        maximum_runtime_s: float,
+        poll_interval_s: float = 0.05,
+        abort_requested: Callable[[], bool] | None = None,
+        output_off_on_expiry: bool = True,
+    ) -> SupervisedTransientResult:
+        """Own a triggered (or externally paced) source run until a hard stop.
+
+        This is the only supported way to run an ``'infinite'`` profile or a
+        ``continuous=True`` arm: ``wait_voltage_transient_complete()`` refuses
+        both.  The loop ends at the first of: a superseding abort/re-arm by
+        someone else, the caller's ``abort_requested`` callback, a protection
+        fault, the output turning OFF, ``maximum_runtime_s`` elapsing, or
+        (finite, non-continuous profiles only) normal completion.  Every stop
+        except a clean completion and a superseded token aborts the transient.
+        A protection fault or an unexpected output-OFF, including one that
+        coincides with a caller abort or the deadline, also switches the output
+        OFF and reads it back; expiry does so unless ``output_off_on_expiry`` is
+        false.
+
+        A transport or SCPI fault while polling, a failed completion check, or
+        an exception from ``abort_requested`` triggers a best-effort
+        ``INIT:CONT:TRAN OFF`` + ``ABOR:TRAN`` + ``OUTP OFF`` and leaves the
+        channel in the ``'unknown'`` state: a failed write is not proof the
+        output is off, so the original error is re-raised with the cleanup
+        outcome attached and nothing is retried.  ``poll_interval_s`` is capped
+        at ``maximum_runtime_s``; each poll issues three queries.  The shared
+        session lock is never held across polls.
+        """
+        for name, value in (("maximum_runtime_s", maximum_runtime_s), ("poll_interval_s", poll_interval_s)):
+            if not isinstance(value, (int, float)):
+                raise DriverArgumentValueError(f"{name} must be a number, not {type(value).__name__}")
+        limit = self._finite(maximum_runtime_s, "maximum_runtime_s")
+        interval = self._finite(poll_interval_s, "poll_interval_s")
+        if not 0 < limit <= SUPERVISED_MAXIMUM_RUNTIME_S:
+            raise DriverArgumentValueError(
+                f"maximum_runtime_s must be within (0, {SUPERVISED_MAXIMUM_RUNTIME_S:g}] s"
+            )
+        if interval <= 0:
+            raise DriverArgumentValueError("poll_interval_s must be greater than zero")
+        interval = min(interval, limit)
+        with self._transient_lock:
+            self._require_transient_token(token)
+            if self._transient_state not in {"ready", "triggered"}:
+                raise DriverPreconditionError("voltage transient is not armed/triggered")
+            config = self._transient_config
+            finite_run = (
+                config is not None
+                and not math.isinf(config.duration_s)
+                and not self._transient_continuous
+            )
+
+        started = monotonic()
+        reason: SupervisedStopReason
+        try:
+            while True:
+                elapsed = monotonic() - started
+                if token.generation != self._transient_generation:
+                    reason = "superseded"
+                    break
+                status = self._token_status(token)
+                if self.get_protection_status().active:
+                    reason = "protection"
+                    break
+                if not self.get_output():
+                    reason = "output_off"
+                    break
+                if abort_requested is not None and abort_requested():
+                    reason = "abort_requested"
+                    break
+                if elapsed >= limit:
+                    reason = "deadline"
+                    break
+                if finite_run and not status.waiting_for_trigger and not status.transient_active:
+                    reason = "completed"
+                    break
+                sleep(min(interval, max(0.0, limit - elapsed)))
+        except BaseException as primary:
+            if self._is_superseded_error(primary, token):
+                return SupervisedTransientResult(
+                    self.channel, "superseded", monotonic() - started, False, False, None
+                )
+            if token.generation == self._transient_generation:
+                self._supervisor_emergency_stop(primary)
+            raise
+        return self._finish_supervised_run(
+            token, reason, monotonic() - started, output_off_on_expiry
+        )
+
+    def _is_superseded_error(self, error: BaseException, token: VoltageTransientToken) -> bool:
+        """True for the error ``_require_not_superseded`` raises after someone else's abort/re-arm."""
+        return (
+            isinstance(error, DriverOperationUncertainError)
+            and "voltage_transient_generation" in error.details
+            and token.generation != self._transient_generation
+        )
+
+    def _finish_supervised_run(
+        self,
+        token: VoltageTransientToken,
+        reason: SupervisedStopReason,
+        elapsed_s: float,
+        output_off_on_expiry: bool,
+    ) -> SupervisedTransientResult:
+        # Held across the generation check and the abort so a concurrent
+        # re-arm cannot slip in between and be cancelled by this stop.
+        with self._transient_lock:
+            if token.generation != self._transient_generation:
+                return SupervisedTransientResult(
+                    self.channel, "superseded", elapsed_s, False, False, None
+                )
+            if reason == "completed":
+                try:
+                    self._driver.check_errors()
+                    self._verify_transient_outcome()
+                except BaseException as primary:
+                    self._supervisor_emergency_stop(primary)
+                    raise
+                self._transient_state = "complete"
+                return SupervisedTransientResult(
+                    self.channel, reason, elapsed_s, False, False, None
+                )
+            try:
+                self.abort_voltage_transient()
+                switch_off = reason in {"protection", "output_off"} or (
+                    reason == "deadline" and output_off_on_expiry
+                )
+                if not switch_off and reason in {"abort_requested", "deadline"}:
+                    # A fault that coincided with the stop must not be left energized.
+                    switch_off = self.get_protection_status().active or not self.get_output()
+                verified: bool | None = None
+                if switch_off:
+                    self.output_off()
+                    verified = not self.get_output()
+            except BaseException as primary:
+                self._supervisor_emergency_stop(primary)
+                raise
+            if verified is False:
+                self._transient_state = "unknown"
+                raise DriverOperationUncertainError(
+                    "output still reads ON after the supervisor switched it OFF",
+                    details={"supervised_stop_reason": reason, "channel": self.channel},
+                )
+            return SupervisedTransientResult(
+                self.channel, reason, elapsed_s, True, switch_off, verified
+            )
+
+    def _supervisor_emergency_stop(self, primary: BaseException) -> None:
+        """Best effort after a fault; never replaces ``primary``."""
+        failures: list[str] = []
+        try:
+            self._emergency_abort_voltage_transient()
+        except BaseException as cleanup_error:
+            failures.append(f"abort: {type(cleanup_error).__name__}: {cleanup_error}")
+        try:
+            self.output_off()
+        except BaseException as cleanup_error:
+            failures.append(f"output off: {type(cleanup_error).__name__}: {cleanup_error}")
+        self._transient_state = "unknown"
+        outcome = (
+            "abort and output-off commands sent; output state not verified"
+            if not failures
+            else "cleanup failures: " + "; ".join(failures)
+        )
+        if isinstance(primary, DriverError):
+            primary.details["supervised_transient_cleanup"] = outcome
+        if hasattr(primary, "add_note"):
+            primary.add_note(f"supervised source transient {outcome}")
 
     def _emergency_abort_voltage_transient(self) -> None:
         """Send only ``INIT:CONT:TRAN OFF`` and ``ABOR:TRAN`` for shutdown.

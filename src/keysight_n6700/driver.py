@@ -88,6 +88,7 @@ from .types import (
     ShutdownChannelResult,
     ShutdownResult,
     StepTransientConfiguration,
+    SupervisedTransientResult,
     VoltageArbConfiguration,
     VoltageListConfiguration,
     VoltageTransientStatus,
@@ -1269,6 +1270,37 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
     )
     def abort_voltage_transient(self, channel: int, alias: str | None = None) -> None:
         self.power_supply(channel, alias=alias).abort_voltage_transient()
+
+    @capability(
+        "source.voltage.transient.supervise",
+        category="source",
+        risk_level="high",
+        mutating=True,
+        canonical_method="supervise_voltage_transient",
+        preconditions=(
+            "A source transient is armed and triggered (or externally paced).",
+            "Caller supplied a maximum runtime of at most one hour.",
+        ),
+    )
+    def supervise_voltage_transient(
+        self,
+        channel: int,
+        token: VoltageTransientToken,
+        *,
+        maximum_runtime_s: float,
+        poll_interval_s: float = 0.05,
+        abort_requested: Callable[[], bool] | None = None,
+        output_off_on_expiry: bool = True,
+        alias: str | None = None,
+    ) -> SupervisedTransientResult:
+        """Run an infinite or continuous source profile under a hard time limit and emergency output-OFF."""
+        return self.power_supply(channel, alias=alias).supervise_voltage_transient(
+            token,
+            maximum_runtime_s=maximum_runtime_s,
+            poll_interval_s=poll_interval_s,
+            abort_requested=abort_requested,
+            output_off_on_expiry=output_off_on_expiry,
+        )
 
     def get_voltage_transient_status(
         self, channel: int, alias: str | None = None

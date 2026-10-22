@@ -414,6 +414,28 @@ class VoltageTransientStatus:
     continuous: bool = False  # armed with INIT:CONT:TRAN ON
 
 
+SupervisedStopReason = Literal[
+    "completed", "deadline", "abort_requested", "protection", "output_off", "superseded"
+]
+
+
+@dataclass(frozen=True)
+class SupervisedTransientResult:
+    """Outcome of :meth:`PowerSupplyChannel.supervise_voltage_transient`.
+
+    ``output_off_verified`` is ``None`` when the supervisor deliberately left
+    the output alone (caller abort, normal completion, superseded token);
+    otherwise it is the independent ``OUTP?`` readback taken after the stop.
+    """
+
+    channel: int
+    reason: SupervisedStopReason
+    elapsed_s: float
+    transient_aborted: bool
+    output_off_commanded: bool
+    output_off_verified: bool | None
+
+
 LoadProfileMode = Literal["cc", "cv", "cr", "cp"]
 LoadProfileKind = Literal["list", "arb", "constant_dwell_arb"]
 

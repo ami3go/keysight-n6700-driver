@@ -306,6 +306,6 @@ Until the last two gates are complete, documentation and release notes must say 
 - Dwell values are returned by the instrument but may be quantized. Callers must use the returned configuration as the authoritative programmed profile.
 - Cross-process controllers are not coordinated. One mainframe must have one controlling process during a transient test.
 - External-trigger execution can be armed and observed, but the software-trigger method correctly refuses it. The fixture owns the external event.
-- Infinite/continuous profiles require an application-owned watchdog and explicit abort; they never produce a normal terminal completion result by themselves.
+- Infinite/continuous profiles never produce a normal terminal completion result by themselves. Run them with `supervise_voltage_transient()` (mandatory maximum runtime, abort, emergency output-OFF; see [SUPERVISED_RUNS.md](SUPERVISED_RUNS.md)); the driver supervisor is software only, so pair long runs with an independent output-off path.
 - The sequence step-base probe handles both documented numbering conventions in software, but each supported firmware should still be recorded in HIL evidence.
 - ARB analog behavior, sequence timing, continuous retriggering and N6784A bipolar performance remain physically unqualified until the DSO/HIL matrix is executed.
