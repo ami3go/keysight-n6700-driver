@@ -5,6 +5,16 @@ All notable changes to this project are documented here. See
 
 ## Unreleased
 
+### Added
+
+Guarded source Arb HIL runner and evidence contract (ARB-R06, [docs/ARB_HIL_RUNNER.md](docs/ARB_HIL_RUNNER.md)):
+`keysight_n6700.arb_hil` and `scripts/run_arb_hil.py`. Dry run by default; a real run needs an
+approved plan bound to its SHA-256 and to the exact instrument, both environment signals, and, to
+energize, a per-case acknowledgement in the plan and in `N6700_ARB_HIL_ENERGIZE_CASES`. Per-case
+watchdog, atomic hash-listed evidence, and `PASS`/`FAIL`/`INCONCLUSIVE`/`NOT_RUN` verdicts where a
+simulator or unrun case can never pass. Finding: the N6700C takes `TRIG:ARB:SOUR` without a
+channel list, so energized source cases fail closed there (dialect not changed).
+
 ### Tests
 
 ARB-R05 ([docs/ARB_PROTOCOL_COVERAGE.md](docs/ARB_PROTOCOL_COVERAGE.md)): 27 replayable golden

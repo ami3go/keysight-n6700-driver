@@ -214,7 +214,7 @@ The values above are **software watchdog ceilings**, not hardware safety reactio
 - [x] R03 (issue #15 closed 2026-10-21, pins verified): pinned core and old/new compatibility evidence; issue #15 disposition recorded
 - [x] R04 (source side; load-side supervisor deferred, see [SUPERVISED_RUNS.md](../docs/SUPERVISED_RUNS.md)): supervised unbounded-mode contract and finite completion/abort/cross-channel regression complete
 - [x] R05 ([ARB_PROTOCOL_COVERAGE.md](../docs/ARB_PROTOCOL_COVERAGE.md)): complete waveform protocol, negative-boundary, malformed-response and failure matrix green (simulator; hardware combinations listed as NOT_RUN)
-- [ ] R06: HIL evidence schema + nonenergizing gated runner and dry-run tests merged
+- [x] R06 ([ARB_HIL_RUNNER.md](../docs/ARB_HIL_RUNNER.md)): HIL evidence schema, gated runner (with an energizing path behind two acknowledgements, by decision) and dry-run tests merged; never run on hardware
 - [ ] R07: site-approved physical HIL + independently calibrated DSO **or explicit NO-GO** documented
 - [ ] R08: downstream compatibility, docs, release metadata, issue closure and production readiness decision complete
 - [ ] Every implementation PR has a version increment, independent review, final-head green CI and merge/main regression record
