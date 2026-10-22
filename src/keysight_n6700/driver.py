@@ -37,6 +37,7 @@ from scpi_driver_core.transport.tcp import TcpTransport
 from scpi_driver_core.transport.visa import VisaTransport
 
 from ._translate import translated
+from .acquisition import DigitizeTiming
 from .acquisition_lease import AcquisitionCoordinator
 from .base import (
     SUPPORT_STATE_PROJECTION,
@@ -1915,6 +1916,62 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         self.load(channel, alias=alias).configure_digitize(
             function, points=points, interval_s=interval_s, offset_points=offset_points
         )
+
+    def get_verified_digitize_available_points(
+        self, channel: int, alias: str | None = None
+    ) -> int:
+        """Fail closed: no N6700 SCPI command proves live free shared point capacity.
+
+        The documented `SENS:SWE:POIN?` query reports configured sweep
+        *allocation*, not free points. A sum subtracted from the 512-Ki
+        nominal maximum is not a verified instrument report, nor is it an
+        atomic budget under out-of-process SCPI access.
+
+        For an exact requested depth, prefer `configure_digitize_verified`
+        and retain its acquisition lease through fetch or confirmed abort.
+        """
+        self.load(channel, alias=alias)._require_digitizing()
+        raise DriverUnsupportedOperationError(
+            "instrument-verified available digitizer points are not exposed by a supported "
+            "SCPI readback; use configure_digitize_verified for a requested exact point count"
+        )
+
+    def configure_digitize_verified(
+        self,
+        channel: int,
+        function: Literal["voltage", "current"],
+        *,
+        points: int,
+        interval_s: float,
+        offset_points: int = 0,
+        alias: str | None = None,
+    ) -> DigitizeTiming:
+        """Reserve and verify an exact acquisition configuration in one session transaction.
+
+        Holds this session's reentrant operation lock from the first setting
+        through configured points/offset/interval, shared-memory consistency
+        checks and error-queue readback. The driver-wide alias acquisition
+        lease then remains owned by this same thread/channel until validated
+        fetch or confirmed abort. If any step fails, no timing receipt is
+        returned and the capture must be explicitly aborted or the faulted
+        session torn down. Never silently reduce `points`.
+
+        This proves a configured point count *at readback time*, not free
+        capacity or cross-process exclusivity. Caller must explicitly secure
+        the physical mainframe against external independent controllers.
+        """
+        key = self._resolve_alias(alias)
+        with self._operation_lock(alias=key):
+            target = self.load(channel, alias=key)
+            target.configure_digitize(
+                function, points=points, interval_s=interval_s, offset_points=offset_points
+            )
+            result = target.digitize_timing
+            if result is None or result.points != points or result.offset_points != offset_points:
+                raise DriverPreconditionError(
+                    "verified acquisition timing not available after configuration"
+                )
+            return result
 
     @capability(
         "acquisition.digitize.trigger.configure",

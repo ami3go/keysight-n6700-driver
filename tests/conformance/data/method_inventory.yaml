@@ -359,6 +359,23 @@ methods:
   - alias
   device_facing: true
   execution_status: not_yet_run
+- method: configure_digitize_verified
+  canonical_method: configure_digitize_verified
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_digitize_verified
+  signature: 'configure_digitize_verified(self, channel: ''int'', function: "Literal[''voltage'', ''current'']",
+    *, points: ''int'', interval_s: ''float'', offset_points: ''int'' = 0, alias: ''str | None'' = None)
+    -> ''DigitizeTiming'''
+  required_arguments:
+  - channel
+  - function
+  - points
+  - interval_s
+  optional_arguments:
+  - offset_points
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
 - method: configure_load_arb
   canonical_method: configure_load_arb
   aliases: []
@@ -1109,6 +1126,18 @@ methods:
   implementation_target: keysight_n6700.driver.N6700.get_smu_mode
   signature: 'get_smu_mode(self, channel: ''int'', alias: ''str | None'' = None) -> "Literal[''voltage'',
     ''current'']"'
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: get_verified_digitize_available_points
+  canonical_method: get_verified_digitize_available_points
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_verified_digitize_available_points
+  signature: 'get_verified_digitize_available_points(self, channel: ''int'', alias: ''str | None'' = None)
+    -> ''int'''
   required_arguments:
   - channel
   optional_arguments:
