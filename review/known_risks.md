@@ -205,6 +205,14 @@ Before calling it `stable`:
   qualification, performance, compatibility), which is entirely
   hardware-dependent and not attempted here.
 
+**Open 2026-10-22 — N6700C source Arb trigger dialect:** on N6700C firmware E.02.09 the ARB
+start trigger is mainframe-wide (`TRIG:ARB:SOUR` takes no channel list; the channel-scoped form
+returns `-108`), confirmed on hardware for the N6791A load (`docs/LOAD_LIST_ARB.md`). The driver
+still classifies *source* Arb on an N6700C as `channel_scoped`, so `configure_voltage_transient_trigger()`
+fails there. The guarded Arb HIL runner (`docs/ARB_HIL_RUNNER.md`) fails such a case closed before
+enabling the output. Not fixed: it needs evidence from an Option 054 source module, which this
+bench does not have.
+
 **Open 2026-10-14 — source-voltage transient physical qualification:**
 finite voltage LIST/UDEF ARB, `VOLT:SLEW`, trigger readiness, completion,
 abort, and safe-shutdown recovery are implemented and verified against the

@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0",
+  "approved": false,
+  "approval": {
+    "reference": "REPLACE-site-authorization-reference",
+    "operator": "REPLACE-operator-name",
+    "reviewer": "REPLACE-independent-reviewer-name",
+    "plan_sha256": "REPLACE-computed-after-final-edit"
+  },
+  "connection": {"type": "ethernet", "resource": "REPLACE-instrument-address", "port": 5025, "timeout_s": 15},
+  "instrument": {
+    "idn_contains": "REPLACE-mainframe-model",
+    "mainframe_serial": "REPLACE",
+    "firmware": "REPLACE",
+    "channel": 1,
+    "module_model": "REPLACE",
+    "module_serial": "REPLACE",
+    "options": ["REPLACE-installed-options-exactly"]
+  },
+  "fixture": {
+    "wiring_revision": "REPLACE",
+    "load": "REPLACE-passive-protected-load-description",
+    "emergency_stop_verified": false
+  },
+  "envelope": {
+    "minimum_voltage_v": 0.0,
+    "maximum_voltage_v": 6.0,
+    "baseline_voltage_v": 3.0,
+    "current_limit_a": 0.1,
+    "maximum_duration_s": 2.0
+  },
+  "calibration": null,
+  "cases": [
+    {
+      "case_id": "ARB-HIL-VOLT-SINE-CFG-001",
+      "qualification_level": "protocol_nonenergizing",
+      "waveform": {"shape": "ArbSine", "args": [1.0, 3.0, 100.0]},
+      "energize": false,
+      "energize_ack": null,
+      "watchdog_s": 10
+    },
+    {
+      "case_id": "ARB-HIL-VOLT-SINE-RUN-001",
+      "qualification_level": "protocol_energized",
+      "waveform": {"shape": "ArbSine", "args": [1.0, 3.0, 100.0]},
+      "energize": true,
+      "energize_ack": "ENERGIZE_ARB-HIL-VOLT-SINE-RUN-001",
+      "watchdog_s": 10
+    }
+  ],
+  "stop_on_failure": true
+}
