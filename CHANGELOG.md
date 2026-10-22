@@ -5,6 +5,19 @@ All notable changes to this project are documented here. See
 
 ## Unreleased
 
+### Added
+
+Supervised source runs (ARB-R04, [docs/SUPERVISED_RUNS.md](docs/SUPERVISED_RUNS.md)):
+`supervise_voltage_transient()` runs an `'infinite'` or continuous source
+profile under a mandatory maximum runtime (at most 3600 s). It stops on
+deadline, caller abort, protection fault, output drop-out, or a superseding
+abort; aborts the transient; switches the output OFF and verifies it for
+deadline, protection and drop-out; and on a transport fault sends one
+best-effort abort and output-OFF, marks the channel `unknown` and re-raises.
+The ordinary completion wait still refuses unbounded runs. New
+`SupervisedTransientResult` type. Source side only; load profiles have no
+supervisor yet.
+
 ### Tests
 
 ARB-R02: vendor-verified capability matrix
