@@ -10,7 +10,8 @@
 > **Implementation update (v0.7.10):** DRV-ARB-A through DRV-ARB-H are now
 > implemented and covered by offline/simulator checks. This document preserves
 > the original task and review rationale; use
-> [`ARB_COMPLETION_FIX_PLAN.md`](ARB_COMPLETION_FIX_PLAN.md) and
+> [`ARB_COMPLETION_FIX_PLAN.md`](ARB_COMPLETION_FIX_PLAN.md),
+> [`N6700_ARB_REMAINING_WORK_TASK.md`](../task/N6700_ARB_REMAINING_WORK_TASK.md) and
 > [`ARB_WAVEFORM_REFERENCE.md`](ARB_WAVEFORM_REFERENCE.md) for current software
 > status. DRV-ARB-I physical HIL/DSO qualification remains unexecuted and
 > requires separate authorization.
