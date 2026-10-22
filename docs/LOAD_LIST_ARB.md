@@ -122,3 +122,9 @@ It requires the general HIL gate, `N6700_HIL_LOAD_PROFILE_ENABLED=true`,
 `N6700_HIL_LOAD_PROFILE_CONFIRM=RUN_REVIEWED_LOAD_PROFILE`. It refuses if the
 input is already ON or the measured input voltage exceeds `MAX_INPUT_V`. It
 leaves the mainframe-wide `TRIG:ARB:SOUR` at `BUS`.
+
+That test runs with nothing sinking current. Real-current evidence for the CC
+LIST path comes from `tests/hardware/test_hardware_buck_regulation.py`, where
+the load sinks a 3.3 V buck's output through a 0.1 → 1.0 → 0.1 A LIST and the
+digitizer read back 0.0997 / 0.9997 / 0.0996 A (see
+[`hardware_acceptance_tests.md`](hardware_acceptance_tests.md) §7).
