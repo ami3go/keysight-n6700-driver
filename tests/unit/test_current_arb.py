@@ -80,7 +80,9 @@ def test_smu_negative_current_arb_requires_priority_and_valid_compliance() -> No
         assert "VOLT:LIM? (@1)" in transport.history
         assert "STAT:QUES:COND? (@1)" in transport.history
 
-        smu.set_voltage_limit(25.0)
+        # N6781A tops out at 20 V; a 0 V compliance is a valid setpoint but an
+        # invalid envelope for a current-priority ARB.
+        smu.set_voltage_limit(0.0)
         with pytest.raises(DriverPreconditionError, match="voltage compliance"):
             driver.configure_current_arb(
                 1, [0.1], 0.001, maximum_current_a=0.5

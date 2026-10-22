@@ -37,6 +37,7 @@ class ChannelCapabilities:
     supports_load_cr: bool = False
     supports_load_cp: bool = False
     supports_power_measurement: bool = False
+    supports_simultaneous_vi: bool = False
     supports_array_measurement: bool = False
     supports_list_mode: bool = False
     supports_voltage_arb: bool = False
@@ -59,6 +60,10 @@ class ChannelCapabilities:
     supports_smu_priority_mode: bool = False
     supports_smu_output_off_mode: bool = False
     verified_real_load_commands: bool = False
+    min_voltage: float | None = None
+    max_voltage: float | None = None
+    min_current: float | None = None
+    max_current: float | None = None
     # Buffered/triggered acquisition (SENS:SWEep + TRIG:ACQuire + FETC:ARRay), per the
     # N6705C manual's "Digitizing Measurements" chapter. Not yet classified for the SMU/
     # power-supply families, which the manual says also support it — see known_risks.md.
@@ -147,6 +152,7 @@ def classify_module(
             supports_load_cr=True,
             supports_load_cp=True,
             supports_power_measurement=True,
+            supports_simultaneous_vi=True,
             verified_real_load_commands=False,
         )
     if model_clean in LOAD_MODELS:
@@ -158,6 +164,7 @@ def classify_module(
             supports_load_cr=True,
             supports_load_cp=True,
             supports_power_measurement=True,
+            supports_simultaneous_vi=True,
             supports_list_mode=supported_context,
             arb_trigger_dialect="mainframe_global" if supported_context else "unsupported",
             verified_real_load_commands=True,
@@ -173,6 +180,7 @@ def classify_module(
             supports_voltage_source=True,
             supports_current_source=True,
             supports_power_measurement=True,
+            supports_simultaneous_vi=True,
             supports_array_measurement=True,
             supports_list_mode=supported_context,
             supports_voltage_arb=supported_context,
@@ -203,6 +211,7 @@ def classify_module(
             supports_voltage_source=True,
             supports_current_source=False,
             supports_power_measurement=model_clean in _PRECISION_MODELS,
+            supports_simultaneous_vi=model_clean in _PRECISION_MODELS,
             supports_array_measurement=arb_allowed,
             supports_list_mode=arb_allowed,
             supports_voltage_arb=arb_allowed,

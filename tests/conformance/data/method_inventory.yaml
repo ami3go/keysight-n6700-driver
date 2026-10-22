@@ -171,13 +171,15 @@ methods:
   aliases: []
   implementation_target: keysight_n6700.driver.N6700.clear_protection
   signature: 'clear_protection(self, channel: ''int'', *, restore_output: ''bool'' = False, force_output_off_first:
-    ''bool'' = True, verify_cleared: ''bool'' = True, alias: ''str | None'' = None) -> ''ProtectionClearResult'''
+    ''bool'' = True, verify_cleared: ''bool'' = True, timeout_s: ''float'' = 1.0, alias: ''str | None''
+    = None) -> ''ProtectionClearResult'''
   required_arguments:
   - channel
   optional_arguments:
   - restore_output
   - force_output_off_first
   - verify_cleared
+  - timeout_s
   - alias
   device_facing: true
   execution_status: not_yet_run
@@ -406,7 +408,7 @@ methods:
   aliases: []
   implementation_target: keysight_n6700.driver.N6700.configure_load_cc
   signature: 'configure_load_cc(self, channel: ''int'', current: ''float'', *, input_on: ''bool'' = False,
-    verify: ''bool'' = True, alias: ''str | None'' = None, **_: ''object'') -> ''None'''
+    verify: ''bool'' = True, alias: ''str | None'' = None) -> ''None'''
   required_arguments:
   - channel
   - current
@@ -436,6 +438,53 @@ methods:
   - repeat_count
   - terminate_last
   - maximum_duration_s
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: configure_load_cp
+  canonical_method: configure_load_cp
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_load_cp
+  signature: 'configure_load_cp(self, channel: ''int'', power: ''float'', *, input_on: ''bool'' = False,
+    verify: ''bool'' = True, alias: ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - channel
+  - power
+  optional_arguments:
+  - input_on
+  - verify
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: configure_load_cr
+  canonical_method: configure_load_cr
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_load_cr
+  signature: 'configure_load_cr(self, channel: ''int'', resistance: ''float'', *, input_on: ''bool'' =
+    False, verify: ''bool'' = True, alias: ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - channel
+  - resistance
+  optional_arguments:
+  - input_on
+  - verify
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: configure_load_cv
+  canonical_method: configure_load_cv
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_load_cv
+  signature: 'configure_load_cv(self, channel: ''int'', voltage: ''float'', *, current_limit: ''float
+    | None'' = None, input_on: ''bool'' = False, verify: ''bool'' = True, alias: ''str | None'' = None)
+    -> ''None'''
+  required_arguments:
+  - channel
+  - voltage
+  optional_arguments:
+  - current_limit
+  - input_on
+  - verify
   - alias
   device_facing: true
   execution_status: not_yet_run
@@ -485,7 +534,7 @@ methods:
   aliases: []
   implementation_target: keysight_n6700.driver.N6700.configure_smu_current_priority
   signature: 'configure_smu_current_priority(self, channel: ''int'', current: ''float'', voltage_limit:
-    ''float'', alias: ''str | None'' = None, **kw: ''Any'') -> ''None'''
+    ''float'', alias: ''str | None'' = None, **kwargs: ''Any'') -> ''None'''
   required_arguments:
   - channel
   - current
@@ -499,7 +548,7 @@ methods:
   aliases: []
   implementation_target: keysight_n6700.driver.N6700.configure_smu_voltage_priority
   signature: 'configure_smu_voltage_priority(self, channel: ''int'', voltage: ''float'', current_limit:
-    ''float'', alias: ''str | None'' = None, **kw: ''Any'') -> ''None'''
+    ''float'', alias: ''str | None'' = None, **kwargs: ''Any'') -> ''None'''
   required_arguments:
   - channel
   - voltage
@@ -705,6 +754,16 @@ methods:
   - alias
   device_facing: true
   execution_status: not_yet_run
+- method: disable_io_watchdog
+  canonical_method: disable_io_watchdog
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.disable_io_watchdog
+  signature: 'disable_io_watchdog(self, alias: ''str | None'' = None) -> ''None'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
 - method: disable_output
   canonical_method: disable_output
   aliases: []
@@ -764,6 +823,17 @@ methods:
   optional_arguments:
   - alias
   - max_entries
+  device_facing: true
+  execution_status: not_yet_run
+- method: enable_io_watchdog
+  canonical_method: enable_io_watchdog
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.enable_io_watchdog
+  signature: 'enable_io_watchdog(self, delay_s: ''float'', alias: ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - delay_s
+  optional_arguments:
+  - alias
   device_facing: true
   execution_status: not_yet_run
 - method: enable_output
@@ -1050,6 +1120,26 @@ methods:
   optional_arguments:
   - alias
   - refresh
+  device_facing: true
+  execution_status: not_yet_run
+- method: get_io_watchdog
+  canonical_method: get_io_watchdog
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_io_watchdog
+  signature: 'get_io_watchdog(self, alias: ''str | None'' = None) -> ''dict[str, float | bool]'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: get_last_shutdown_result
+  canonical_method: get_last_shutdown_result
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_last_shutdown_result
+  signature: 'get_last_shutdown_result(self, alias: ''str'' = ''default'') -> ''ShutdownResult | None'''
+  required_arguments: []
+  optional_arguments:
+  - alias
   device_facing: true
   execution_status: not_yet_run
 - method: get_load_mode
@@ -1391,6 +1481,16 @@ methods:
   - retry_delay_s
   device_facing: true
   execution_status: not_yet_run
+- method: reconnect
+  canonical_method: reconnect
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.reconnect
+  signature: 'reconnect(self, alias: ''str | None'' = None) -> ''dict[str, Any]'''
+  required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
 - method: refresh_driver_capabilities
   canonical_method: refresh_driver_capabilities
   aliases: []
@@ -1631,6 +1731,16 @@ methods:
   - mode
   optional_arguments:
   - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: set_strict_error_checking
+  canonical_method: set_strict_error_checking
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.set_strict_error_checking
+  signature: 'set_strict_error_checking(self, enabled: ''bool'') -> ''None'''
+  required_arguments:
+  - enabled
+  optional_arguments: []
   device_facing: true
   execution_status: not_yet_run
 - method: set_voltage_slew_rate
@@ -1902,6 +2012,19 @@ methods:
   - timeout_s
   - poll_interval_s
   - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: write_checked
+  canonical_method: write_checked
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.write_checked
+  signature: 'write_checked(self, command: ''str'', *, alias: ''str | None'' = None, operation: ''str''
+    = ''write'') -> ''None'''
+  required_arguments:
+  - command
+  optional_arguments:
+  - alias
+  - operation
   device_facing: true
   execution_status: not_yet_run
 - method: write_scpi

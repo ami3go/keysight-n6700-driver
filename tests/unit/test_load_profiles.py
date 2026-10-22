@@ -472,7 +472,11 @@ def test_shutdown_aborts_load_transient_before_input_off(bench) -> None:
 
     assert result.success
     load_commands = [command for command in transport.history if command.endswith("(@2)")]
-    assert load_commands[:3] == ["INIT:CONT:TRAN OFF,(@2)", "ABOR:TRAN (@2)", "OUTP OFF,(@2)"]
+    assert load_commands[:2] == ["INIT:CONT:TRAN OFF,(@2)", "ABOR:TRAN (@2)"]
+    off_index = next(
+        index for index, command in enumerate(transport.history) if command.startswith("OUTP OFF")
+    )
+    assert transport.history.index("ABOR:TRAN (@2)") < off_index
     assert _sim(bench).channels[LOAD].enabled is False
 
 

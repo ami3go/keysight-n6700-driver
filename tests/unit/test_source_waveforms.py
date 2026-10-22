@@ -491,7 +491,7 @@ def test_current_arb_runs_and_reports_current_quantity(driver) -> None:
 
 def test_current_profile_above_current_range_is_rejected(driver) -> None:
     with pytest.raises(DriverArgumentValueError, match="range"):
-        driver.power_supply(1).configure_current_list([0.1], 0.01, maximum_current_a=5.0)
+        driver.power_supply(1).configure_current_list([0.1], 0.01, maximum_current_a=5.5)
 
 
 def test_smu_current_profile_requires_current_priority(driver) -> None:

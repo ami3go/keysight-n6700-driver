@@ -640,3 +640,73 @@ exclusions:
     scope: N679-02 draft; exact-depth configured receipt only
     review_date: "2026-10-21"
     covered_by: tests/unit/test_digitize_verified_reservation.py
+  - method: configure_load_cp
+    reason: "Constant-power wrapper composed of FUNC POW, POW:LIM and the already-vectored load LIST shapes; requires a real N679xA channel absent from the conformance simulator."
+    risk: medium
+    approval: maintainer
+    scope: v0.7.11
+    review_date: "2026-10-22"
+    covered_by: tests/unit/test_load_profiles.py
+  - method: configure_load_cr
+    reason: "Constant-resistance wrapper composed of FUNC RES, RES:LIM and the already-vectored load LIST shapes; requires a real N679xA channel absent from the conformance simulator."
+    risk: medium
+    approval: maintainer
+    scope: v0.7.11
+    review_date: "2026-10-22"
+    covered_by: tests/unit/test_load_profiles.py
+  - method: configure_load_cv
+    reason: "Constant-voltage wrapper composed of FUNC VOLT and the already-vectored load LIST shapes; requires a real N679xA channel absent from the conformance simulator."
+    risk: medium
+    approval: maintainer
+    scope: v0.7.11
+    review_date: "2026-10-22"
+    covered_by: tests/unit/test_load_profiles.py
+  - method: enable_io_watchdog
+    reason: "Writes the documented OUTP:PROT:WDOG:DEL / OUTP:PROT:WDOG pair via write_checked; asserted at the transport boundary in the review-regression suite."
+    risk: medium
+    approval: maintainer
+    scope: v0.7.11
+    review_date: "2026-10-22"
+    covered_by: tests/unit/test_review_regressions.py
+  - method: disable_io_watchdog
+    reason: "Writes OUTP:PROT:WDOG OFF via write_checked; same protocol shape as enable_io_watchdog."
+    risk: medium
+    approval: maintainer
+    scope: v0.7.11
+    review_date: "2026-10-22"
+    covered_by: tests/unit/test_review_regressions.py
+  - method: get_io_watchdog
+    reason: "Queries OUTP:PROT:WDOG? / OUTP:PROT:WDOG:DEL? and parses a two-field state; no new protocol shape beyond existing boolean/numeric queries."
+    risk: low
+    approval: maintainer
+    scope: v0.7.11
+    review_date: "2026-10-22"
+    covered_by: tests/unit/test_review_regressions.py
+  - method: get_last_shutdown_result
+    reason: "Returns the cached result of the last shutdown_all call. It is purely in-memory and transmits no SCPI, so a protocol vector is not meaningful."
+    risk: low
+    approval: maintainer
+    scope: v0.7.11
+    review_date: "2026-10-22"
+    covered_by: tests/unit/test_review_regressions.py
+  - method: reconnect
+    reason: "Lifecycle orchestration of the already-vectored disconnect and connect paths; adds no SCPI header of its own."
+    risk: low
+    approval: maintainer
+    scope: v0.7.11
+    review_date: "2026-10-22"
+    covered_by: tests/unit/test_driver_connection.py
+  - method: set_strict_error_checking
+    reason: "Local safety-policy toggle consumed by write_checked; it transmits no SCPI."
+    risk: low
+    approval: maintainer
+    scope: v0.7.11
+    review_date: "2026-10-22"
+    covered_by: tests/unit/test_exception_translation.py
+  - method: write_checked
+    reason: "Shared wrapper that writes one already-vectored command and drains SYST:ERR?; exercised by the vectors that call it and by the error/safety unit suite."
+    risk: low
+    approval: maintainer
+    scope: v0.7.11
+    review_date: "2026-10-22"
+    covered_by: tests/unit/test_exception_translation.py

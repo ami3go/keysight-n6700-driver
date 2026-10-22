@@ -159,7 +159,7 @@ def test_refused_reconfiguration_leaves_armed_profile_untouched(driver) -> None:
         ([12.0, 6.0], 0.01, {"repeat_count": 257}),
         ([12.0, 6.0], 0.01, {"repeat_count": "3"}),
         ([12.0, 6.0], 0.01, {"repeat_count": 2.5}),
-        ([12.0, 6.0], 0.01, {"maximum_voltage_v": 19.5}),
+        ([12.0, 6.0], 0.01, {"maximum_voltage_v": 53.0}),
         ([12.0, 6.0], 265.0, {"maximum_duration_s": 1000.0}),
     ],
 )
