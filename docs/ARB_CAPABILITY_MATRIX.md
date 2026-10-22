@@ -53,6 +53,12 @@ Read-only query of N6700C `MY56320259`, firmware `E.02.09.3271`, on
 
 - channel 1 N6775A: `SYST:CHAN:OPT?` returns no option → LIST/ARB
   unsupported. Consistent with the guide: an N6775A needs Option 054.
+  The retained 2026-10-16 run of `test_hardware_voltage_transient.py`
+  (`results/scope_hil/20261016-n6775a-transient-pytest.log`) shows the same
+  denial end to end: the guarded N6775A voltage-dip test was refused with
+  "N6775A does not advertise source LIST/ARB support" before any output was
+  enabled. This bench therefore cannot run source LIST/ARB HIL until an
+  Option 054 module is fitted.
 - channel 2 N6791A: no option needed → load LIST supported
   (`mainframe_global`), confirmed by the load-profile and buck HIL tests.
 
