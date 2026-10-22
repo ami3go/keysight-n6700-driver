@@ -213,7 +213,7 @@ The values above are **software watchdog ceilings**, not hardware safety reactio
 - [x] R02 ([ARB_CAPABILITY_MATRIX.md](../docs/ARB_CAPABILITY_MATRIX.md), `tests/unit/test_arb_capability_matrix.py`): vendor-verified matrix; #21 closed by the merging PR
 - [x] R03 (issue #15 closed 2026-10-21, pins verified): pinned core and old/new compatibility evidence; issue #15 disposition recorded
 - [x] R04 (source side; load-side supervisor deferred, see [SUPERVISED_RUNS.md](../docs/SUPERVISED_RUNS.md)): supervised unbounded-mode contract and finite completion/abort/cross-channel regression complete
-- [ ] R05: complete waveform protocol, negative-boundary, malformed-response and failure matrix green
+- [x] R05 ([ARB_PROTOCOL_COVERAGE.md](../docs/ARB_PROTOCOL_COVERAGE.md)): complete waveform protocol, negative-boundary, malformed-response and failure matrix green (simulator; hardware combinations listed as NOT_RUN)
 - [ ] R06: HIL evidence schema + nonenergizing gated runner and dry-run tests merged
 - [ ] R07: site-approved physical HIL + independently calibrated DSO **or explicit NO-GO** documented
 - [ ] R08: downstream compatibility, docs, release metadata, issue closure and production readiness decision complete

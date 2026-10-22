@@ -15,6 +15,7 @@ power systems.
 - [Full N6700 Arb waveform and SCPI function reference](ARB_WAVEFORM_REFERENCE.md)
 - [ARB/LIST capability matrix](ARB_CAPABILITY_MATRIX.md)
 - [Supervised infinite and continuous source runs](SUPERVISED_RUNS.md)
+- [ARB protocol and parameter coverage](ARB_PROTOCOL_COVERAGE.md)
 - [N679xA electronic-load LIST/ARB profiles](LOAD_LIST_ARB.md)
 - [Source-code analysis of third-party Arb implementations](ARB_SOURCE_CODE_ANALYSIS.md)
 - [Worked Arb code examples and offline tests](ARB_WORKED_CODE_EXAMPLES.md)
