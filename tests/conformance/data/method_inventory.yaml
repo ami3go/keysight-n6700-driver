@@ -14,6 +14,17 @@ methods:
   - alias
   device_facing: true
   execution_status: not_yet_run
+- method: abort_load_transient
+  canonical_method: abort_load_transient
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.abort_load_transient
+  signature: 'abort_load_transient(self, channel: ''int'', alias: ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
 - method: abort_voltage_transient
   canonical_method: abort_voltage_transient
   aliases: []
@@ -30,6 +41,17 @@ methods:
   aliases: []
   implementation_target: keysight_n6700.driver.N6700.arm_digitize
   signature: 'arm_digitize(self, channel: ''int'', alias: ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: arm_load_transient
+  canonical_method: arm_load_transient
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.arm_load_transient
+  signature: 'arm_load_transient(self, channel: ''int'', alias: ''str | None'' = None) -> ''LoadTransientToken'''
   required_arguments:
   - channel
   optional_arguments:
@@ -129,6 +151,17 @@ methods:
   implementation_target: keysight_n6700.driver.N6700.clear_device_errors
   signature: 'clear_device_errors(self, alias: ''str | None'' = None) -> ''None'''
   required_arguments: []
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: clear_load_profile
+  canonical_method: clear_load_profile
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.clear_load_profile
+  signature: 'clear_load_profile(self, channel: ''int'', alias: ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - channel
   optional_arguments:
   - alias
   device_facing: true
@@ -326,6 +359,31 @@ methods:
   - alias
   device_facing: true
   execution_status: not_yet_run
+- method: configure_load_arb
+  canonical_method: configure_load_arb
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_load_arb
+  signature: 'configure_load_arb(self, channel: ''int'', mode: ''LoadProfileMode'', levels: ''Sequence[float]'',
+    dwell_s: ''float | Sequence[float]'', *, maximum_level: ''float'', minimum_level: ''float'' = 0.0,
+    maximum_current_a: ''float | None'' = None, repeat_count: ''RepeatCount'' = 1, terminate_last: ''bool''
+    = False, maximum_duration_s: ''float'' = 60.0, begin_step_triggers: ''bool | Sequence[bool]'' = False,
+    alias: ''str | None'' = None) -> ''LoadProfileConfiguration'''
+  required_arguments:
+  - channel
+  - mode
+  - levels
+  - dwell_s
+  - maximum_level
+  optional_arguments:
+  - minimum_level
+  - maximum_current_a
+  - repeat_count
+  - terminate_last
+  - maximum_duration_s
+  - begin_step_triggers
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
 - method: configure_load_cc
   canonical_method: configure_load_cc
   aliases: []
@@ -338,6 +396,70 @@ methods:
   optional_arguments:
   - input_on
   - verify
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: configure_load_constant_dwell_arb
+  canonical_method: configure_load_constant_dwell_arb
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_load_constant_dwell_arb
+  signature: 'configure_load_constant_dwell_arb(self, channel: ''int'', mode: ''LoadProfileMode'', levels:
+    ''Sequence[float]'', dwell_s: ''float'', *, maximum_level: ''float'', minimum_level: ''float'' = 0.0,
+    maximum_current_a: ''float | None'' = None, repeat_count: ''RepeatCount'' = 1, terminate_last: ''bool''
+    = False, maximum_duration_s: ''float'' = 60.0, alias: ''str | None'' = None) -> ''LoadProfileConfiguration'''
+  required_arguments:
+  - channel
+  - mode
+  - levels
+  - dwell_s
+  - maximum_level
+  optional_arguments:
+  - minimum_level
+  - maximum_current_a
+  - repeat_count
+  - terminate_last
+  - maximum_duration_s
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: configure_load_list
+  canonical_method: configure_load_list
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_load_list
+  signature: 'configure_load_list(self, channel: ''int'', mode: ''LoadProfileMode'', levels: ''Sequence[float]'',
+    dwell_s: ''float | Sequence[float]'', *, maximum_level: ''float'', minimum_level: ''float'' = 0.0,
+    maximum_current_a: ''float | None'' = None, repeat_count: ''RepeatCount'' = 1, step_mode: "Literal[''auto'',
+    ''once'']" = ''auto'', terminate_last: ''bool'' = False, maximum_duration_s: ''float'' = 60.0, begin_step_triggers:
+    ''bool | Sequence[bool]'' = False, end_step_triggers: ''bool | Sequence[bool]'' = False, alias: ''str
+    | None'' = None) -> ''LoadProfileConfiguration'''
+  required_arguments:
+  - channel
+  - mode
+  - levels
+  - dwell_s
+  - maximum_level
+  optional_arguments:
+  - minimum_level
+  - maximum_current_a
+  - repeat_count
+  - step_mode
+  - terminate_last
+  - maximum_duration_s
+  - begin_step_triggers
+  - end_step_triggers
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: configure_load_transient_trigger
+  canonical_method: configure_load_transient_trigger
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.configure_load_transient_trigger
+  signature: 'configure_load_transient_trigger(self, channel: ''int'', source: "Literal[''bus'', ''external'']"
+    = ''bus'', alias: ''str | None'' = None) -> ''None'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - source
   - alias
   device_facing: true
   execution_status: not_yet_run
@@ -919,6 +1041,17 @@ methods:
   implementation_target: keysight_n6700.driver.N6700.get_load_mode
   signature: 'get_load_mode(self, channel: ''int'', alias: ''str | None'' = None) -> "Literal[''cc'',
     ''cv'', ''cr'', ''cp'']"'
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: get_load_transient_status
+  canonical_method: get_load_transient_status
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.get_load_transient_status
+  signature: 'get_load_transient_status(self, channel: ''int'', alias: ''str | None'' = None) -> ''LoadTransientStatus'''
   required_arguments:
   - channel
   optional_arguments:
@@ -1549,6 +1682,19 @@ methods:
   - alias
   device_facing: true
   execution_status: not_yet_run
+- method: trigger_load_transient
+  canonical_method: trigger_load_transient
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.trigger_load_transient
+  signature: 'trigger_load_transient(self, channel: ''int'', token: ''LoadTransientToken'', alias: ''str
+    | None'' = None) -> ''None'''
+  required_arguments:
+  - channel
+  - token
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
 - method: trigger_voltage_transient
   canonical_method: trigger_voltage_transient
   aliases: []
@@ -1662,6 +1808,36 @@ methods:
   - channel
   - minimum
   - maximum
+  optional_arguments:
+  - timeout_s
+  - poll_interval_s
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: wait_load_transient_complete
+  canonical_method: wait_load_transient_complete
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.wait_load_transient_complete
+  signature: 'wait_load_transient_complete(self, channel: ''int'', token: ''LoadTransientToken'', *, timeout_s:
+    ''float | None'' = None, poll_interval_s: ''float'' = 0.01, alias: ''str | None'' = None) -> ''LoadTransientStatus'''
+  required_arguments:
+  - channel
+  - token
+  optional_arguments:
+  - timeout_s
+  - poll_interval_s
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
+- method: wait_load_transient_ready
+  canonical_method: wait_load_transient_ready
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.wait_load_transient_ready
+  signature: 'wait_load_transient_ready(self, channel: ''int'', token: ''LoadTransientToken'', *, timeout_s:
+    ''float'' = 5.0, poll_interval_s: ''float'' = 0.01, alias: ''str | None'' = None) -> ''LoadTransientStatus'''
+  required_arguments:
+  - channel
+  - token
   optional_arguments:
   - timeout_s
   - poll_interval_s

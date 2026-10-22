@@ -12,6 +12,7 @@ power systems.
 - [Hardware acceptance tests](hardware_acceptance_tests.md)
 - [Voltage LIST/ARB and slew implementation](VOLTAGE_TRANSIENT_IMPLEMENTATION.md)
 - [Full N6700 Arb waveform and SCPI function reference](ARB_WAVEFORM_REFERENCE.md)
+- [N679xA electronic-load LIST/ARB profiles](LOAD_LIST_ARB.md)
 - [Source-code analysis of third-party Arb implementations](ARB_SOURCE_CODE_ANALYSIS.md)
 - [Worked Arb code examples and offline tests](ARB_WORKED_CODE_EXAMPLES.md)
 - [Coordinated Arb driver implementation task](ARB_DRIVER_IMPLEMENTATION_TASK.md)

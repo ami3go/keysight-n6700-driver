@@ -338,6 +338,69 @@ class VoltageTransientStatus:
     continuous: bool = False  # armed with INIT:CONT:TRAN ON
 
 
+LoadProfileMode = Literal["cc", "cv", "cr", "cp"]
+LoadProfileKind = Literal["list", "arb", "constant_dwell_arb"]
+
+
+@dataclass(frozen=True)
+class LoadProfileConfiguration:
+    """Validated/read-back N679xA LIST or ARB profile for one load channel.
+
+    ``levels`` are in the unit of ``mode`` (A, V, ohm or W). ``dwell_s`` holds
+    one value per level, except a constant-dwell ARB, which holds its single
+    shared dwell. ``worst_case_current_a`` bounds the sinking current from
+    instrument-enforced settings: ``CURR:LIM`` in CV, ``maximum_level /
+    VOLT:INH:VON`` in CP, ``VOLT:RANG / minimum_level`` in CR; ``None`` in CC,
+    where the levels are the current.
+    """
+
+    channel: int
+    kind: LoadProfileKind
+    mode: LoadProfileMode
+    levels: tuple[float, ...]
+    dwell_s: tuple[float, ...]
+    repeat_count: RepeatCount
+    terminate_last: bool
+    minimum_level: float
+    maximum_level: float
+    worst_case_current_a: float | None
+    step_mode: Literal["auto", "once"] = "auto"
+    begin_step_triggers: tuple[bool, ...] = ()  # LIST:TOUT:BOST / UDEF:BOST; () means none
+    end_step_triggers: tuple[bool, ...] = ()  # LIST:TOUT:EOST; () means none
+
+    @property
+    def duration_s(self) -> float:
+        one_pass = (
+            self.dwell_s[0] * len(self.levels)
+            if self.kind == "constant_dwell_arb"
+            else sum(self.dwell_s)
+        )
+        return repeated_duration(one_pass, self.repeat_count)
+
+
+@dataclass(frozen=True)
+class LoadTransientToken:
+    """Identifies one armed load-profile generation."""
+
+    channel: int
+    generation: int
+
+
+@dataclass(frozen=True)
+class LoadTransientStatus:
+    """Non-destructive projection of a load channel's transient trigger state."""
+
+    channel: int
+    kind: LoadProfileKind | None
+    mode: LoadProfileMode | None
+    state: VoltageTransientState
+    generation: int
+    trigger_source: Literal["bus", "external"]
+    operation_status: int
+    waiting_for_trigger: bool
+    transient_active: bool
+
+
 @dataclass(frozen=True)
 class ShutdownChannelResult:
     channel: int

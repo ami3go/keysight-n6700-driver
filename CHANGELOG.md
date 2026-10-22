@@ -5,7 +5,25 @@ All notable changes to this project are documented here. See
 
 ## Unreleased
 
-No unreleased changes.
+N679xA electronic-load LIST and ARB profiles
+([docs/LOAD_LIST_ARB.md](docs/LOAD_LIST_ARB.md)): current, voltage, resistance
+and power LIST, user-defined ARB and constant-dwell ARB, with a guarded
+arm/trigger/wait/abort lifecycle. Configuration requires the input OFF and the
+matching priority mode, verifies every readback, and bounds the worst-case
+sinking current in CV/CP/CR mode (`CURR:LIM`, `maximum_level/VOLT:INH:VON`,
+`VOLT:RANG/minimum_level`). Load ARB uses a new `mainframe_global` trigger
+dialect, because the N6700C ARB start trigger has no channel list and its `IMM`
+default starts an ARB at `INIT:TRAN`; arming is refused while it reads `IMM`.
+Aborts now wait for the transient system to be idle. `shutdown_all` aborts load
+transients before switching the input OFF. Pure LIST/ARB codec helpers moved
+into a shared `_ProfileCodec` base without behaviour change.
+
+Protocol HIL passed 4/4 on an N6700C (E.02.09.3271) with an N6791A and no
+source connected. This is not sinking-accuracy or timing qualification.
+
+Known gap found on the same bench, not fixed here: source-module ARBs use
+channel-scoped `TRIG:ARB:SOUR`, which this N6700C rejects (`-108`), so source
+ARB triggering on N6700C fails closed.
 
 ## v0.7.11 — 2026-10-16
 

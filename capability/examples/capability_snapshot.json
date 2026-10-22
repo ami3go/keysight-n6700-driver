@@ -393,6 +393,203 @@
     }
   },
   {
+    "capability_id": "load.transient.list.configure",
+    "display_name": "Configure Load List",
+    "description": "Configure and verify a bounded N679xA load LIST without enabling the input.",
+    "category": "load",
+    "standard": true,
+    "risk_level": "high",
+    "mutating": true,
+    "may_energize_or_sink_power": false,
+    "preconditions": [
+      "Target load input is OFF.",
+      "Load priority mode matches the profile mode.",
+      "Caller supplied an approved level envelope (and maximum_current_a for cv/cr/cp)."
+    ],
+    "postconditions": [],
+    "side_effects": [],
+    "support": {
+      "state": "supported",
+      "confidence": "declared"
+    },
+    "binding": {
+      "python_method": "configure_load_list",
+      "canonical_method": "configure_load_list",
+      "aliases": []
+    }
+  },
+  {
+    "capability_id": "load.transient.arb.configure",
+    "display_name": "Configure Load Arb",
+    "description": "Configure and verify a user-defined N679xA load ARB without enabling the input.",
+    "category": "load",
+    "standard": true,
+    "risk_level": "high",
+    "mutating": true,
+    "may_energize_or_sink_power": false,
+    "preconditions": [
+      "Target load input is OFF.",
+      "Load priority mode matches the profile mode.",
+      "Caller supplied an approved level envelope (and maximum_current_a for cv/cr/cp)."
+    ],
+    "postconditions": [],
+    "side_effects": [],
+    "support": {
+      "state": "supported",
+      "confidence": "declared"
+    },
+    "binding": {
+      "python_method": "configure_load_arb",
+      "canonical_method": "configure_load_arb",
+      "aliases": []
+    }
+  },
+  {
+    "capability_id": "load.transient.cdw_arb.configure",
+    "display_name": "Configure Load Constant Dwell Arb",
+    "description": "Configure and verify a constant-dwell N679xA load ARB without enabling the input.",
+    "category": "load",
+    "standard": true,
+    "risk_level": "high",
+    "mutating": true,
+    "may_energize_or_sink_power": false,
+    "preconditions": [
+      "Target load input is OFF.",
+      "Load priority mode matches the profile mode.",
+      "Caller supplied an approved level envelope (and maximum_current_a for cv/cr/cp)."
+    ],
+    "postconditions": [],
+    "side_effects": [],
+    "support": {
+      "state": "supported",
+      "confidence": "declared"
+    },
+    "binding": {
+      "python_method": "configure_load_constant_dwell_arb",
+      "canonical_method": "configure_load_constant_dwell_arb",
+      "aliases": []
+    }
+  },
+  {
+    "capability_id": "load.transient.trigger.configure",
+    "display_name": "Configure Load Transient Trigger",
+    "description": "",
+    "category": "load",
+    "standard": true,
+    "risk_level": "medium",
+    "mutating": true,
+    "may_energize_or_sink_power": false,
+    "preconditions": [
+      "A verified load profile exists and is not armed."
+    ],
+    "postconditions": [],
+    "side_effects": [
+      "An ARB profile also sets the mainframe-wide TRIG:ARB:SOUR."
+    ],
+    "support": {
+      "state": "supported",
+      "confidence": "declared"
+    },
+    "binding": {
+      "python_method": "configure_load_transient_trigger",
+      "canonical_method": "configure_load_transient_trigger",
+      "aliases": []
+    }
+  },
+  {
+    "capability_id": "load.transient.arm",
+    "display_name": "Arm Load Transient",
+    "description": "Arm the configured load profile.",
+    "category": "load",
+    "standard": true,
+    "risk_level": "high",
+    "mutating": true,
+    "may_energize_or_sink_power": true,
+    "preconditions": [
+      "A verified load profile exists.",
+      "The load input is already ON."
+    ],
+    "postconditions": [],
+    "side_effects": [],
+    "support": {
+      "state": "supported",
+      "confidence": "declared"
+    },
+    "binding": {
+      "python_method": "arm_load_transient",
+      "canonical_method": "arm_load_transient",
+      "aliases": []
+    }
+  },
+  {
+    "capability_id": "load.transient.trigger",
+    "display_name": "Trigger Load Transient",
+    "description": "",
+    "category": "load",
+    "standard": true,
+    "risk_level": "critical",
+    "mutating": true,
+    "may_energize_or_sink_power": true,
+    "preconditions": [
+      "The matching generation is armed and reports WTG_transient."
+    ],
+    "postconditions": [],
+    "side_effects": [],
+    "support": {
+      "state": "supported",
+      "confidence": "declared"
+    },
+    "binding": {
+      "python_method": "trigger_load_transient",
+      "canonical_method": "trigger_load_transient",
+      "aliases": []
+    }
+  },
+  {
+    "capability_id": "load.transient.abort",
+    "display_name": "Abort Load Transient",
+    "description": "",
+    "category": "load",
+    "standard": true,
+    "risk_level": "low",
+    "mutating": true,
+    "may_energize_or_sink_power": false,
+    "preconditions": [],
+    "postconditions": [],
+    "side_effects": [],
+    "support": {
+      "state": "supported",
+      "confidence": "declared"
+    },
+    "binding": {
+      "python_method": "abort_load_transient",
+      "canonical_method": "abort_load_transient",
+      "aliases": []
+    }
+  },
+  {
+    "capability_id": "load.transient.clear",
+    "display_name": "Clear Load Profile",
+    "description": "Abort and return every load quantity to FIX.",
+    "category": "load",
+    "standard": true,
+    "risk_level": "low",
+    "mutating": true,
+    "may_energize_or_sink_power": false,
+    "preconditions": [],
+    "postconditions": [],
+    "side_effects": [],
+    "support": {
+      "state": "supported",
+      "confidence": "declared"
+    },
+    "binding": {
+      "python_method": "clear_load_profile",
+      "canonical_method": "clear_load_profile",
+      "aliases": []
+    }
+  },
+  {
     "capability_id": "source.current.slew.set",
     "display_name": "Set Current Slew Rate",
     "description": "Set current slew rate in A/s (N678xA SMU) and return the readback.",

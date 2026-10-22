@@ -85,7 +85,7 @@ class AcquisitionCoordinator:
         allowed = (
             "SENS:FUNC:", "SENS:SWE:", "TRIG:ACQ:", "TRIG:ACQ ",
             "INIT:ACQ", "ABOR:ACQ", "FETC:ARR:", "STAT:OPER:COND?",
-            "STAT:OPER:EVEN?", "STAT:OPER:PTR",
+            "STAT:OPER:EVEN?", "STAT:OPER:PTR", "STAT:QUES:COND?", "OUTP?", "TRIG:ARB:SOUR?",
             "SYST:ERR?", "SYST:CHAN:COUN?", "FORM?", "FORM ", "FORM:BORD?", "FORM:BORD ",
             "CURR ", "VOLT ", "RES ", "POW ", "FUNC ",
             "LIST:", "ARB:", "TRIG:TRAN", "INIT:TRAN", "INIT:CONT:TRAN", "ABOR:TRAN",
