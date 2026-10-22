@@ -193,6 +193,11 @@ verified off after every phase, regardless of outcome).
   2 are permanently simulator-only by design, 2 need a real SMU module this
   bench doesn't have, and 1 (`*RST`, resets every channel) is deliberately
   opt-in and wasn't exercised.
+- **Buck-converter regulation** (`tests/hardware/
+  test_hardware_buck_regulation.py`) — channel 1 feeding a 3.3 V buck's VIN
+  at 8–18 V, channel 2 sinking its VOUT up to 1 A: VOUT held within −1.1 %,
+  efficiency up to 93 %, and a 0.1 → 1.0 → 0.1 A load LIST sank
+  0.0997 / 0.9997 / 0.0996 A with a −1.0 % VOUT transient.
 
 This is real evidence for the driver's power-supply and N679xA
 electronic-load command paths specifically; a real SMU module,

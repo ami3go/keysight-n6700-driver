@@ -221,13 +221,68 @@ The run exposed two mandatory sequencing rules for consumers:
    `MEASure` query starts a new acquisition and overwrites the triggered
    buffer.
 
+## 7. `test_hardware_buck_regulation.py` — guarded buck-converter regulation
+
+A power-supply channel feeds a DUT buck converter's VIN and an N679xA load
+sinks its VOUT. Four phases: start-up with the load off; static load
+regulation across six CC steps from 0 A to `MAX_LOAD_A`; line regulation at
+half load across `VIN_MIN_V`/`VIN_V`/`VIN_MAX_V`; and a CC LIST step
+(`MAX_LOAD_A/10` → `MAX_LOAD_A` → `MAX_LOAD_A/10`, 50/100/50 ms) captured
+twice by the load's transient-triggered digitizer — once as current, proving
+the load sinks the LIST levels, once as VOUT for the transient deviation. A
+hard envelope (VIN_MAX+0.5 V, 1.05 × input limit, 1.2 × VOUT, 1.15 × max
+load) aborts the run; teardown switches the load off before the supply.
+
+| Variable | Meaning |
+|---|---|
+| `N6700_HIL_BUCK_ENABLED` | must be `true` |
+| `N6700_HIL_BUCK_PS_CHANNEL` / `N6700_HIL_BUCK_LOAD_CHANNEL` | supply and N679xA load channels, no default |
+| `N6700_HIL_BUCK_VIN_V`, `..._VIN_MIN_V`, `..._VIN_MAX_V` | nominal and line-test input voltages, within the DUT's rating |
+| `N6700_HIL_BUCK_INPUT_CURRENT_LIMIT_A` | supply current limit |
+| `N6700_HIL_BUCK_VOUT_V` | nominal buck output |
+| `N6700_HIL_BUCK_MAX_LOAD_A` | largest sunk current, capped at 2.5 A |
+| `N6700_HIL_BUCK_VOUT_TOLERANCE` | optional static band, default `0.03` of VOUT |
+| `N6700_HIL_BUCK_TRANSIENT_TOLERANCE` | optional dynamic band, default `0.10` of VOUT |
+| `N6700_HIL_BUCK_CONFIRM` | exact phrase `RUN_REVIEWED_BUCK` — attests PS → VIN, VOUT → load input, correct polarity, nothing else attached |
+
+```bash
+N6700_HIL_ENABLED=true N6700_RESOURCE=192.168.0.6 N6700_CONNECTION_TYPE=ethernet \
+N6700_HIL_BUCK_ENABLED=true N6700_HIL_BUCK_PS_CHANNEL=1 N6700_HIL_BUCK_LOAD_CHANNEL=2 \
+N6700_HIL_BUCK_VIN_V=12 N6700_HIL_BUCK_VIN_MIN_V=8 N6700_HIL_BUCK_VIN_MAX_V=18 \
+N6700_HIL_BUCK_INPUT_CURRENT_LIMIT_A=3.5 N6700_HIL_BUCK_VOUT_V=3.3 \
+N6700_HIL_BUCK_MAX_LOAD_A=1.0 N6700_HIL_BUCK_CONFIRM=RUN_REVIEWED_BUCK \
+  pytest tests/hardware/test_hardware_buck_regulation.py -v
+```
+
+Refuses to run if either channel is already on or the buck's VOUT reads
+above 0.5 V with the supply off. Writes every reading and both captures to
+`results/hardware_buck_regulation/<timestamp>.json`.
+
+### Retained buck evidence
+
+On 2026-10-22 the 3.3 V buck (8–18 V input, 2.5 A rated) passed twice in a
+row with the command above, ending both times with both channels off, no
+protection flags, and an empty error queue:
+
+- load regulation 0 → 1.0 A: VOUT 3.330 → 3.295 V (−1.1 %), sunk current
+  within 0.3 mA of each setpoint, efficiency 88.2 % at 0.2 A, 92.9 % at 1 A;
+- line regulation at 0.5 A: VOUT 3.2967 / 3.2970 / 3.2977 V at 8 / 12 / 18 V;
+- LIST step, current capture: 0.0997 / 0.9997 / 0.0996 A per dwell — the
+  first real-current evidence for the load LIST path;
+- LIST step, VOUT capture: worst 3.267 V (−32.6 mV, −1.0 %), settled
+  3.2950 V at 1 A.
+
+The report is retained in
+`results/hardware_buck_regulation/20261022_buck_3v3/`.
+
 ## What none of these prove
 
-Passing all six is real evidence the driver's read-only calls, one basic
+Passing all seven is real evidence the driver's read-only calls, one basic
 enable/measure/disable cycle, the power-supply/electronic-load interaction,
 (for the vectors this mainframe's topology supports) LPDS-019 conformance
 itself, a digitize configuration/arm/trigger/fetch round trip, and one
-guarded source-voltage transient lifecycle all work
+guarded source-voltage transient lifecycle, and a buck DUT's load/line
+regulation under a real-current load LIST all work
 against your specific instrument and wiring. It does not cover SMU
 priority-mode switching on real SMU hardware (no SMU vector can pass
 without one installed), protection-trip/clear behavior, remote/local
