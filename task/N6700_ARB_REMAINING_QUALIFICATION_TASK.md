@@ -209,9 +209,9 @@ The values above are **software watchdog ceilings**, not hardware safety reactio
 
 ## 13. Final definition of done
 
-- [ ] R01: no stale lease after transport fault; safe cleanup and explicit UNKNOWN state, issue #14 resolved
-- [ ] R02: source-based exact capability matrix verified; issue #21 disposition recorded
-- [ ] R03: pinned core and old/new compatibility evidence; issue #15 disposition recorded
+- [x] R01 (PR #28, issue #14 closed 2026-10-22): no stale lease after transport fault; safe cleanup and explicit UNKNOWN state, issue #14 resolved
+- [x] R02 ([ARB_CAPABILITY_MATRIX.md](../docs/ARB_CAPABILITY_MATRIX.md), `tests/unit/test_arb_capability_matrix.py`): vendor-verified matrix; #21 closed by the merging PR
+- [x] R03 (issue #15 closed 2026-10-21, pins verified): pinned core and old/new compatibility evidence; issue #15 disposition recorded
 - [ ] R04: supervised unbounded-mode contract and finite completion/abort/cross-channel regression complete
 - [ ] R05: complete waveform protocol, negative-boundary, malformed-response and failure matrix green
 - [ ] R06: HIL evidence schema + nonenergizing gated runner and dry-run tests merged

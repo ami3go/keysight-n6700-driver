@@ -5,6 +5,14 @@ All notable changes to this project are documented here. See
 
 ## Unreleased
 
+### Tests
+
+ARB-R02: vendor-verified capability matrix
+([docs/ARB_CAPABILITY_MATRIX.md](docs/ARB_CAPABILITY_MATRIX.md)) with 535
+tests covering every optioned/precision/SMU module, unreviewed mainframes,
+firmware and option-inventory failures, and zero-mutation denial for all 14
+ARB entry points. Confirms issue #21 is fixed by v0.7.9-0.7.10; no code change.
+
 ### Added
 
 Guarded buck-converter HIL (`tests/hardware/test_hardware_buck_regulation.py`,
