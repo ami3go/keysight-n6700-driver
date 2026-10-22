@@ -10,6 +10,7 @@ power systems.
 - [Safety](safety.md)
 - [Call/protocol conformance](call_protocol_conformance.md)
 - [Hardware acceptance tests](hardware_acceptance_tests.md)
+- [Roadmap to `stable`](ROADMAP.md)
 - [Voltage LIST/ARB and slew implementation](VOLTAGE_TRANSIENT_IMPLEMENTATION.md)
 - [Full N6700 Arb waveform and SCPI function reference](ARB_WAVEFORM_REFERENCE.md)
 - [N679xA electronic-load LIST/ARB profiles](LOAD_LIST_ARB.md)
