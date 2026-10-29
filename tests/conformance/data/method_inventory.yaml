@@ -1545,6 +1545,18 @@ methods:
   - path
   device_facing: false
   execution_status: not_yet_run
+- method: restore_load_measurement_defaults
+  canonical_method: restore_load_measurement_defaults
+  aliases: []
+  implementation_target: keysight_n6700.driver.N6700.restore_load_measurement_defaults
+  signature: 'restore_load_measurement_defaults(self, channel: ''int'', alias: ''str | None'' = None)
+    -> ''dict[str, bool | float | int]'''
+  required_arguments:
+  - channel
+  optional_arguments:
+  - alias
+  device_facing: true
+  execution_status: not_yet_run
 - method: safe_shutdown
   canonical_method: safe_shutdown
   aliases: []

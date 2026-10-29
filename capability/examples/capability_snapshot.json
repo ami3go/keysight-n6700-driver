@@ -1305,6 +1305,31 @@
     }
   },
   {
+    "capability_id": "acquisition.digitize.restore_measurement_defaults",
+    "display_name": "Restore Load Measurement Defaults",
+    "description": "Reset a load channel's DC measurement sweep to the documented defaults.",
+    "category": "acquisition",
+    "standard": true,
+    "risk_level": "low",
+    "mutating": true,
+    "may_energize_or_sink_power": false,
+    "preconditions": [
+      "Digitizer session connected.",
+      "No capture configured or in flight."
+    ],
+    "postconditions": [],
+    "side_effects": [],
+    "support": {
+      "state": "supported",
+      "confidence": "declared"
+    },
+    "binding": {
+      "python_method": "restore_load_measurement_defaults",
+      "canonical_method": "restore_load_measurement_defaults",
+      "aliases": []
+    }
+  },
+  {
     "capability_id": "waveform.digitize.fetch",
     "display_name": "Fetch Digitized Array",
     "description": "Read validated waveform array and release ownership.",

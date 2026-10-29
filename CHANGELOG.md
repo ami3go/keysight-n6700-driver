@@ -5,6 +5,25 @@ All notable changes to this project are documented here. See
 
 ## Unreleased
 
+### Fixed
+
+N679xA digitizer no longer leaves its sweep behind. `configure_digitize()` overwrote
+`SENS:FUNC:VOLT/CURR`, `SENS:SWE:TINT`, `SENS:SWE:POIN` and `SENS:SWE:OFFS:POIN` but saved only
+`FORM`. Because `MEASure` integrates over the sweep (default 1024 x 20.48 us), every later DC reading
+on the load took the whole capture window: 515 ms instead of 27 ms after a 48830 x 10.24 us capture
+on an N6791A. The first pre-capture state is now snapshotted and restored with readback on
+`abort_digitize()`. A fetched capture can still be re-fetched or re-armed until then. A failed
+restore does not fail the verified abort; it is reported by `measurement_restore_status`, logged,
+and the snapshot is kept.
+
+### Added
+
+`ElectronicLoadChannel.restore_measurement_defaults()` and
+`N6700.restore_load_measurement_defaults(channel)`: program and verify 1024 points x 20.48 us,
+zero offset, voltage (+current where simultaneous) for instruments already left polluted by an
+earlier release. `scripts/measure_digitize_sense_leak.py` measures the leak non-energizing; bench
+evidence in `results/digitize_sense_leak_20261029/`.
+
 ### Added
 
 Guarded source Arb HIL runner and evidence contract (ARB-R06, [docs/ARB_HIL_RUNNER.md](docs/ARB_HIL_RUNNER.md)):
