@@ -409,6 +409,13 @@ exclusions:
     scope: v0.6.0
     review_date: "2026-10-09"
     covered_by: tests/unit/test_electronic_load_digitize.py
+  - method: restore_load_measurement_defaults
+    reason: "Same real-load-only gating as configure_digitize; a multi-command write/readback recovery. Ordered writes, readback verification and state preconditions are asserted in tests/unit; a dedicated HIL test measures DC MEASure latency before and after."
+    risk: low
+    approval: pending_independent_review
+    scope: v0.8.1
+    review_date: "2026-10-29"
+    covered_by: tests/unit/test_digitize_sense_restore.py
   - method: fetch_digitized_array
     reason: "Same real-load-only gating as configure_digitize; same reason."
     risk: medium

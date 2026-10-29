@@ -2473,6 +2473,21 @@ class N6700(BaseInstrument, CapabilityDiscoveryMixin, ConfigurationMixin):
         self.load(channel, alias=alias).abort_digitize()
 
     @capability(
+        "acquisition.digitize.restore_measurement_defaults",
+        category="acquisition",
+        risk_level="low",
+        mutating=True,
+        description="Reset a load channel's DC measurement sweep to the documented defaults.",
+        preconditions=("Digitizer session connected.", "No capture configured or in flight."),
+        canonical_method="restore_load_measurement_defaults",
+    )
+    def restore_load_measurement_defaults(
+        self, channel: int, alias: str | None = None
+    ) -> dict[str, bool | float | int]:
+        """Recover DC MEASure speed after a capture left its sweep settings behind."""
+        return self.load(channel, alias=alias).restore_measurement_defaults()
+
+    @capability(
         "waveform.digitize.fetch",
         category="waveform",
         risk_level="low",

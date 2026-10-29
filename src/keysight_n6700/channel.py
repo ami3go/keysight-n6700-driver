@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import threading
 from collections.abc import Callable, Sequence
@@ -97,6 +98,19 @@ class _ListReadback(NamedTuple):
     maximum: float
 
 _SCPI_SENTINEL = 9.9e37
+
+
+_log = logging.getLogger(__name__)
+
+
+class _SenseState(NamedTuple):
+    """Pre-capture SENSe settings that a digitizer configuration overwrites."""
+
+    voltage_enabled: bool
+    current_enabled: bool
+    interval_s: float
+    points: int
+    offset_points: int
 
 
 class _DriverProtocol(Protocol):
@@ -2924,6 +2938,8 @@ class ElectronicLoadChannel(_ProfileCodec, BaseChannel):
         self._digitize_offset_points: int | None = None
         self._digitize_timing: DigitizeTiming | None = None
         self._digitize_previous_format: str | None = None
+        self._digitize_previous_sense: _SenseState | None = None
+        self._sense_restore_status: str = "not_needed"
         self._acquisition = AcquisitionTracker()
         self._profile_lock = threading.RLock()
         self._profile_generation = 0
@@ -4040,6 +4056,10 @@ class ElectronicLoadChannel(_ProfileCodec, BaseChannel):
             self._write("FORM ASC")
             if not self._query("FORM?").strip().upper().startswith("ASC"):
                 raise DriverOperationUncertainError("instrument did not accept ASCII array format")
+            if self._digitize_previous_sense is None:
+                # Keep the first pre-capture state across reconfigurations so
+                # abort_digitize() returns DC MEASure to its original aperture.
+                self._digitize_previous_sense = self._read_sense_state()
             other = "CURR" if function == "voltage" else "VOLT"
             self._write(f"SENS:FUNC:{other} OFF,{self._chan}")
             self._write(f"SENS:FUNC:{scpi_function} ON,{self._chan}")
@@ -4168,6 +4188,116 @@ class ElectronicLoadChannel(_ProfileCodec, BaseChannel):
                 f"instrument effective interval {actual:.9g} below {minimum:.9g} "
                 f"required for {active} parameters"
             )
+
+    def _read_sense_state(self) -> _SenseState:
+        enabled: dict[str, bool] = {}
+        for kind in ("VOLT", "CURR"):
+            reply = self._query(f"SENS:FUNC:{kind}? {self._chan}").strip().upper()
+            if reply not in {"0", "1", "+0", "+1", "ON", "OFF"}:
+                raise DriverMalformedResponseError(f"invalid {kind} enable readback {reply!r}")
+            enabled[kind] = reply in {"1", "+1", "ON"}
+        return _SenseState(
+            voltage_enabled=enabled["VOLT"],
+            current_enabled=enabled["CURR"],
+            interval_s=self._read_digitize_interval(),
+            points=self._read_digitize_integral("SENS:SWE:POIN?"),
+            offset_points=self._read_digitize_integral("SENS:SWE:OFFS:POIN?"),
+        )
+
+    def _write_sense_state(self, target: _SenseState) -> _SenseState:
+        """Program SENSe function/sweep settings and return the readback."""
+        # Zero the offset first: its valid range depends on the point count.
+        self._write(f"SENS:SWE:OFFS:POIN 0,{self._chan}")
+        self._write(f"SENS:SWE:POIN {target.points},{self._chan}")
+        self._write(f"SENS:SWE:TINT {format_float(target.interval_s)},{self._chan}")
+        self._write(f"SENS:SWE:OFFS:POIN {target.offset_points},{self._chan}")
+        # Enable before disable so the channel never has zero sensed functions.
+        for kind, on in sorted(
+            (("VOLT", target.voltage_enabled), ("CURR", target.current_enabled)),
+            key=lambda item: not item[1],
+        ):
+            self._write(f"SENS:FUNC:{kind} {'ON' if on else 'OFF'},{self._chan}")
+        return self._read_sense_state()
+
+    def _restore_digitize_sense(self) -> None:
+        """Return sweep/function settings to their pre-capture values.
+
+        N6700 ``MEASure`` integrates over the configured sweep (default 1024
+        points at 20.48 us, about 21 ms). A leftover digitizer record, e.g.
+        48830 points at 10.24 us, makes every later DC reading on this channel
+        take the whole capture window and keeps its share of the shared
+        512 Ki point memory.
+        """
+        previous = self._digitize_previous_sense
+        if previous is None:
+            self._sense_restore_status = "not_needed"
+            return
+        actual = self._write_sense_state(previous)
+        if (
+            actual.voltage_enabled != previous.voltage_enabled
+            or actual.current_enabled != previous.current_enabled
+            or actual.points != previous.points
+            or actual.offset_points != previous.offset_points
+            or not math.isclose(actual.interval_s, previous.interval_s, rel_tol=1e-6)
+        ):
+            raise DriverOperationUncertainError(
+                f"channel {self.channel} could not restore pre-capture sense settings: "
+                f"expected {previous}, reported {actual}"
+            )
+        self._digitize_previous_sense = None
+        self._sense_restore_status = "restored"
+
+    @property
+    def measurement_restore_status(self) -> str:
+        """Outcome of the last post-capture SENSe restore.
+
+        ``"restored"``, ``"not_needed"``, or ``"failed: <error>"``. A failure
+        does not fail ``abort_digitize``: the capture itself is cancelled and
+        idle-verified. The snapshot is kept, so a later abort or
+        ``restore_measurement_defaults()`` can still recover DC MEASure speed.
+        """
+        return self._sense_restore_status
+
+    def restore_measurement_defaults(self) -> dict[str, bool | float | int]:
+        """Program the documented DC measurement defaults and verify them.
+
+        For instruments whose sweep settings were left behind by an earlier
+        capture (for example by a driver release that only restored ``FORM``),
+        so there is no correct pre-capture snapshot to return to. Sets 1024
+        points at 20.48 us, zero offset, and enables voltage (plus current
+        where the module measures both simultaneously). Not allowed while a
+        capture is configured or in flight.
+        """
+        self._require_digitizing()
+        self._acquisition.require(
+            AcquisitionState.IDLE,
+            AcquisitionState.COMPLETE,
+            AcquisitionState.FETCHED,
+            AcquisitionState.ABORTED,
+        )
+        target = _SenseState(
+            voltage_enabled=True,
+            current_enabled=bool(self.capabilities.supports_simultaneous_vi),
+            interval_s=20.48e-6,
+            points=1024,
+            offset_points=0,
+        )
+        actual = self._write_sense_state(target)
+        self._driver.check_errors()
+        # The instrument may round TINT to its active resolution (RES20/RES40).
+        if (
+            actual.points != target.points
+            or actual.offset_points != target.offset_points
+            or actual.voltage_enabled is not True
+            or actual.current_enabled != target.current_enabled
+            or not 0 < actual.interval_s <= 2 * target.interval_s
+        ):
+            raise DriverOperationUncertainError(
+                f"channel {self.channel} measurement defaults not applied: reported {actual}"
+            )
+        self._digitize_previous_sense = None
+        self._sense_restore_status = "restored"
+        return actual._asdict()
 
     def _restore_digitize_format(self) -> None:
         previous = self._digitize_previous_format
@@ -4433,6 +4563,11 @@ class ElectronicLoadChannel(_ProfileCodec, BaseChannel):
 
         If the device is unreachable or does not acknowledge idle status,
         the acquisition remains UNKNOWN rather than being labeled aborted.
+
+        Also releases the capture: the SENSe function/sweep settings that
+        ``configure_digitize`` replaced are restored and read back, so later
+        DC ``MEASure`` queries use their pre-capture aperture again. A fetched
+        capture can still be re-fetched or re-armed until this is called.
         """
         self._require_digitizing()
         self._validate_digitize_timeout(timeout_s)
@@ -4458,6 +4593,16 @@ class ElectronicLoadChannel(_ProfileCodec, BaseChannel):
         except Exception:
             self._acquisition.unknown()
             raise
+        try:
+            self._restore_digitize_sense()
+        except Exception as exc:
+            # Housekeeping must not fail a verified abort or keep the lease.
+            self._sense_restore_status = f"failed: {type(exc).__name__}: {exc}"
+            _log.warning(
+                "channel %s: capture aborted but SENSe sweep settings were not restored: %s",
+                self.channel,
+                exc,
+            )
         self._acquisition.aborted()
         self._driver._end_digitize(self.channel)
 
