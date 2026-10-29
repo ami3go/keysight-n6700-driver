@@ -3,6 +3,7 @@
 Detailed per-release records. See [`../CHANGELOG.md`](../CHANGELOG.md) for
 the concise, newest-first index.
 
+- [`v0.9.0.md`](v0.9.0.md)
 - [`v0.8.0.md`](v0.8.0.md)
 - [`v0.7.11.md`](v0.7.11.md)
 - [`v0.7.10.md`](v0.7.10.md)
