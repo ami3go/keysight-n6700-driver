@@ -3,7 +3,12 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
-## Unreleased
+## v0.9.0 — 2026-10-29
+
+Fixes the N679xA post-capture SENSe leak that slowed every later load DC reading to the capture
+window, and adds the supervised source runs (ARB-R04), golden SCPI vectors (ARB-R05), the guarded
+source Arb HIL runner (ARB-R06), the ARB-R02 capability matrix and the guarded buck-converter HIL.
+Distribution version 0.9.0 (display/archive 26.27).
 
 ### Fixed
 
