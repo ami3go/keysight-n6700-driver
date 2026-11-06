@@ -3,6 +3,16 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
+## Unreleased
+
+### Added
+
+`ElectronicLoadChannel.set_load_voltage_on()` / `get_load_voltage_on()` (#42) for
+`VOLT:INH:VON`, so CP profiles (worst-case sinking current `maximum_level / VON`) can be admitted.
+The setter validates, checks the SCPI error queue and compares a readback, failing closed on a
+mismatch. Verified on a real N6791A (set, readback, restore). Switching the load mode to CP resets
+VON, so program VON after `set_load_mode("cp")`.
+
 ## v0.9.0 — 2026-10-29
 
 Fixes the N679xA post-capture SENSe leak that slowed every later load DC reading to the capture
