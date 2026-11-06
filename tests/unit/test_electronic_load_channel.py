@@ -17,7 +17,10 @@ from __future__ import annotations
 import pytest
 
 from keysight_n6700 import (
-    DriverArgumentTypeError, DriverPreconditionError, DriverRangeError, DriverUnsupportedOperationError,
+    DriverArgumentTypeError,
+    DriverPreconditionError,
+    DriverRangeError,
+    DriverUnsupportedOperationError,
 )
 from keysight_n6700.channel import ElectronicLoadChannel
 from keysight_n6700.module_capabilities import classify_module
