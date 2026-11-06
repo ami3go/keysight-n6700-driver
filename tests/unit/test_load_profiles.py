@@ -140,6 +140,17 @@ def test_cp_bound_is_maximum_power_over_voltage_on_level(bench) -> None:
     assert config.worst_case_current_a == pytest.approx(2.0)
 
 
+def test_set_voltage_on_lifts_the_cp_refusal_end_to_end(bench) -> None:
+    """The setter, not a simulator poke, is what makes a CP profile admissible."""
+    load = bench.load(LOAD)
+    load.set_load_mode("cp")
+    with pytest.raises(DriverPreconditionError, match="VOLT:INH:VON"):
+        bench.configure_load_list(LOAD, "cp", [1.0], 0.01, maximum_level=10.0, maximum_current_a=2.0)
+    assert load.set_load_voltage_on(5.0) == pytest.approx(5.0)
+    config = bench.configure_load_list(LOAD, "cp", [1.0], 0.01, maximum_level=10.0, maximum_current_a=2.0)
+    assert config.worst_case_current_a == pytest.approx(2.0)
+
+
 def test_cp_refuses_when_voltage_on_level_allows_excess_current(bench) -> None:
     """At the 10 mV default, a 10 W profile could try to sink 1000 A."""
     bench.load(LOAD).set_load_mode("cp")

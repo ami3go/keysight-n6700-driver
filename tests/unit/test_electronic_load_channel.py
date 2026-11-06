@@ -16,7 +16,12 @@ from __future__ import annotations
 
 import pytest
 
-from keysight_n6700 import DriverUnsupportedOperationError
+from keysight_n6700 import (
+    DriverArgumentTypeError,
+    DriverPreconditionError,
+    DriverRangeError,
+    DriverUnsupportedOperationError,
+)
 from keysight_n6700.channel import ElectronicLoadChannel
 from keysight_n6700.module_capabilities import classify_module
 
@@ -77,3 +82,33 @@ def test_current_limit_is_not_modeled_by_the_simulator_placeholder(driver) -> No
         sim_load.set_load_current_limit(1.0)
     with pytest.raises(DriverUnsupportedOperationError):
         sim_load.get_load_current_limit()
+
+
+def test_voltage_on_is_programmed_and_verified_by_readback(driver) -> None:
+    load = _real_load_channel(driver)
+    assert load.get_load_voltage_on() == pytest.approx(0.01)  # instrument default
+    assert load.set_load_voltage_on(1.0) == pytest.approx(1.0)
+    assert load.get_load_voltage_on() == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize("bad", [-1.0, float("nan"), float("inf"), True, "1"])
+def test_voltage_on_rejects_invalid_values_before_writing(driver, bad) -> None:
+    load = _real_load_channel(driver)
+    with pytest.raises((DriverRangeError, DriverArgumentTypeError)):
+        load.set_load_voltage_on(bad)
+    assert load.get_load_voltage_on() == pytest.approx(0.01)
+
+
+def test_voltage_on_readback_mismatch_fails_closed(driver, monkeypatch) -> None:
+    load = _real_load_channel(driver)
+    monkeypatch.setattr(type(load), "get_load_voltage_on", lambda self: 0.01)
+    with pytest.raises(DriverPreconditionError, match="readback"):
+        load.set_load_voltage_on(1.0)
+
+
+def test_voltage_on_is_not_modeled_by_the_simulator_placeholder(driver) -> None:
+    sim_load = driver.load(3)
+    with pytest.raises(DriverUnsupportedOperationError):
+        sim_load.set_load_voltage_on(1.0)
+    with pytest.raises(DriverUnsupportedOperationError):
+        sim_load.get_load_voltage_on()
