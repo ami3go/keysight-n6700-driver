@@ -3,7 +3,10 @@
 All notable changes to this project are documented here. See
 [`history/`](history/) for the detailed per-release record.
 
-## Unreleased
+## v0.10.0 — 2026-11-06
+
+Adds the electronic-load voltage-on setter that CP profiles need. Distribution version 0.10.0
+(display/archive 26.28).
 
 ### Added
 
