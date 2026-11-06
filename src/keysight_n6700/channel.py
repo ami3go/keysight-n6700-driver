@@ -3097,6 +3097,33 @@ class ElectronicLoadChannel(_ProfileCodec, BaseChannel):
             raise DriverUnsupportedOperationError("current limit is not modeled by SIM_LOAD")
         return self._query_float(f"CURR:LIM? {self._chan}")
 
+    def set_load_voltage_on(self, value: float) -> float:
+        """Program ``VOLT:INH:VON`` and return the instrument's verified readback.
+
+        The load does not sink below this input voltage, so CP's worst-case
+        current is ``maximum_level / VON``. The write is followed by an SCPI
+        error-queue check and a readback; a rejected command or a readback that
+        differs from the request raises instead of returning an unverified value.
+        """
+        self._require_verified_or_sim()
+        if self._is_sim:
+            raise DriverUnsupportedOperationError("voltage-on level is not modeled by SIM_LOAD")
+        level = require_number("load_voltage_on", value, minimum=0.0)
+        self._write(f"VOLT:INH:VON {level:.12g},{self._chan}")
+        self._driver.check_errors()
+        readback = self.get_load_voltage_on()
+        if not math.isclose(readback, level, rel_tol=1e-3, abs_tol=1e-3):
+            raise DriverPreconditionError(
+                f"VOLT:INH:VON readback {readback:g} V does not match requested {level:g} V"
+            )
+        return readback
+
+    def get_load_voltage_on(self) -> float:
+        self._require_verified_or_sim()
+        if self._is_sim:
+            raise DriverUnsupportedOperationError("voltage-on level is not modeled by SIM_LOAD")
+        return self._query_float(f"VOLT:INH:VON? {self._chan}")
+
     def _enable_after_verified_configuration(self, input_on: bool, verify: bool) -> None:
         if verify:
             self._driver.check_errors()

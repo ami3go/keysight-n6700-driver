@@ -73,7 +73,7 @@ Every configuration call:
 | --- | --- | --- |
 | CC | the levels themselves | `maximum_current_a` is rejected |
 | CV | `CURR:LIM` | `CURR:LIM` can only be set in voltage priority (`+315` otherwise) |
-| CP | `maximum_level / VOLT:INH:VON` | at the 10 mV default VON, 1 W can mean 100 A, so raise VON first |
+| CP | `maximum_level / VOLT:INH:VON` | at the 10 mV default VON, 1 W can mean 100 A, so raise VON first with `set_load_voltage_on()` (writes `VOLT:INH:VON`, checks the error queue, reads back) |
 | CR | `VOLT:RANG / minimum_level` | e.g. 61.2 V / 0.5 A requires at least 122.4 ohm |
 
 After programming, every level, dwell, count, step mode, termination, trigger
