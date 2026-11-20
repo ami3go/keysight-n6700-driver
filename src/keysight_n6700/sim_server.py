@@ -20,7 +20,6 @@ from typing import cast
 
 from .simulator import SimN6700Instrument
 
-
 _PRIVATE_LAN_NETWORKS = tuple(IPv4Network(cidr) for cidr in (
     "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
 ))
