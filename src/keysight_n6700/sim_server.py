@@ -9,8 +9,8 @@ Fidelity is DRIVER_CONTRACT_VERIFIED only until a hardware trace is compared.
 from __future__ import annotations
 
 import argparse
+from contextlib import suppress
 import json
-import socket
 import socketserver
 import threading
 from dataclasses import dataclass
@@ -59,7 +59,7 @@ class _SimulatorTCPHandler(socketserver.BaseRequestHandler):
             while not server.stopping.is_set():
                 try:
                     chunk = self.request.recv(4096)
-                except socket.timeout:
+                except TimeoutError:
                     continue
                 except OSError:
                     break
@@ -142,7 +142,8 @@ def main() -> int:
         instrument = SimN6700Instrument(
             models={1: "N6775A", 2: "N6791A"}, mainframe_model="N6700C",
         )
-        assert instrument.execute("SYST:CHAN:MOD? (@1:2)") == "N6775A,N6791A"
+        if instrument.execute("SYST:CHAN:MOD? (@1:2)") != "N6775A,N6791A":
+            raise SimulatorServerError("simulated channel inventory mismatch")
         print(json.dumps({"mode": "SIMULATED", "identity": instrument.execute("*IDN?")}))
         return 0
     with SimulatorTCPServer(settings) as server:
@@ -151,10 +152,8 @@ def main() -> int:
             "identity": server.instrument.execute("*IDN?"),
             "fidelity": "DRIVER_CONTRACT_VERIFIED",
         }), flush=True)
-        try:
+        with suppress(KeyboardInterrupt):
             server.serve_forever(poll_interval=0.1)
-        except KeyboardInterrupt:
-            pass
     return 0
 
 
