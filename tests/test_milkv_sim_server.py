@@ -76,6 +76,35 @@ def test_service_refuses_nonliteral_ipv4_loopback(host: str) -> None:
         SimulatorServerConfig(host=host)
 
 
+@pytest.mark.parametrize("host", [
+    "10.12.0.5", "172.20.1.3", "192.168.0.55",
+])
+def test_private_lan_explicit_opt_in_has_no_client_credentials(host: str) -> None:
+    # Pure configuration: no network device or live LAN listener is contacted.
+    settings = SimulatorServerConfig(host=host, port=5025, allow_private_lan=True)
+    assert settings.host == host
+    assert settings.allow_private_lan is True
+    assert not hasattr(settings, "user")
+    assert not hasattr(settings, "pin")
+    assert not hasattr(settings, "client_token")
+
+
+@pytest.mark.parametrize("host", [
+    "0.0.0.0", "8.8.8.8", "169.254.0.1", "100.64.0.1",
+    "203.0.113.10", "127.0.0.2", "::1", "localhost",
+])
+def test_private_lan_opt_in_never_allows_public_or_wildcard_bind(host: str) -> None:
+    with pytest.raises(SimulatorServerError, match="RFC1918|private-LAN"):
+        SimulatorServerConfig(host=host, allow_private_lan=True)
+
+
+def test_private_lan_requires_explicit_opt_in_and_strict_type() -> None:
+    with pytest.raises(SimulatorServerError, match="private-LAN"):
+        SimulatorServerConfig(host="192.168.0.55")
+    with pytest.raises(SimulatorServerError, match="boolean"):
+        SimulatorServerConfig(allow_private_lan=1)  # type: ignore[arg-type]
+
+
 def test_invalid_messages_fail_closed_and_cannot_exceed_buffer() -> None:
     with running_server() as server:
         port = server.server_address[1]
