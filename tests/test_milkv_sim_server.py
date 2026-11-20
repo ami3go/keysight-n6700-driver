@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import socket
 import threading
-from contextlib import contextmanager
 from collections.abc import Iterator
+from contextlib import contextmanager
 
 import pytest
 
