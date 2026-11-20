@@ -1,6 +1,7 @@
 """Real loopback SCPI socket tests; no physical instrument or HIL."""
 from __future__ import annotations
 
+import json
 import socket
 import threading
 from collections.abc import Iterator
@@ -34,6 +35,29 @@ def connect(port: int) -> socket.socket:
     result = socket.create_connection(("127.0.0.1", port), timeout=2)
     result.settimeout(2)
     return result
+
+
+def test_virtual_only_identity_banner_requires_no_client_request_or_credentials() -> None:
+    with running_server() as server:
+        identity_host, identity_port = server.identity_server.server_address
+        # Connect and only read: a mistaken real instrument at this address
+        # receives no SCPI instruction, IDN query or any user-controlled bytes.
+        with socket.create_connection((identity_host, identity_port), timeout=2) as sock:
+            sock.settimeout(2)
+            banner = sock.recv(1024)
+        assert banner.endswith(b"\\n")
+        identity = json.loads(banner)
+        assert identity["service"] == "PST-N6700-VIRTUAL/1"
+        assert identity["instance_id"] == "SIM-n6700c-virtual-v1"
+        assert identity["origin"] == "SIMULATED"
+        assert len(identity["topology_sha256"]) == 64
+        assert identity["scpi_port"] == server.server_address[1]
+
+
+def test_identity_port_collision_fails_before_any_service_can_start() -> None:
+    with pytest.raises(SimulatorServerError, match="must differ"):
+        with SimulatorTCPServer(SimulatorServerConfig(port=0, identity_port=0)):
+            pass
 
 
 def test_exact_model_inventory_over_real_tcp_connection() -> None:
