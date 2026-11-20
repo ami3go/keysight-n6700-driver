@@ -10,6 +10,7 @@ Fidelity is DRIVER_CONTRACT_VERIFIED only until a hardware trace is compared.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import socketserver
 import threading
@@ -36,6 +37,7 @@ class SimulatorServerConfig:
     max_message_bytes: int = 65536
     socket_timeout_s: float = 0.25
     allow_private_lan: bool = False
+    identity_port: int | None = None
 
     def __post_init__(self) -> None:
         # Explicit RFC1918-only bind is a deployment choice, not an access
@@ -58,6 +60,12 @@ class SimulatorServerConfig:
                 )
         if type(self.port) is not int or not 0 <= self.port <= 65535:
             raise SimulatorServerError("port must be an integer from 0 to 65535")
+        if self.identity_port is not None and (
+            type(self.identity_port) is not int or not 0 <= self.identity_port <= 65535
+        ):
+            raise SimulatorServerError("identity_port must be 0..65535 or omitted")
+        if self.port == 65535 and self.identity_port is None:
+            raise SimulatorServerError("port 65535 needs an explicit identity_port")
         if type(self.max_message_bytes) is not int or not 1 <= self.max_message_bytes <= 1048576:
             raise SimulatorServerError("max_message_bytes must be 1..1048576")
         if not isinstance(self.socket_timeout_s, (float, int)) or not 0 < self.socket_timeout_s <= 10:
@@ -121,6 +129,30 @@ class _SimulatorTCPHandler(socketserver.BaseRequestHandler):
             server.owner_lock.release()
 
 
+# The identity socket SENDS a banner and NEVER accepts incoming SCPI bytes.
+# A simulation client can probe it without transmitting even an IDN query to a
+# real instrument accidentally configured at the same address.
+SIMULATOR_SERVICE_MAGIC = "PST-N6700-VIRTUAL/1"
+SIMULATOR_INSTANCE_ID = "SIM-n6700c-virtual-v1"
+
+
+class _IdentityHandler(socketserver.BaseRequestHandler):
+    def handle(self) -> None:
+        server = cast("_IdentityTCPServer", self.server)
+        self.request.settimeout(1.0)
+        self.request.sendall(server.identity_line)
+
+
+class _IdentityTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+    block_on_close = False
+
+    def __init__(self, address: tuple[str, int], identity_line: bytes) -> None:
+        self.identity_line = identity_line
+        super().__init__(address, _IdentityHandler)
+
+
 class SimulatorTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     """Share one simulator state; serialize all mutating network sessions."""
 
@@ -141,9 +173,55 @@ class SimulatorTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
         self.owner_lock = threading.Lock()
         self.stopping = threading.Event()
         super().__init__((self.settings.host, self.settings.port), _SimulatorTCPHandler)
+        modules = {
+            str(ch): state.model
+            for ch, state in sorted(self.instrument.channels.items())
+        }
+        topology = {"mainframe": self.instrument.idn.split(",")[1], "modules": modules}
+        topology_hash = hashlib.sha256(
+            json.dumps(topology, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        identity_payload = {
+            "service": SIMULATOR_SERVICE_MAGIC,
+            "instance_id": SIMULATOR_INSTANCE_ID,
+            "origin": "SIMULATED",
+            "topology_sha256": topology_hash,
+            "scpi_port": self.server_address[1],
+        }
+        banner = (json.dumps(identity_payload, sort_keys=True) + "\n").encode("ascii")
+        identity_port = (
+            self.settings.identity_port if self.settings.identity_port is not None
+            else self.settings.port + 1 if self.settings.port else 0
+        )
+        if identity_port == self.server_address[1]:
+            super().server_close()
+            raise SimulatorServerError("identity port must differ from SCPI port")
+        try:
+            self.identity_server = _IdentityTCPServer(
+                (self.settings.host, identity_port), banner,
+            )
+        except OSError:
+            super().server_close()
+            raise
+        self._identity_thread: threading.Thread | None = None
+        self.topology_sha256 = topology_hash
+
+    def serve_forever(self, poll_interval: float = 0.5) -> None:
+        if self._identity_thread is not None:
+            raise SimulatorServerError("simulator service already running")
+        self._identity_thread = threading.Thread(
+            target=self.identity_server.serve_forever, daemon=True,
+        )
+        self._identity_thread.start()
+        try:
+            super().serve_forever(poll_interval=poll_interval)
+        finally:
+            self.identity_server.shutdown()
+            self._identity_thread.join(timeout=2.0)
 
     def server_close(self) -> None:
         self.stopping.set()
+        self.identity_server.server_close()
         super().server_close()
 
 
@@ -151,11 +229,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="No-auth virtual-only N6700C TCP simulator")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=5025)
+    parser.add_argument("--identity-port", type=int, default=None, help="Read-only no-auth virtual-service banner port; defaults to SCPI port + 1")
     parser.add_argument("--allow-private-lan", action="store_true", help="Opt into binding a literal RFC1918 address; no user/client credentials")
     parser.add_argument("--self-test", action="store_true")
     options = parser.parse_args()
     try:
-        settings = SimulatorServerConfig(host=options.host, port=options.port, allow_private_lan=options.allow_private_lan)
+        settings = SimulatorServerConfig(host=options.host, port=options.port, allow_private_lan=options.allow_private_lan, identity_port=options.identity_port)
     except SimulatorServerError as exc:
         parser.error(str(exc))
     if options.self_test:
@@ -170,6 +249,9 @@ def main() -> int:
         print(json.dumps({
             "mode": "SIMULATED", "host": settings.host, "port": server.server_address[1],
             "identity": server.instrument.execute("*IDN?"),
+            "identity_port": server.identity_server.server_address[1],
+            "instance_id": SIMULATOR_INSTANCE_ID,
+            "topology_sha256": server.topology_sha256,
             "fidelity": "DRIVER_CONTRACT_VERIFIED",
         }), flush=True)
         with suppress(KeyboardInterrupt):
