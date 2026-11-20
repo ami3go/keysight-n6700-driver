@@ -1,14 +1,16 @@
 """Isolated N6700C-compatible SCPI TCP simulator (no hardware access).
 
-Default listener is *literal loopback* 127.0.0.1. Remote development uses
-an independently authenticated SSH local forward. This server does not expose
-an unauthenticated LAN bind, physical VISA resource, or host-command console.
+Default listener is *literal loopback* 127.0.0.1. For direct Milk-V access, explicitly select --host with a literal RFC1918 IP
+and --allow-private-lan. No simulator user/agent login, PIN or approval is
+required. Never bind the simulator to a public network. The simulator owns no
+physical VISA resource, privileged host-command console or HIL permits.
 
 Fidelity is DRIVER_CONTRACT_VERIFIED only until a hardware trace is compared.
 """
 from __future__ import annotations
 
 import argparse
+from ipaddress import IPv4Address, IPv4Network
 import json
 import socketserver
 import threading
@@ -17,6 +19,11 @@ from dataclasses import dataclass
 from typing import cast
 
 from .simulator import SimN6700Instrument
+
+
+_PRIVATE_LAN_NETWORKS = tuple(IPv4Network(cidr) for cidr in (
+    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+))
 
 
 class SimulatorServerError(ValueError):
@@ -29,14 +36,27 @@ class SimulatorServerConfig:
     port: int = 5025
     max_message_bytes: int = 65536
     socket_timeout_s: float = 0.25
+    allow_private_lan: bool = False
 
     def __post_init__(self) -> None:
-        # DNS names, wildcard and direct LAN binds are prohibited until an
-        # independently authenticated control plane is implemented.
+        # Explicit RFC1918-only bind is a deployment choice, not an access
+        # approval. Any user/agent on the private LAN can use the virtual service.
+        # The service must never be exposed to public, wildcard or DNS binds.
+        if type(self.allow_private_lan) is not bool:
+            raise SimulatorServerError("allow_private_lan must be a boolean")
         if self.host != "127.0.0.1":
-            raise SimulatorServerError(
-                "simulator TCP listener is loopback-only; use a pinned SSH tunnel"
-            )
+            try:
+                addr = IPv4Address(self.host)
+            except ValueError as exc:
+                raise SimulatorServerError(
+                    "simulator bind must be literal IPv4 loopback or RFC1918 private LAN"
+                ) from exc
+            if not (self.allow_private_lan and any(
+                addr in network for network in _PRIVATE_LAN_NETWORKS
+            )):
+                raise SimulatorServerError(
+                    "private-LAN bind requires --allow-private-lan and an RFC1918 address"
+                )
         if type(self.port) is not int or not 0 <= self.port <= 65535:
             raise SimulatorServerError("port must be an integer from 0 to 65535")
         if type(self.max_message_bytes) is not int or not 1 <= self.max_message_bytes <= 1048576:
@@ -129,13 +149,14 @@ class SimulatorTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Loopback-only N6700C TCP simulator")
+    parser = argparse.ArgumentParser(description="No-auth virtual-only N6700C TCP simulator")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=5025)
+    parser.add_argument("--allow-private-lan", action="store_true", help="Opt into binding a literal RFC1918 address; no user/client credentials")
     parser.add_argument("--self-test", action="store_true")
     options = parser.parse_args()
     try:
-        settings = SimulatorServerConfig(host=options.host, port=options.port)
+        settings = SimulatorServerConfig(host=options.host, port=options.port, allow_private_lan=options.allow_private_lan)
     except SimulatorServerError as exc:
         parser.error(str(exc))
     if options.self_test:
