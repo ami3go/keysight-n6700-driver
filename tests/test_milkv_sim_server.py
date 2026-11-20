@@ -4,7 +4,7 @@ from __future__ import annotations
 import socket
 import threading
 from contextlib import contextmanager
-from typing import Iterator
+from collections.abc import Iterator
 
 import pytest
 
@@ -37,12 +37,11 @@ def connect(port: int) -> socket.socket:
 
 
 def test_exact_model_inventory_over_real_tcp_connection() -> None:
-    with running_server() as server, connect(server.server_address[1]) as sock:
-        with sock.makefile("rb") as response:
-            sock.sendall(b"*IDN?\r\nSYST:CHAN:COUN?\nSYST:CHAN:MOD? (@1:2)\n")
-            assert b",N6700C," in response.readline()
-            assert response.readline() == b"2\n"
-            assert response.readline() == b"N6775A,N6791A\n"
+    with running_server() as server, connect(server.server_address[1]) as sock, sock.makefile("rb") as response:
+        sock.sendall(b"*IDN?\r\nSYST:CHAN:COUN?\nSYST:CHAN:MOD? (@1:2)\n")
+        assert b",N6700C," in response.readline()
+        assert response.readline() == b"2\n"
+        assert response.readline() == b"N6775A,N6791A\n"
 
 
 def test_tcp_fragmented_compound_query_and_stateful_disconnect() -> None:
@@ -71,7 +70,7 @@ def test_second_simultaneous_writer_is_refused() -> None:
             assert primary.readline() == b"0\n"
 
 
-@pytest.mark.parametrize("host", ["0.0.0.0", "192.168.0.55", "localhost", "::1"])
+@pytest.mark.parametrize("host", ["0.0.0.0", "192.168.0.55", "localhost", "::1"])  # noqa: S104
 def test_service_refuses_nonliteral_ipv4_loopback(host: str) -> None:
     with pytest.raises(SimulatorServerError, match="loopback-only"):
         SimulatorServerConfig(host=host)
