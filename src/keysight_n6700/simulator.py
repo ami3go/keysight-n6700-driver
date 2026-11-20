@@ -189,14 +189,18 @@ class SimN6700Instrument:
                 state.max_current = 20.0
                 state.load_current_limit = 20.0
             elif state.model.startswith("N67"):
+                # A module's electrical capability must not inherit the
+                # generic simulator fixture's 50 V range.  Do not modify
+                # legacy fixture defaults for unrelated N67xx modules.
+                maximum_voltage = 60.0 if state.model == "N6775A" else 50.0
                 state.min_voltage = 0.0
-                state.max_voltage = 50.0
+                state.max_voltage = maximum_voltage
                 state.min_current = 0.0
                 state.max_current = 5.0
-                state.voltage_range = 50.0
+                state.voltage_range = maximum_voltage
                 state.current_range = 5.0
                 state.current_limit = 5.0
-                state.ovp = 55.0
+                state.ovp = maximum_voltage + 5.0
             self.channels[channel] = state
         self.errors: list[tuple[int, str]] = []
         self.remote_state = "LOC"
@@ -545,12 +549,37 @@ class SimN6700Instrument:
         return tuple(float(value) for value in cls._argument_values(command))
 
     def execute(self, message: str) -> str | bytes | None:
-        response: str | bytes | None = None
-        for unit in self._expand_message(message):
+        """Execute one SCPI program message and preserve all query replies.
+
+        The real N6700C commits source VOLT/CURR program-message writes at
+        the terminator.  A query in the *same* program message therefore
+        observes the previous setpoint.  Only these bench-traced headers are
+        deferred; other, untraced command families retain legacy semantics.
+        """
+        units = self._expand_message(message)
+        responses: list[str | bytes] = []
+        staged: list[str] = []
+        has_query = any(unit.split(None, 1)[0].endswith("?") for unit in units)
+        for unit in units:
+            header = self._header(unit)
+            if len(units) > 1 and has_query and header in {"VOLT", "CURR"}:
+                staged.append(unit)
+                continue
             current = self._execute_one(unit)
             if current is not None:
-                response = current
-        return response
+                responses.append(current)
+        # The committed setpoint must be installed even when an earlier
+        # query returns a stale value (the real hardware's observed order).
+        for unit in staged:
+            self._execute_one(unit)
+        if not responses:
+            return None
+        if len(responses) == 1:
+            return responses[0]
+        if any(isinstance(reply, bytes) for reply in responses):
+            self._push_error(-221, "Compound binary query response unsupported")
+            return ""
+        return ";".join(responses)
 
     def _execute_one(self, command: str) -> str | bytes | None:
         norm = " ".join(command.strip().split())
@@ -606,14 +635,14 @@ class SimN6700Instrument:
         if header in {"SYST:CHAN:COUN?", "SYSTEM:CHANNEL:COUNT?"}:
             return str(len(self.channels))
         if header in {"SYST:CHAN:MOD?", "SYSTEM:CHANNEL:MODEL?"}:
-            channel = self._channels_from_command(norm)[0]
-            return self.channels[channel].model
+            return self._query_values(self._channels_from_command(norm), "model")
         if header in {"SYST:CHAN:OPT?", "SYSTEM:CHANNEL:OPTION?"}:
-            channel = self._channels_from_command(norm)[0]
-            return self.channels[channel].option or "0"
+            return ",".join(
+                self.channels[channel].option or "0"
+                for channel in self._channels_from_command(norm)
+            )
         if header in {"SYST:CHAN:SER?", "SYSTEM:CHANNEL:SERIAL?"}:
-            channel = self._channels_from_command(norm)[0]
-            return self.channels[channel].serial
+            return self._query_values(self._channels_from_command(norm), "serial")
 
         if header == "SYST:COMM:RLST?":
             return self.remote_state
