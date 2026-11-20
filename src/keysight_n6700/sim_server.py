@@ -9,10 +9,10 @@ Fidelity is DRIVER_CONTRACT_VERIFIED only until a hardware trace is compared.
 from __future__ import annotations
 
 import argparse
-from contextlib import suppress
 import json
 import socketserver
 import threading
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import cast
 
