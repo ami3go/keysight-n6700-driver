@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import math
 import re
 import struct
 from dataclasses import dataclass, field
@@ -59,6 +60,8 @@ class _ChannelState:
     max_voltage: float = 20.0
     min_current: float = 0.0
     max_current: float = 5.0
+    # Immutable-in-practice model rating; distinct from programmable POW:RANG.
+    rated_power_w: float | None = None
     ovp: float = 20.0
     remote_ovp: float = 20.0
     ocp: bool = False
@@ -186,8 +189,9 @@ class SimN6700Instrument:
             elif state.is_real_load:
                 state.load_mode = "CURR"
                 state.max_voltage = 60.0
-                state.max_current = 20.0
-                state.load_current_limit = 20.0
+                state.max_current = 20.0 if state.model == "N6791A" else 40.0
+                state.load_current_limit = state.max_current
+                state.rated_power_w = 100.0 if state.model == "N6791A" else 200.0
             elif state.model.startswith("N67"):
                 # A module's electrical capability must not inherit the
                 # generic simulator fixture's 50 V range.  Do not modify
@@ -496,6 +500,34 @@ class SimN6700Instrument:
             self._push_error(-222, f"Data out of range: {argument}")
             return float(getattr(state, attribute))
 
+    @staticmethod
+    def _valid_rated_load_level(state: _ChannelState, attribute: str, value: float) -> bool:
+        """Validate a programmed N679x operating-point demand, without clipping.
+
+        No DUT-specific acceptance value is used. The simulator's currently
+        programmed terminal V and I are a *model approximation*, not evidence
+        of real analog behavior. Power validation is revisited on every change.
+        """
+        if not math.isfinite(value) or value < 0:
+            return False
+        if not state.is_real_load:
+            return True
+        if attribute == "load_voltage":
+            return (
+                value <= state.max_voltage
+                and value * state.load_current <= (state.rated_power_w or 0.0) + 1e-9
+            )
+        if attribute == "load_current":
+            return (
+                value <= state.max_current
+                and value * state.load_voltage <= (state.rated_power_w or 0.0) + 1e-9
+            )
+        if attribute == "load_power":
+            return state.rated_power_w is not None and value <= state.rated_power_w
+        if attribute == "load_resistance":
+            return value > 0
+        return True
+
     def _set_numeric(
         self,
         command: str,
@@ -512,11 +544,30 @@ class SimN6700Instrument:
         except ValueError:
             self._push_error(-222, f"Data out of range: {argument}")
             return
-        for channel in self._channels_from_command(command):
+        channels = self._channels_from_command(command)
+        # Rated N679x loads commit atomically across a multi-channel command.
+        # Failure must leave the entire virtual command unmodified.
+        if any(self.channels[ch].is_real_load for ch in channels):
+            for channel in channels:
+                state = self.channels[channel]
+                low = getattr(state, minimum_attribute) if minimum_attribute else minimum
+                high = getattr(state, maximum_attribute) if maximum_attribute else maximum
+                if (
+                    not math.isfinite(value)
+                    or (low is not None and value < low)
+                    or (high is not None and value > high)
+                    or not self._valid_rated_load_level(state, attribute, value)
+                ):
+                    self._push_error(-222, f"Data out of range: {value}")
+                    return
+            for channel in channels:
+                setattr(self.channels[channel], attribute, value)
+            return
+        for channel in channels:
             state = self.channels[channel]
             low = getattr(state, minimum_attribute) if minimum_attribute else minimum
             high = getattr(state, maximum_attribute) if maximum_attribute else maximum
-            if (low is not None and value < low) or (high is not None and value > high):
+            if not math.isfinite(value) or (low is not None and value < low) or (high is not None and value > high):
                 self._push_error(-222, f"Data out of range: {value}")
                 continue
             setattr(state, attribute, value)
@@ -1033,8 +1084,29 @@ class SimN6700Instrument:
                 )
                 return ",".join(str(value) for value in profile_values)
             if upper.startswith(list_header):
-                profile_values = self._float_arguments(norm)
-                for ch in self._channels_from_command(norm):
+                try:
+                    profile_values = self._float_arguments(norm)
+                except (ValueError, IndexError):
+                    self._push_error(-222, "Invalid LIST level")
+                    return None
+                channels = self._channels_from_command(norm)
+                demand_attribute = {
+                    "voltage_list": "load_voltage",
+                    "current_list": "load_current",
+                    "resistance_list": "load_resistance",
+                    "power_list": "load_power",
+                }.get(attribute)
+                if demand_attribute is not None and any(
+                    self.channels[ch].is_real_load
+                    and any(
+                        not self._valid_rated_load_level(self.channels[ch], demand_attribute, value)
+                        for value in profile_values
+                    )
+                    for ch in channels
+                ):
+                    self._push_error(-222, "LIST exceeds installed load capability")
+                    return None
+                for ch in channels:
                     setattr(self.channels[ch], attribute, profile_values)
                 return None
         if upper.startswith("LIST:COUN?"):
@@ -1228,7 +1300,12 @@ class SimN6700Instrument:
                     low, high = 0.0, state.max_current
                 else:
                     low, high = 0.0, None
-                if value < low or (high is not None and value > high):
+                if (
+                    not math.isfinite(value)
+                    or value < low
+                    or (high is not None and value > high)
+                    or (state.is_real_load and not self._valid_rated_load_level(state, attribute, value))
+                ):
                     self._push_error(-222, f"Data out of range: {value}")
                 else:
                     setattr(state, attribute, value)
