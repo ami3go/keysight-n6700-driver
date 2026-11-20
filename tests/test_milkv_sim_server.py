@@ -72,7 +72,7 @@ def test_second_simultaneous_writer_is_refused() -> None:
 
 @pytest.mark.parametrize("host", ["0.0.0.0", "192.168.0.55", "localhost", "::1"])  # noqa: S104
 def test_service_refuses_nonliteral_ipv4_loopback(host: str) -> None:
-    with pytest.raises(SimulatorServerError, match="private-LAN|RFC1918"):
+    with pytest.raises(SimulatorServerError, match=r"private-LAN|RFC1918"):
         SimulatorServerConfig(host=host)
 
 
@@ -90,11 +90,11 @@ def test_private_lan_explicit_opt_in_has_no_client_credentials(host: str) -> Non
 
 
 @pytest.mark.parametrize("host", [
-    "0.0.0.0", "8.8.8.8", "169.254.0.1", "100.64.0.1",
+    "0.0.0.0", "8.8.8.8", "169.254.0.1", "100.64.0.1",  # noqa: S104
     "203.0.113.10", "127.0.0.2", "::1", "localhost",
 ])
 def test_private_lan_opt_in_never_allows_public_or_wildcard_bind(host: str) -> None:
-    with pytest.raises(SimulatorServerError, match="RFC1918|private-LAN"):
+    with pytest.raises(SimulatorServerError, match=r"RFC1918|private-LAN"):
         SimulatorServerConfig(host=host, allow_private_lan=True)
 
 
