@@ -1,7 +1,7 @@
 """Isolated N6700C-compatible SCPI TCP simulator (no hardware access).
 
-Default listener is *literal loopback* 127.0.0.1. For direct Milk-V access, explicitly select --host with a literal RFC1918 IP
-and --allow-private-lan. No simulator user/agent login, PIN or approval is
+Default listener is *literal loopback* 127.0.0.1. For direct Milk-V access,
+explicitly select --host with a literal RFC1918 IP and --allow-private-lan. No simulator user/agent login, PIN or approval is
 required. Never bind the simulator to a public network. The simulator owns no
 physical VISA resource, privileged host-command console or HIL permits.
 
@@ -10,12 +10,12 @@ Fidelity is DRIVER_CONTRACT_VERIFIED only until a hardware trace is compared.
 from __future__ import annotations
 
 import argparse
-from ipaddress import IPv4Address, IPv4Network
 import json
 import socketserver
 import threading
 from contextlib import suppress
 from dataclasses import dataclass
+from ipaddress import IPv4Address, IPv4Network
 from typing import cast
 
 from .simulator import SimN6700Instrument
