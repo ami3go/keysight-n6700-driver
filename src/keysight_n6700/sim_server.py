@@ -188,7 +188,7 @@ class SimulatorTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
             "topology_sha256": topology_hash,
             "scpi_port": self.server_address[1],
         }
-        banner = (json.dumps(identity_payload, sort_keys=True) + "\\n").encode("ascii")
+        banner = (json.dumps(identity_payload, sort_keys=True) + "\n").encode("ascii")
         identity_port = (
             self.settings.identity_port if self.settings.identity_port is not None
             else self.settings.port + 1 if self.settings.port else 0
