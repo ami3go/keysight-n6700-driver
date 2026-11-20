@@ -54,10 +54,11 @@ def test_virtual_only_identity_banner_requires_no_client_request_or_credentials(
         assert identity["scpi_port"] == server.server_address[1]
 
 
-def test_identity_port_collision_fails_before_any_service_can_start() -> None:
-    with pytest.raises(SimulatorServerError, match="must differ"):
-        with SimulatorTCPServer(SimulatorServerConfig(port=0, identity_port=0)):
-            pass
+def test_identity_port_range_checked_before_service_bind() -> None:
+    with pytest.raises(SimulatorServerError, match="explicit identity_port"):
+        SimulatorServerConfig(port=65535)
+    with pytest.raises(SimulatorServerError, match="identity_port"):
+        SimulatorServerConfig(identity_port=-1)
 
 
 def test_exact_model_inventory_over_real_tcp_connection() -> None:
