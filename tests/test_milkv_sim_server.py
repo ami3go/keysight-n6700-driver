@@ -72,7 +72,7 @@ def test_second_simultaneous_writer_is_refused() -> None:
 
 @pytest.mark.parametrize("host", ["0.0.0.0", "192.168.0.55", "localhost", "::1"])  # noqa: S104
 def test_service_refuses_nonliteral_ipv4_loopback(host: str) -> None:
-    with pytest.raises(SimulatorServerError, match="loopback-only"):
+    with pytest.raises(SimulatorServerError, match="private-LAN|RFC1918"):
         SimulatorServerConfig(host=host)
 
 
