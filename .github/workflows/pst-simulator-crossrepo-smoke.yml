@@ -1,0 +1,36 @@
+name: PST simulation cross-repository offline smoke
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pst-simulator-crossrepo-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  app-simulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ami3go/power_supply_test
+          ref: ea278448765d510421f8f2ae3b069d289be3715f
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Verify application exact commit
+        run: test "$(git rev-parse HEAD)" = ea278448765d510421f8f2ae3b069d289be3715f
+      - name: Install hardware-free pytest only
+        run: python -m pip install 'pytest>=9,<10'
+      - name: Compile simulator and tests
+        run: python -m compileall -q testbench_core/simulation tests/unit/test_simulation_isolation.py tests/unit/test_virtual_bench.py tests/unit/test_simulation_session_runner.py tests/unit/test_simulation_endpoint_probe.py
+      - name: Run isolated simulator regression
+        run: python -m pytest -q tests/unit/test_simulation_isolation.py tests/unit/test_virtual_bench.py tests/unit/test_simulation_session_runner.py tests/unit/test_simulation_endpoint_probe.py
