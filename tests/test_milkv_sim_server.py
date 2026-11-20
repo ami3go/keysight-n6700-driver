@@ -45,7 +45,7 @@ def test_virtual_only_identity_banner_requires_no_client_request_or_credentials(
         with socket.create_connection((identity_host, identity_port), timeout=2) as sock:
             sock.settimeout(2)
             banner = sock.recv(1024)
-        assert banner.endswith(b"\\n")
+        assert banner.endswith(b"\n")
         identity = json.loads(banner)
         assert identity["service"] == "PST-N6700-VIRTUAL/1"
         assert identity["instance_id"] == "SIM-n6700c-virtual-v1"
