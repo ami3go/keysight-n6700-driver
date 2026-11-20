@@ -52,6 +52,7 @@ Hub = "https://github.com/ami3go/Lab-equipment-pyDrivers"
 
 [project.scripts]
 n6700ctl = "keysight_n6700.cli:main"
+n6700-simserver = "keysight_n6700.sim_server:main"
 
 [project.entry-points."lpds.drivers"]
 "keysight.n6700" = "keysight_n6700.plugin:KeysightN6700Plugin"
