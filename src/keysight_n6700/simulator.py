@@ -579,7 +579,10 @@ class SimN6700Instrument:
         if any(isinstance(reply, bytes) for reply in responses):
             self._push_error(-221, "Compound binary query response unsupported")
             return ""
-        return ";".join(responses)
+        # The binary type guard above is authoritative; retain a typed list
+        # for strict mypy without changing the ordered SCPI response.
+        ascii_replies = [reply for reply in responses if isinstance(reply, str)]
+        return ";".join(ascii_replies)
 
     def _execute_one(self, command: str) -> str | bytes | None:
         norm = " ".join(command.strip().split())
