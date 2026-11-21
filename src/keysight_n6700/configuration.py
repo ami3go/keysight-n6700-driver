@@ -9,8 +9,6 @@ from importlib import resources
 from pathlib import Path
 from typing import Any, Literal
 
-import jsonschema
-
 from .exceptions import DriverConfigurationError
 
 _SCHEMA_RESOURCE = "config_schema.json"
@@ -82,6 +80,11 @@ class ConfigurationMixin:
             if mode == "replace"
             else _deep_merge(self._configuration, configuration)
         )
+        # Imported here, not at module level: jsonschema pulls in compiled code (rpds-py), and the
+        # virtual-only simulator service (keysight_n6700.sim_server) must start on small boards
+        # without it. Behaviour is unchanged: validation still needs jsonschema when it is used.
+        import jsonschema
+
         schema = _read_resource(_SCHEMA_RESOURCE)
         validator = jsonschema.Draft202012Validator(schema)
         errors = [
