@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import socket
 import threading
 from collections.abc import Iterator
@@ -174,3 +175,30 @@ def test_read_only_identity_and_unknown_host_commands_are_separate() -> None:
             sock.sendall(b"whoami\n")
             assert incoming.readline() == b"!SIMULATED-MALFORMED-REPLY!\n"
         assert server.received_commands == 2
+
+
+def test_example_fault_plan_loads_with_no_authorization() -> None:
+    example = Path(__file__).resolve().parents[1] / "examples" / "simulator_fault_plan.json"
+    result = TCPFaultPlan.from_file(example)
+    assert len(result.events) == 4
+    assert result.at_command(2).mode is TCPFaultMode.SOURCE_TRIP
+    assert result.at_command(4).mode is TCPFaultMode.TIMEOUT
+    assert result.at_command(6).mode is TCPFaultMode.DISCONNECT
+    assert result.at_command(8).mode is TCPFaultMode.MALFORMED_REPLY
+    assert not hasattr(result, "user")
+    assert not hasattr(result, "pin")
+    assert not hasattr(result, "approval")
+
+
+def test_fault_plan_file_rejects_unsupported_json_before_opening_server(tmp_path: Path) -> None:
+    path = tmp_path / "faults.json"
+    path.write_text(
+        '{"schema_version":1,"events":[{"first_command":1,"count":1,'
+        '"mode":"HOST_SHELL","channel":null}]}',
+        encoding="utf-8",
+    )
+    with pytest.raises(SimulatorFaultPlanError, match="fault script"):
+        TCPFaultPlan.from_file(path)
+    path.write_bytes(b"X" * 65537)
+    with pytest.raises(SimulatorFaultPlanError, match="bounded regular"):
+        TCPFaultPlan.from_file(path)
