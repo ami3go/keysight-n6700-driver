@@ -134,7 +134,7 @@ class _SimulatorTCPHandler(socketserver.BaseRequestHandler):
                             self.request.sendall(b"!SIMULATED-MALFORMED-REPLY!\n")
                             continue
                         if fault.mode is TCPFaultMode.SOURCE_TRIP:
-                            target = server.instrument.channels[fault.channel]
+                            target = server.instrument.channels[cast(int, fault.channel)]
                             target.enabled = False
                             target.acquisition_state = "aborted"
                             target.completed_generation = None
@@ -142,7 +142,7 @@ class _SimulatorTCPHandler(socketserver.BaseRequestHandler):
                     if fault is not None and fault.mode is TCPFaultMode.SOURCE_TRIP:
                         # Even if the injected command attempted OUTP ON, it
                         # must not override the simulated protection trip.
-                        server.instrument.channels[fault.channel].enabled = False
+                        server.instrument.channels[cast(int, fault.channel)].enabled = False
                     if result is None:
                         continue
                     payload = result.encode("ascii") if isinstance(result, str) else result
@@ -205,7 +205,10 @@ class SimulatorTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
         self.fault_plan = fault_plan or TCPFaultPlan(())
         for event in self.fault_plan.events:
             if event.mode is TCPFaultMode.SOURCE_TRIP:
-                state = self.instrument.channels.get(event.channel)
+                channel = event.channel
+                if channel is None:
+                    raise SimulatorFaultPlanError("source trip requires a channel")
+                state = self.instrument.channels.get(channel)
                 if state is None or state.model.startswith("N679"):
                     raise SimulatorFaultPlanError(
                         "source trip requires an installed virtual source channel"
