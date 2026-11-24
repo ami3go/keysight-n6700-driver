@@ -21,7 +21,9 @@ from pathlib import Path
 from typing import cast
 
 from .sim_fault_plan import (
-    SimulatorFaultPlanError, TCPFaultMode, TCPFaultPlan,
+    SimulatorFaultPlanError,
+    TCPFaultMode,
+    TCPFaultPlan,
 )
 from .simulator import SimN6700Instrument
 
