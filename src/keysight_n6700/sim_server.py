@@ -17,8 +17,14 @@ import threading
 from contextlib import suppress
 from dataclasses import dataclass
 from ipaddress import IPv4Address, IPv4Network
+from pathlib import Path
 from typing import cast
 
+from .sim_fault_plan import (
+    SimulatorFaultPlanError,
+    TCPFaultMode,
+    TCPFaultPlan,
+)
 from .simulator import SimN6700Instrument
 
 _PRIVATE_LAN_NETWORKS = tuple(IPv4Network(cidr) for cidr in (
@@ -113,7 +119,32 @@ class _SimulatorTCPHandler(socketserver.BaseRequestHandler):
                         server.instrument._push_error(-102, "Non-ASCII SCPI program message")
                         self.request.sendall(b'-102,"Non-ASCII SCPI program message"\n')
                         return
+                    # Entirely simulator-local command-index faults. The
+                    # identity listener is unaffected, and no physical device
+                    # is reachable from this handler.
+                    server.received_commands += 1
+                    fault = server.fault_plan.at_command(server.received_commands)
+                    if fault is not None:
+                        if fault.mode is TCPFaultMode.TIMEOUT:
+                            # No reply, and no command side effect; the client
+                            # experiences its own configured read timeout.
+                            continue
+                        if fault.mode is TCPFaultMode.DISCONNECT:
+                            # Finally block enforces virtual safe-off.
+                            return
+                        if fault.mode is TCPFaultMode.MALFORMED_REPLY:
+                            self.request.sendall(b"!SIMULATED-MALFORMED-REPLY!\n")
+                            continue
+                        if fault.mode is TCPFaultMode.SOURCE_TRIP:
+                            target = server.instrument.channels[cast(int, fault.channel)]
+                            target.enabled = False
+                            target.acquisition_state = "aborted"
+                            target.completed_generation = None
                     result = server.instrument.execute(command)
+                    if fault is not None and fault.mode is TCPFaultMode.SOURCE_TRIP:
+                        # Even if the injected command attempted OUTP ON, it
+                        # must not override the simulated protection trip.
+                        server.instrument.channels[cast(int, fault.channel)].enabled = False
                     if result is None:
                         continue
                     payload = result.encode("ascii") if isinstance(result, str) else result
@@ -163,6 +194,7 @@ class SimulatorTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     def __init__(
         self, settings: SimulatorServerConfig | None = None,
         instrument: SimN6700Instrument | None = None,
+        fault_plan: TCPFaultPlan | None = None,
     ) -> None:
         self.settings = settings or SimulatorServerConfig()
         if type(self.settings) is not SimulatorServerConfig:
@@ -170,6 +202,20 @@ class SimulatorTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
         self.instrument = instrument or SimN6700Instrument(
             models={1: "N6775A", 2: "N6791A"}, mainframe_model="N6700C",
         )
+        if fault_plan is not None and type(fault_plan) is not TCPFaultPlan:
+            raise SimulatorFaultPlanError("typed fault plan required")
+        self.fault_plan = fault_plan or TCPFaultPlan(())
+        for event in self.fault_plan.events:
+            if event.mode is TCPFaultMode.SOURCE_TRIP:
+                channel = event.channel
+                if channel is None:
+                    raise SimulatorFaultPlanError("source trip requires a channel")
+                state = self.instrument.channels.get(channel)
+                if state is None or state.model.startswith("N679"):
+                    raise SimulatorFaultPlanError(
+                        "source trip requires an installed virtual source channel"
+                    )
+        self.received_commands = 0
         self.owner_lock = threading.Lock()
         self.stopping = threading.Event()
         super().__init__((self.settings.host, self.settings.port), _SimulatorTCPHandler)
@@ -232,10 +278,21 @@ def main() -> int:
     parser.add_argument("--identity-port", type=int, default=None, help="Read-only no-auth virtual-service banner port; defaults to SCPI port + 1")
     parser.add_argument("--allow-private-lan", action="store_true", help="Opt into binding a literal RFC1918 address; no user/client credentials")
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument(
+        "--fault-plan", type=Path, default=None,
+        help="Optional bounded JSON command-index fault script; no client PIN",
+    )
     options = parser.parse_args()
     try:
         settings = SimulatorServerConfig(host=options.host, port=options.port, allow_private_lan=options.allow_private_lan, identity_port=options.identity_port)
     except SimulatorServerError as exc:
+        parser.error(str(exc))
+    try:
+        fault_plan = (
+            TCPFaultPlan.from_file(options.fault_plan)
+            if options.fault_plan is not None else None
+        )
+    except SimulatorFaultPlanError as exc:
         parser.error(str(exc))
     if options.self_test:
         instrument = SimN6700Instrument(
@@ -245,7 +302,7 @@ def main() -> int:
             raise SimulatorServerError("simulated channel inventory mismatch")
         print(json.dumps({"mode": "SIMULATED", "identity": instrument.execute("*IDN?")}))
         return 0
-    with SimulatorTCPServer(settings) as server:
+    with SimulatorTCPServer(settings, fault_plan=fault_plan) as server:
         print(json.dumps({
             "mode": "SIMULATED", "host": settings.host, "port": server.server_address[1],
             "identity": server.instrument.execute("*IDN?"),
@@ -253,6 +310,7 @@ def main() -> int:
             "instance_id": SIMULATOR_INSTANCE_ID,
             "topology_sha256": server.topology_sha256,
             "fidelity": "DRIVER_CONTRACT_VERIFIED",
+            "fault_script_events": len(server.fault_plan.events),
         }), flush=True)
         with suppress(KeyboardInterrupt):
             server.serve_forever(poll_interval=0.1)
