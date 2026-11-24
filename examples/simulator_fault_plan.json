@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "events": [
+    {
+      "first_command": 2,
+      "count": 1,
+      "mode": "SOURCE_TRIP",
+      "channel": 1
+    },
+    {
+      "first_command": 4,
+      "count": 1,
+      "mode": "TIMEOUT",
+      "channel": null
+    },
+    {
+      "first_command": 6,
+      "count": 1,
+      "mode": "DISCONNECT",
+      "channel": null
+    },
+    {
+      "first_command": 8,
+      "count": 1,
+      "mode": "MALFORMED_REPLY",
+      "channel": null
+    }
+  ]
+}
