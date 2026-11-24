@@ -10,7 +10,10 @@ from contextlib import contextmanager
 import pytest
 
 from keysight_n6700.sim_fault_plan import (
-    SimulatorFaultPlanError, TCPFault, TCPFaultMode, TCPFaultPlan,
+    SimulatorFaultPlanError,
+    TCPFault,
+    TCPFaultMode,
+    TCPFaultPlan,
 )
 from keysight_n6700.sim_server import SimulatorServerConfig, SimulatorTCPServer
 
@@ -76,22 +79,28 @@ def test_simulated_tcp_disconnect_preserves_virtual_safe_off_and_can_reconnect()
 
 
 def test_malformed_reply_is_not_a_fabricated_scpi_measurement() -> None:
-    with running_server(plan(TCPFault(1, 1, TCPFaultMode.MALFORMED_REPLY))) as server:
-        with connect(server.server_address[1]) as client, client.makefile("rb") as incoming:
-            client.sendall(b"*IDN?\n*IDN?\n")
-            assert incoming.readline() == b"!SIMULATED-MALFORMED-REPLY!\n"
-            assert b"N6700C" in incoming.readline()
+    with (
+        running_server(plan(TCPFault(1, 1, TCPFaultMode.MALFORMED_REPLY))) as server,
+        connect(server.server_address[1]) as client,
+        client.makefile("rb") as incoming,
+    ):
+        client.sendall(b"*IDN?\n*IDN?\n")
+        assert incoming.readline() == b"!SIMULATED-MALFORMED-REPLY!\n"
+        assert b"N6700C" in incoming.readline()
 
 
 def test_source_trip_prevents_output_enable_during_fault_but_allows_recovery() -> None:
     fault = TCPFault(1, 1, TCPFaultMode.SOURCE_TRIP, channel=1)
-    with running_server(plan(fault)) as server:
-        with connect(server.server_address[1]) as client, client.makefile("rb") as incoming:
-            client.sendall(b"OUTP ON,(@1)\nOUTP? (@1)\n")
-            assert incoming.readline() == b"0\n"
-            assert server.instrument.channels[1].enabled is False
-            client.sendall(b"OUTP ON,(@1)\nOUTP? (@1)\n")
-            assert incoming.readline() == b"1\n"
+    with (
+        running_server(plan(fault)) as server,
+        connect(server.server_address[1]) as client,
+        client.makefile("rb") as incoming,
+    ):
+        client.sendall(b"OUTP ON,(@1)\nOUTP? (@1)\n")
+        assert incoming.readline() == b"0\n"
+        assert server.instrument.channels[1].enabled is False
+        client.sendall(b"OUTP ON,(@1)\nOUTP? (@1)\n")
+        assert incoming.readline() == b"1\n"
 
 
 def test_fault_script_does_not_touch_read_only_identity_service() -> None:
@@ -126,17 +135,16 @@ def test_fault_script_can_repeat_bounded_window_and_still_recover() -> None:
     assert script.at_command(1).mode is TCPFaultMode.TIMEOUT
     assert script.at_command(2).mode is TCPFaultMode.TIMEOUT
     assert script.at_command(3) is None
-    with running_server(script) as server:
-        with connect(server.server_address[1]) as client:
-            client.settimeout(0.15)
-            client.sendall(b"*IDN?\n")
-            with pytest.raises(socket.timeout):
-                client.recv(1024)
-            client.sendall(b"*IDN?\n")
-            with pytest.raises(socket.timeout):
-                client.recv(1024)
-            client.sendall(b"*IDN?\n")
-            assert b"N6700C" in client.recv(1024)
+    with running_server(script) as server, connect(server.server_address[1]) as client:
+        client.settimeout(0.15)
+        client.sendall(b"*IDN?\n")
+        with pytest.raises(socket.timeout):
+            client.recv(1024)
+        client.sendall(b"*IDN?\n")
+        with pytest.raises(socket.timeout):
+            client.recv(1024)
+        client.sendall(b"*IDN?\n")
+        assert b"N6700C" in client.recv(1024)
 
 
 def test_overlapping_windows_are_rejected_before_service_starts() -> None:
